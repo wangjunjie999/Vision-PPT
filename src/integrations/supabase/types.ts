@@ -18,7 +18,7 @@ export type Database = {
         Row: {
           brand: string
           created_at: string
-          enabled: boolean
+          enabled: boolean | null
           frame_rate: number
           id: string
           image_url: string | null
@@ -32,7 +32,7 @@ export type Database = {
         Insert: {
           brand: string
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           frame_rate: number
           id?: string
           image_url?: string | null
@@ -46,7 +46,7 @@ export type Database = {
         Update: {
           brand?: string
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           frame_rate?: number
           id?: string
           image_url?: string | null
@@ -64,7 +64,7 @@ export type Database = {
           brand: string
           cpu: string
           created_at: string
-          enabled: boolean
+          enabled: boolean | null
           gpu: string | null
           id: string
           image_url: string | null
@@ -79,7 +79,7 @@ export type Database = {
           brand: string
           cpu: string
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           gpu?: string | null
           id?: string
           image_url?: string | null
@@ -94,7 +94,7 @@ export type Database = {
           brand?: string
           cpu?: string
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           gpu?: string | null
           id?: string
           image_url?: string | null
@@ -110,93 +110,54 @@ export type Database = {
       function_modules: {
         Row: {
           camera_id: string | null
+          controller_id: string | null
           created_at: string
-          deep_learning_config: Json | null
-          defect_config: Json | null
           description: string | null
-          flowchart_saved: boolean | null
           id: string
-          measurement_config: Json | null
-          misjudgment_strategy:
-            | Database["public"]["Enums"]["quality_strategy"]
-            | null
+          lens_id: string | null
+          light_id: string | null
           name: string
-          ocr_config: Json | null
-          output_types: string[] | null
-          positioning_config: Json | null
-          processing_time_limit: number | null
-          roi_rect: Json | null
-          roi_strategy: string | null
-          schematic_image_url: string | null
-          selected_camera: string | null
-          selected_controller: string | null
-          selected_lens: string | null
-          selected_light: string | null
-          status: Database["public"]["Enums"]["entity_status"]
-          trigger_type: Database["public"]["Enums"]["trigger_type"] | null
-          type: Database["public"]["Enums"]["module_type"]
+          rotation: number | null
+          status: string | null
           updated_at: string
+          user_id: string
           workstation_id: string
+          x: number | null
+          y: number | null
         }
         Insert: {
           camera_id?: string | null
+          controller_id?: string | null
           created_at?: string
-          deep_learning_config?: Json | null
-          defect_config?: Json | null
           description?: string | null
-          flowchart_saved?: boolean | null
           id?: string
-          measurement_config?: Json | null
-          misjudgment_strategy?:
-            | Database["public"]["Enums"]["quality_strategy"]
-            | null
+          lens_id?: string | null
+          light_id?: string | null
           name: string
-          ocr_config?: Json | null
-          output_types?: string[] | null
-          positioning_config?: Json | null
-          processing_time_limit?: number | null
-          roi_rect?: Json | null
-          roi_strategy?: string | null
-          schematic_image_url?: string | null
-          selected_camera?: string | null
-          selected_controller?: string | null
-          selected_lens?: string | null
-          selected_light?: string | null
-          status?: Database["public"]["Enums"]["entity_status"]
-          trigger_type?: Database["public"]["Enums"]["trigger_type"] | null
-          type: Database["public"]["Enums"]["module_type"]
+          rotation?: number | null
+          status?: string | null
           updated_at?: string
+          user_id: string
           workstation_id: string
+          x?: number | null
+          y?: number | null
         }
         Update: {
           camera_id?: string | null
+          controller_id?: string | null
           created_at?: string
-          deep_learning_config?: Json | null
-          defect_config?: Json | null
           description?: string | null
-          flowchart_saved?: boolean | null
           id?: string
-          measurement_config?: Json | null
-          misjudgment_strategy?:
-            | Database["public"]["Enums"]["quality_strategy"]
-            | null
+          lens_id?: string | null
+          light_id?: string | null
           name?: string
-          ocr_config?: Json | null
-          output_types?: string[] | null
-          positioning_config?: Json | null
-          processing_time_limit?: number | null
-          roi_rect?: Json | null
-          roi_strategy?: string | null
-          schematic_image_url?: string | null
-          selected_camera?: string | null
-          selected_controller?: string | null
-          selected_lens?: string | null
-          selected_light?: string | null
-          status?: Database["public"]["Enums"]["entity_status"]
-          trigger_type?: Database["public"]["Enums"]["trigger_type"] | null
-          type?: Database["public"]["Enums"]["module_type"]
+          rotation?: number | null
+          status?: string | null
           updated_at?: string
+          user_id?: string
           workstation_id?: string
+          x?: number | null
+          y?: number | null
         }
         Relationships: [
           {
@@ -214,7 +175,7 @@ export type Database = {
           brand: string
           compatible_cameras: string[] | null
           created_at: string
-          enabled: boolean
+          enabled: boolean | null
           focal_length: string
           id: string
           image_url: string | null
@@ -228,7 +189,7 @@ export type Database = {
           brand: string
           compatible_cameras?: string[] | null
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           focal_length: string
           id?: string
           image_url?: string | null
@@ -242,7 +203,7 @@ export type Database = {
           brand?: string
           compatible_cameras?: string[] | null
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           focal_length?: string
           id?: string
           image_url?: string | null
@@ -258,7 +219,7 @@ export type Database = {
           brand: string
           color: string
           created_at: string
-          enabled: boolean
+          enabled: boolean | null
           id: string
           image_url: string | null
           model: string
@@ -272,7 +233,7 @@ export type Database = {
           brand: string
           color: string
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           id?: string
           image_url?: string | null
           model: string
@@ -286,7 +247,7 @@ export type Database = {
           brand?: string
           color?: string
           created_at?: string
-          enabled?: boolean
+          enabled?: boolean | null
           id?: string
           image_url?: string | null
           model?: string
@@ -300,258 +261,114 @@ export type Database = {
       }
       mechanical_layouts: {
         Row: {
-          camera_count: number | null
-          camera_mounts: string[] | null
-          conveyor_type: string | null
           created_at: string
-          front_view_saved: boolean | null
-          front_view_url: string | null
+          depth: number | null
+          description: string | null
+          height: number | null
           id: string
-          lens_count: number | null
-          light_count: number | null
-          machine_outline: Json | null
-          mechanisms: string[] | null
-          motion_range: Json | null
-          selected_cameras: Json | null
-          selected_controller: Json | null
-          selected_lenses: Json | null
-          selected_lights: Json | null
-          side_view_saved: boolean | null
-          side_view_url: string | null
-          status: Database["public"]["Enums"]["entity_status"]
-          top_view_saved: boolean | null
-          top_view_url: string | null
+          layout_type: string | null
+          name: string
           updated_at: string
+          user_id: string
+          width: number | null
           workstation_id: string
         }
         Insert: {
-          camera_count?: number | null
-          camera_mounts?: string[] | null
-          conveyor_type?: string | null
           created_at?: string
-          front_view_saved?: boolean | null
-          front_view_url?: string | null
+          depth?: number | null
+          description?: string | null
+          height?: number | null
           id?: string
-          lens_count?: number | null
-          light_count?: number | null
-          machine_outline?: Json | null
-          mechanisms?: string[] | null
-          motion_range?: Json | null
-          selected_cameras?: Json | null
-          selected_controller?: Json | null
-          selected_lenses?: Json | null
-          selected_lights?: Json | null
-          side_view_saved?: boolean | null
-          side_view_url?: string | null
-          status?: Database["public"]["Enums"]["entity_status"]
-          top_view_saved?: boolean | null
-          top_view_url?: string | null
+          layout_type?: string | null
+          name: string
           updated_at?: string
+          user_id: string
+          width?: number | null
           workstation_id: string
         }
         Update: {
-          camera_count?: number | null
-          camera_mounts?: string[] | null
-          conveyor_type?: string | null
           created_at?: string
-          front_view_saved?: boolean | null
-          front_view_url?: string | null
+          depth?: number | null
+          description?: string | null
+          height?: number | null
           id?: string
-          lens_count?: number | null
-          light_count?: number | null
-          machine_outline?: Json | null
-          mechanisms?: string[] | null
-          motion_range?: Json | null
-          selected_cameras?: Json | null
-          selected_controller?: Json | null
-          selected_lenses?: Json | null
-          selected_lights?: Json | null
-          side_view_saved?: boolean | null
-          side_view_url?: string | null
-          status?: Database["public"]["Enums"]["entity_status"]
-          top_view_saved?: boolean | null
-          top_view_url?: string | null
+          layout_type?: string | null
+          name?: string
           updated_at?: string
+          user_id?: string
+          width?: number | null
           workstation_id?: string
         }
         Relationships: [
           {
             foreignKeyName: "mechanical_layouts_workstation_id_fkey"
             columns: ["workstation_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "workstations"
             referencedColumns: ["id"]
           },
         ]
       }
-      profiles: {
+      projects: {
         Row: {
-          avatar_url: string | null
           created_at: string
-          display_name: string | null
+          description: string | null
           id: string
+          name: string
+          status: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          avatar_url?: string | null
           created_at?: string
-          display_name?: string | null
+          description?: string | null
           id?: string
+          name: string
+          status?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          avatar_url?: string | null
           created_at?: string
-          display_name?: string | null
+          description?: string | null
           id?: string
+          name?: string
+          status?: string | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
       }
-      projects: {
-        Row: {
-          code: string
-          created_at: string
-          customer: string
-          cycle_time_target: number | null
-          date: string | null
-          environment: string[] | null
-          id: string
-          main_camera_brand: string | null
-          name: string
-          notes: string | null
-          product_process: string | null
-          production_line: string | null
-          quality_strategy:
-            | Database["public"]["Enums"]["quality_strategy"]
-            | null
-          responsible: string | null
-          sales_responsible: string | null
-          spec_version: string | null
-          status: Database["public"]["Enums"]["entity_status"]
-          template_id: string | null
-          updated_at: string
-          use_3d: boolean | null
-          use_ai: boolean | null
-          user_id: string | null
-          vision_responsible: string | null
-        }
-        Insert: {
-          code: string
-          created_at?: string
-          customer: string
-          cycle_time_target?: number | null
-          date?: string | null
-          environment?: string[] | null
-          id?: string
-          main_camera_brand?: string | null
-          name: string
-          notes?: string | null
-          product_process?: string | null
-          production_line?: string | null
-          quality_strategy?:
-            | Database["public"]["Enums"]["quality_strategy"]
-            | null
-          responsible?: string | null
-          sales_responsible?: string | null
-          spec_version?: string | null
-          status?: Database["public"]["Enums"]["entity_status"]
-          template_id?: string | null
-          updated_at?: string
-          use_3d?: boolean | null
-          use_ai?: boolean | null
-          user_id?: string | null
-          vision_responsible?: string | null
-        }
-        Update: {
-          code?: string
-          created_at?: string
-          customer?: string
-          cycle_time_target?: number | null
-          date?: string | null
-          environment?: string[] | null
-          id?: string
-          main_camera_brand?: string | null
-          name?: string
-          notes?: string | null
-          product_process?: string | null
-          production_line?: string | null
-          quality_strategy?:
-            | Database["public"]["Enums"]["quality_strategy"]
-            | null
-          responsible?: string | null
-          sales_responsible?: string | null
-          spec_version?: string | null
-          status?: Database["public"]["Enums"]["entity_status"]
-          template_id?: string | null
-          updated_at?: string
-          use_3d?: boolean | null
-          use_ai?: boolean | null
-          user_id?: string | null
-          vision_responsible?: string | null
-        }
-        Relationships: []
-      }
       workstations: {
         Row: {
-          code: string
           created_at: string
-          cycle_time: number | null
-          enclosed: boolean | null
-          environment_description: string | null
+          description: string | null
           id: string
-          in_out_direction: string | null
-          install_space: Json | null
           name: string
-          notes: string | null
-          observation_target: string | null
-          process_stage: string | null
-          product_dimensions: Json | null
           project_id: string
-          status: Database["public"]["Enums"]["entity_status"]
-          type: Database["public"]["Enums"]["workstation_type"]
+          status: string | null
           updated_at: string
+          user_id: string
         }
         Insert: {
-          code: string
           created_at?: string
-          cycle_time?: number | null
-          enclosed?: boolean | null
-          environment_description?: string | null
+          description?: string | null
           id?: string
-          in_out_direction?: string | null
-          install_space?: Json | null
           name: string
-          notes?: string | null
-          observation_target?: string | null
-          process_stage?: string | null
-          product_dimensions?: Json | null
           project_id: string
-          status?: Database["public"]["Enums"]["entity_status"]
-          type?: Database["public"]["Enums"]["workstation_type"]
+          status?: string | null
           updated_at?: string
+          user_id: string
         }
         Update: {
-          code?: string
           created_at?: string
-          cycle_time?: number | null
-          enclosed?: boolean | null
-          environment_description?: string | null
+          description?: string | null
           id?: string
-          in_out_direction?: string | null
-          install_space?: Json | null
           name?: string
-          notes?: string | null
-          observation_target?: string | null
-          process_stage?: string | null
-          product_dimensions?: Json | null
           project_id?: string
-          status?: Database["public"]["Enums"]["entity_status"]
-          type?: Database["public"]["Enums"]["workstation_type"]
+          status?: string | null
           updated_at?: string
+          user_id?: string
         }
         Relationships: [
           {
@@ -571,16 +388,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      entity_status: "draft" | "incomplete" | "complete"
-      module_type:
-        | "positioning"
-        | "defect"
-        | "ocr"
-        | "deeplearning"
-        | "measurement"
-      quality_strategy: "no_miss" | "balanced" | "allow_pass"
-      trigger_type: "io" | "encoder" | "software" | "continuous"
-      workstation_type: "line" | "turntable" | "robot" | "platform"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -707,18 +515,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      entity_status: ["draft", "incomplete", "complete"],
-      module_type: [
-        "positioning",
-        "defect",
-        "ocr",
-        "deeplearning",
-        "measurement",
-      ],
-      quality_strategy: ["no_miss", "balanced", "allow_pass"],
-      trigger_type: ["io", "encoder", "software", "continuous"],
-      workstation_type: ["line", "turntable", "robot", "platform"],
-    },
+    Enums: {},
   },
 } as const
