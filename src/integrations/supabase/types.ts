@@ -117,8 +117,16 @@ export type Database = {
           lens_id: string | null
           light_id: string | null
           name: string
+          processing_time_limit: number | null
+          roi_strategy: string | null
           rotation: number | null
+          schematic_image_url: string | null
+          selected_camera: string | null
+          selected_controller: string | null
+          selected_lens: string | null
+          selected_light: string | null
           status: string | null
+          type: string | null
           updated_at: string
           user_id: string
           workstation_id: string
@@ -134,8 +142,16 @@ export type Database = {
           lens_id?: string | null
           light_id?: string | null
           name: string
+          processing_time_limit?: number | null
+          roi_strategy?: string | null
           rotation?: number | null
+          schematic_image_url?: string | null
+          selected_camera?: string | null
+          selected_controller?: string | null
+          selected_lens?: string | null
+          selected_light?: string | null
           status?: string | null
+          type?: string | null
           updated_at?: string
           user_id: string
           workstation_id: string
@@ -151,8 +167,16 @@ export type Database = {
           lens_id?: string | null
           light_id?: string | null
           name?: string
+          processing_time_limit?: number | null
+          roi_strategy?: string | null
           rotation?: number | null
+          schematic_image_url?: string | null
+          selected_camera?: string | null
+          selected_controller?: string | null
+          selected_lens?: string | null
+          selected_light?: string | null
           status?: string | null
+          type?: string | null
           updated_at?: string
           user_id?: string
           workstation_id?: string
@@ -264,10 +288,16 @@ export type Database = {
           created_at: string
           depth: number | null
           description: string | null
+          front_view_image_url: string | null
+          front_view_saved: boolean | null
           height: number | null
           id: string
           layout_type: string | null
           name: string
+          side_view_image_url: string | null
+          side_view_saved: boolean | null
+          top_view_image_url: string | null
+          top_view_saved: boolean | null
           updated_at: string
           user_id: string
           width: number | null
@@ -277,10 +307,16 @@ export type Database = {
           created_at?: string
           depth?: number | null
           description?: string | null
+          front_view_image_url?: string | null
+          front_view_saved?: boolean | null
           height?: number | null
           id?: string
           layout_type?: string | null
           name: string
+          side_view_image_url?: string | null
+          side_view_saved?: boolean | null
+          top_view_image_url?: string | null
+          top_view_saved?: boolean | null
           updated_at?: string
           user_id: string
           width?: number | null
@@ -290,10 +326,16 @@ export type Database = {
           created_at?: string
           depth?: number | null
           description?: string | null
+          front_view_image_url?: string | null
+          front_view_saved?: boolean | null
           height?: number | null
           id?: string
           layout_type?: string | null
           name?: string
+          side_view_image_url?: string | null
+          side_view_saved?: boolean | null
+          top_view_image_url?: string | null
+          top_view_saved?: boolean | null
           updated_at?: string
           user_id?: string
           width?: number | null
@@ -311,29 +353,47 @@ export type Database = {
       }
       projects: {
         Row: {
+          code: string | null
           created_at: string
+          customer: string | null
+          date: string | null
           description: string | null
           id: string
           name: string
+          product_process: string | null
+          responsible: string | null
           status: string | null
+          template_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          code?: string | null
           created_at?: string
+          customer?: string | null
+          date?: string | null
           description?: string | null
           id?: string
           name: string
+          product_process?: string | null
+          responsible?: string | null
           status?: string | null
+          template_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          code?: string | null
           created_at?: string
+          customer?: string | null
+          date?: string | null
           description?: string | null
           id?: string
           name?: string
+          product_process?: string | null
+          responsible?: string | null
           status?: string | null
+          template_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -341,32 +401,44 @@ export type Database = {
       }
       workstations: {
         Row: {
+          code: string | null
           created_at: string
+          cycle_time: number | null
           description: string | null
           id: string
           name: string
+          product_dimensions: Json | null
           project_id: string
           status: string | null
+          type: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          code?: string | null
           created_at?: string
+          cycle_time?: number | null
           description?: string | null
           id?: string
           name: string
+          product_dimensions?: Json | null
           project_id: string
           status?: string | null
+          type?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          code?: string | null
           created_at?: string
+          cycle_time?: number | null
           description?: string | null
           id?: string
           name?: string
+          product_dimensions?: Json | null
           project_id?: string
           status?: string | null
+          type?: string | null
           updated_at?: string
           user_id?: string
         }

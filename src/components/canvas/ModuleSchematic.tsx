@@ -65,9 +65,9 @@ export function ModuleSchematic() {
   const [fovAngle, setFovAngle] = useState(45);
   const [lightDistance, setLightDistance] = useState(335);
   
-  const module = modules.find(m => m.id === selectedModuleId);
-  const workstation = workstations.find(w => w.id === selectedWorkstationId);
-  const layout = layouts.find(l => l.workstation_id === selectedWorkstationId);
+  const module = modules.find(m => m.id === selectedModuleId) as any;
+  const workstation = workstations.find(w => w.id === selectedWorkstationId) as any;
+  const layout = layouts.find(l => l.workstation_id === selectedWorkstationId) as any;
   
   if (!module || !workstation) {
     return (
@@ -78,7 +78,7 @@ export function ModuleSchematic() {
   }
 
   // Check if workstation has saved top view
-  const hasTopView = layout?.top_view_saved;
+  const hasTopView = layout?.top_view_saved as boolean;
   
   if (!hasTopView) {
     return (
@@ -100,26 +100,26 @@ export function ModuleSchematic() {
   const selectedLight = lights.find(l => l.id === module.selected_light);
   const selectedController = controllers.find(c => c.id === module.selected_controller);
   
-  const ModuleIcon = moduleTypeIcons[module.type as keyof typeof moduleTypeIcons] || Box;
+  const ModuleIcon = moduleTypeIcons[(module.type || 'positioning') as keyof typeof moduleTypeIcons] || Box;
 
-  // Hardware selection handlers
+  // Hardware selection handlers - use camera_id, lens_id, light_id, controller_id fields
   const handleCameraSelect = useCallback((cameraId: string) => {
-    updateModule(module.id, { selected_camera: cameraId });
+    updateModule(module.id, { camera_id: cameraId } as any);
     toast.success('相机已更新');
   }, [module.id, updateModule]);
 
   const handleLensSelect = useCallback((lensId: string) => {
-    updateModule(module.id, { selected_lens: lensId });
+    updateModule(module.id, { lens_id: lensId } as any);
     toast.success('镜头已更新');
   }, [module.id, updateModule]);
 
   const handleLightSelect = useCallback((lightId: string) => {
-    updateModule(module.id, { selected_light: lightId });
+    updateModule(module.id, { light_id: lightId } as any);
     toast.success('光源已更新');
   }, [module.id, updateModule]);
 
   const handleControllerSelect = useCallback((controllerId: string) => {
-    updateModule(module.id, { selected_controller: controllerId });
+    updateModule(module.id, { controller_id: controllerId } as any);
     toast.success('工控机已更新');
   }, [module.id, updateModule]);
 
@@ -279,7 +279,7 @@ export function ModuleSchematic() {
           <div>
             <h3 className="font-semibold">{module.name}</h3>
             <p className="text-sm text-muted-foreground">
-              {moduleTypeLabels[module.type as keyof typeof moduleTypeLabels] || module.type} · {workstation.name} · 视觉系统示意图
+              {moduleTypeLabels[(module.type || 'positioning') as keyof typeof moduleTypeLabels] || module.type || 'positioning'} · {workstation.name} · 视觉系统示意图
             </p>
           </div>
         </div>
@@ -341,7 +341,7 @@ export function ModuleSchematic() {
             onFovAngleChange={handleFovAngleChange}
             onLightDistanceChange={handleLightDistanceChange}
             roiStrategy={module.roi_strategy || 'full'}
-            moduleType={module.type}
+            moduleType={module.type || 'positioning'}
             interactive={true}
             className="w-full h-full"
           />
@@ -353,9 +353,9 @@ export function ModuleSchematic() {
               <span className="font-medium text-sm">{module.name}</span>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <div>类型: {moduleTypeLabels[module.type as keyof typeof moduleTypeLabels] || module.type}</div>
+              <div>类型: {moduleTypeLabels[(module.type || 'positioning') as keyof typeof moduleTypeLabels] || module.type || 'positioning'}</div>
               {module.processing_time_limit && <div>处理时限: {module.processing_time_limit}ms</div>}
-              <div>ROI: {module.roi_strategy === 'full' ? '全图检测' : '自定义区域'}</div>
+              <div>ROI: {(module.roi_strategy || 'full') === 'full' ? '全图检测' : '自定义区域'}</div>
             </div>
           </div>
         </div>

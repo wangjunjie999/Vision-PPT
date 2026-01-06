@@ -60,7 +60,7 @@ export function ProjectDashboard() {
   const moduleCount = projectWorkstations.reduce((acc, ws) => acc + getWorkstationModules(ws.id).length, 0);
   
   const layoutsComplete = projectWorkstations.filter(ws => {
-    const layout = layouts.find(l => l.workstation_id === ws.id);
+    const layout = layouts.find(l => l.workstation_id === ws.id) as any;
     return layout?.front_view_saved && layout?.side_view_saved && layout?.top_view_saved;
   }).length;
 
@@ -84,7 +84,7 @@ export function ProjectDashboard() {
     
     // Calculate total tasks
     const missingLayouts = projectWorkstations.filter(ws => {
-      const layout = layouts.find(l => l.workstation_id === ws.id);
+      const layout = layouts.find(l => l.workstation_id === ws.id) as any;
       return !layout?.front_view_saved || !layout?.side_view_saved || !layout?.top_view_saved;
     });
     

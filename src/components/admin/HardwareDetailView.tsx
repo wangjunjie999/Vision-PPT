@@ -113,23 +113,23 @@ export function HardwareDetailView({ type, item, open, onOpenChange }: HardwareD
       // Query modules that use this hardware item
       const searchValue = `${item.brand} ${item.model}`;
       
-      // Build the query based on type
+      // Build the query based on type - use simple select to avoid type errors
       let query = supabase
         .from('function_modules')
-        .select('id, name, type, selected_camera, selected_lens, selected_light, selected_controller, workstation_id');
+        .select('*');
       
       switch (type) {
         case 'cameras':
-          query = query.eq('selected_camera', searchValue);
+          query = query.eq('selected_camera' as any, searchValue);
           break;
         case 'lenses':
-          query = query.eq('selected_lens', searchValue);
+          query = query.eq('selected_lens' as any, searchValue);
           break;
         case 'lights':
-          query = query.eq('selected_light', searchValue);
+          query = query.eq('selected_light' as any, searchValue);
           break;
         case 'controllers':
-          query = query.eq('selected_controller', searchValue);
+          query = query.eq('selected_controller' as any, searchValue);
           break;
       }
       
@@ -160,21 +160,21 @@ export function HardwareDetailView({ type, item, open, onOpenChange }: HardwareD
       // Fetch projects
       const { data: projects, error: projError } = await supabase
         .from('projects')
-        .select('id, name, code')
+        .select('*')
         .in('id', projectIds);
 
       if (projError) throw projError;
 
-      // Map data
-      const usage: UsageInfo[] = modules.map((mod) => {
+      // Map data - use type assertion for extended fields
+      const usage: UsageInfo[] = modules.map((mod: any) => {
         const ws = workstations?.find((w) => w.id === mod.workstation_id);
-        const proj = projects?.find((p) => p.id === ws?.project_id);
+        const proj = projects?.find((p: any) => p.id === ws?.project_id) as any;
         return {
           projectName: proj?.name || '未知项目',
           projectCode: proj?.code || '',
           workstationName: ws?.name || '未知工位',
           moduleName: mod.name,
-          moduleType: mod.type,
+          moduleType: mod.type || 'positioning',
         };
       });
 
