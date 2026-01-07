@@ -387,6 +387,104 @@ export type Database = {
           },
         ]
       }
+      product_annotations: {
+        Row: {
+          annotations_json: Json
+          asset_id: string
+          created_at: string
+          id: string
+          remark: string | null
+          snapshot_url: string
+          user_id: string
+          version: number
+          view_meta: Json | null
+        }
+        Insert: {
+          annotations_json?: Json
+          asset_id: string
+          created_at?: string
+          id?: string
+          remark?: string | null
+          snapshot_url: string
+          user_id: string
+          version?: number
+          view_meta?: Json | null
+        }
+        Update: {
+          annotations_json?: Json
+          asset_id?: string
+          created_at?: string
+          id?: string
+          remark?: string | null
+          snapshot_url?: string
+          user_id?: string
+          version?: number
+          view_meta?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_annotations_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "product_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_assets: {
+        Row: {
+          created_at: string
+          id: string
+          model_file_url: string | null
+          module_id: string | null
+          preview_images: Json | null
+          scope_type: Database["public"]["Enums"]["product_scope_type"]
+          source_type: string
+          updated_at: string
+          user_id: string
+          workstation_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          model_file_url?: string | null
+          module_id?: string | null
+          preview_images?: Json | null
+          scope_type: Database["public"]["Enums"]["product_scope_type"]
+          source_type?: string
+          updated_at?: string
+          user_id: string
+          workstation_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          model_file_url?: string | null
+          module_id?: string | null
+          preview_images?: Json | null
+          scope_type?: Database["public"]["Enums"]["product_scope_type"]
+          source_type?: string
+          updated_at?: string
+          user_id?: string
+          workstation_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_assets_module_id_fkey"
+            columns: ["module_id"]
+            isOneToOne: false
+            referencedRelation: "function_modules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_assets_workstation_id_fkey"
+            columns: ["workstation_id"]
+            isOneToOne: false
+            referencedRelation: "workstations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           code: string | null
@@ -511,7 +609,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      product_scope_type: "workstation" | "module"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -638,6 +736,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      product_scope_type: ["workstation", "module"],
+    },
   },
 } as const

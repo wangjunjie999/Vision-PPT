@@ -10,6 +10,7 @@ import { Save, AlertTriangle, Settings2, Loader2 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { HardwareConfigPanel, HardwareItemData } from '@/components/hardware/HardwareConfigPanel';
+import { ProductAssetPanel } from '@/components/product/ProductAssetPanel';
 import { toast } from 'sonner';
 
 import {
@@ -793,6 +794,14 @@ export function WorkstationForm() {
               selectedLights: config.lights,
               selectedController: config.controller,
             }))}
+          />
+        </div>
+
+        {/* Product 3D Annotation Section */}
+        <div className="form-section">
+          <ProductAssetPanel
+            scope="workstation"
+            workstationId={selectedWorkstationId || undefined}
           />
         </div>
       </div>
