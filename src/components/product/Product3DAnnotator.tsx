@@ -19,7 +19,7 @@ import {
   History
 } from 'lucide-react';
 import { toast } from 'sonner';
-import html2canvas from 'html-to-image';
+import { toPng } from 'html-to-image';
 import { Model3DViewer } from './Model3DViewer';
 import { AnnotationLayer } from './AnnotationLayer';
 import { useProductAssets } from '@/hooks/useProductAssets';
@@ -149,7 +149,7 @@ export function Product3DAnnotator({
     
     setCapturing(true);
     try {
-      const dataUrl = await html2canvas.toPng(viewerContainerRef.current, {
+      const dataUrl = await toPng(viewerContainerRef.current, {
         quality: 0.95,
         pixelRatio: 2,
       });
