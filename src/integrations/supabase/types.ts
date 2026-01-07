@@ -490,55 +490,79 @@ export type Database = {
           code: string | null
           created_at: string
           customer: string | null
+          cycle_time_target: number | null
           date: string | null
           description: string | null
           environment: string | null
           id: string
+          main_camera_brand: string | null
           name: string
           notes: string | null
           product_process: string | null
+          production_line: string | null
           quality_strategy: string | null
           responsible: string | null
+          sales_responsible: string | null
+          spec_version: string | null
           status: string | null
           template_id: string | null
           updated_at: string
+          use_3d: boolean | null
+          use_ai: boolean | null
           user_id: string
+          vision_responsible: string | null
         }
         Insert: {
           code?: string | null
           created_at?: string
           customer?: string | null
+          cycle_time_target?: number | null
           date?: string | null
           description?: string | null
           environment?: string | null
           id?: string
+          main_camera_brand?: string | null
           name: string
           notes?: string | null
           product_process?: string | null
+          production_line?: string | null
           quality_strategy?: string | null
           responsible?: string | null
+          sales_responsible?: string | null
+          spec_version?: string | null
           status?: string | null
           template_id?: string | null
           updated_at?: string
+          use_3d?: boolean | null
+          use_ai?: boolean | null
           user_id: string
+          vision_responsible?: string | null
         }
         Update: {
           code?: string | null
           created_at?: string
           customer?: string | null
+          cycle_time_target?: number | null
           date?: string | null
           description?: string | null
           environment?: string | null
           id?: string
+          main_camera_brand?: string | null
           name?: string
           notes?: string | null
           product_process?: string | null
+          production_line?: string | null
           quality_strategy?: string | null
           responsible?: string | null
+          sales_responsible?: string | null
+          spec_version?: string | null
           status?: string | null
           template_id?: string | null
           updated_at?: string
+          use_3d?: boolean | null
+          use_ai?: boolean | null
           user_id?: string
+          vision_responsible?: string | null
         }
         Relationships: []
       }
