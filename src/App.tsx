@@ -75,20 +75,16 @@ function AnimatedRoutes() {
           path="/" 
           element={
             <ProtectedRoute>
-              <DataProvider>
-                <HardwareProvider>
-                  <motion.div
-                    variants={pageVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    transition={transitionConfig}
-                    className="h-full"
-                  >
-                    <Index />
-                  </motion.div>
-                </HardwareProvider>
-              </DataProvider>
+              <motion.div
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={transitionConfig}
+                className="h-full"
+              >
+                <Index />
+              </motion.div>
             </ProtectedRoute>
           } 
         />
@@ -117,11 +113,15 @@ const App = () => (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
       <TooltipProvider>
         <AuthProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AnimatedRoutes />
-          </BrowserRouter>
+          <DataProvider>
+            <HardwareProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AnimatedRoutes />
+              </BrowserRouter>
+            </HardwareProvider>
+          </DataProvider>
         </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>
