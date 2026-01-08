@@ -43,19 +43,19 @@ interface DataContextType {
   duplicateProject: (id: string) => Promise<void>;
   
   // Workstation CRUD
-  addWorkstation: (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at'>) => Promise<DbWorkstation>;
+  addWorkstation: (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbWorkstation>;
   updateWorkstation: (id: string, updates: WorkstationUpdate) => Promise<DbWorkstation>;
   deleteWorkstation: (id: string) => Promise<void>;
   duplicateWorkstation: (id: string) => Promise<DbWorkstation>;
   
   // Layout CRUD
   getLayoutByWorkstation: (workstationId: string) => DbLayout | undefined;
-  addLayout: (layout: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at'>) => Promise<DbLayout>;
+  addLayout: (layout: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbLayout>;
   updateLayout: (id: string, updates: LayoutUpdate) => Promise<DbLayout>;
-  upsertLayout: (workstationId: string, data: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at' | 'workstation_id'>) => Promise<DbLayout>;
+  upsertLayout: (workstationId: string, data: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at' | 'workstation_id' | 'user_id'>) => Promise<DbLayout>;
   
   // Module CRUD
-  addModule: (module: Omit<ModuleInsert, 'id' | 'created_at' | 'updated_at'>) => Promise<DbModule>;
+  addModule: (module: Omit<ModuleInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbModule>;
   updateModule: (id: string, updates: ModuleUpdate & { measurement_config?: any; schematic_image_url?: string | null }) => Promise<DbModule>;
   deleteModule: (id: string) => Promise<void>;
   duplicateModule: (id: string) => Promise<DbModule>;
@@ -234,8 +234,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Workstation CRUD
-  const addWorkstation = async (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at'>) => {
-    const { data, error } = await supabase.from('workstations').insert(workstation).select().single();
+  const addWorkstation = async (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase.from('workstations').insert({ ...workstation, user_id: user.id }).select().single();
     if (error) throw error;
     setWorkstations(prev => [...prev, data]);
     toast.success('工位创建成功');
@@ -293,8 +294,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return layouts.find(l => l.workstation_id === workstationId);
   }, [layouts]);
 
-  const addLayout = async (layout: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at'>) => {
-    const { data, error } = await supabase.from('mechanical_layouts').insert(layout).select().single();
+  const addLayout = async (layout: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase.from('mechanical_layouts').insert({ ...layout, user_id: user.id }).select().single();
     if (error) throw error;
     setLayouts(prev => [...prev, data]);
     return data;
@@ -307,7 +309,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return data;
   };
 
-  const upsertLayout = async (workstationId: string, layoutData: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at' | 'workstation_id'>) => {
+  const upsertLayout = async (workstationId: string, layoutData: Omit<LayoutInsert, 'id' | 'created_at' | 'updated_at' | 'workstation_id' | 'user_id'>) => {
     const existing = layouts.find(l => l.workstation_id === workstationId);
     if (existing) {
       return updateLayout(existing.id, layoutData);
@@ -317,8 +319,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Module CRUD
-  const addModule = async (module: Omit<ModuleInsert, 'id' | 'created_at' | 'updated_at'>) => {
-    const { data, error } = await supabase.from('function_modules').insert(module).select().single();
+  const addModule = async (module: Omit<ModuleInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase.from('function_modules').insert({ ...module, user_id: user.id }).select().single();
     if (error) throw error;
     setModules(prev => [...prev, data]);
     toast.success('模块创建成功');

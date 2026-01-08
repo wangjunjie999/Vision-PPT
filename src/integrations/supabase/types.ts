@@ -387,60 +387,182 @@ export type Database = {
           },
         ]
       }
+      product_annotations: {
+        Row: {
+          annotations_json: Json
+          asset_id: string
+          created_at: string
+          id: string
+          remark: string | null
+          snapshot_url: string
+          user_id: string
+          version: number
+          view_meta: Json | null
+        }
+        Insert: {
+          annotations_json?: Json
+          asset_id: string
+          created_at?: string
+          id?: string
+          remark?: string | null
+          snapshot_url: string
+          user_id: string
+          version?: number
+          view_meta?: Json | null
+        }
+        Update: {
+          annotations_json?: Json
+          asset_id?: string
+          created_at?: string
+          id?: string
+          remark?: string | null
+          snapshot_url?: string
+          user_id?: string
+          version?: number
+          view_meta?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_annotations_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "product_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_assets: {
+        Row: {
+          created_at: string
+          id: string
+          model_file_url: string | null
+          module_id: string | null
+          preview_images: Json | null
+          scope_type: Database["public"]["Enums"]["product_scope_type"]
+          source_type: string
+          updated_at: string
+          user_id: string
+          workstation_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          model_file_url?: string | null
+          module_id?: string | null
+          preview_images?: Json | null
+          scope_type: Database["public"]["Enums"]["product_scope_type"]
+          source_type?: string
+          updated_at?: string
+          user_id: string
+          workstation_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          model_file_url?: string | null
+          module_id?: string | null
+          preview_images?: Json | null
+          scope_type?: Database["public"]["Enums"]["product_scope_type"]
+          source_type?: string
+          updated_at?: string
+          user_id?: string
+          workstation_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_assets_module_id_fkey"
+            columns: ["module_id"]
+            isOneToOne: false
+            referencedRelation: "function_modules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_assets_workstation_id_fkey"
+            columns: ["workstation_id"]
+            isOneToOne: false
+            referencedRelation: "workstations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           code: string | null
           created_at: string
           customer: string | null
+          cycle_time_target: number | null
           date: string | null
           description: string | null
           environment: string | null
           id: string
+          main_camera_brand: string | null
           name: string
           notes: string | null
           product_process: string | null
+          production_line: string | null
           quality_strategy: string | null
           responsible: string | null
+          sales_responsible: string | null
+          spec_version: string | null
           status: string | null
           template_id: string | null
           updated_at: string
+          use_3d: boolean | null
+          use_ai: boolean | null
           user_id: string
+          vision_responsible: string | null
         }
         Insert: {
           code?: string | null
           created_at?: string
           customer?: string | null
+          cycle_time_target?: number | null
           date?: string | null
           description?: string | null
           environment?: string | null
           id?: string
+          main_camera_brand?: string | null
           name: string
           notes?: string | null
           product_process?: string | null
+          production_line?: string | null
           quality_strategy?: string | null
           responsible?: string | null
+          sales_responsible?: string | null
+          spec_version?: string | null
           status?: string | null
           template_id?: string | null
           updated_at?: string
+          use_3d?: boolean | null
+          use_ai?: boolean | null
           user_id: string
+          vision_responsible?: string | null
         }
         Update: {
           code?: string | null
           created_at?: string
           customer?: string | null
+          cycle_time_target?: number | null
           date?: string | null
           description?: string | null
           environment?: string | null
           id?: string
+          main_camera_brand?: string | null
           name?: string
           notes?: string | null
           product_process?: string | null
+          production_line?: string | null
           quality_strategy?: string | null
           responsible?: string | null
+          sales_responsible?: string | null
+          spec_version?: string | null
           status?: string | null
           template_id?: string | null
           updated_at?: string
+          use_3d?: boolean | null
+          use_ai?: boolean | null
           user_id?: string
+          vision_responsible?: string | null
         }
         Relationships: []
       }
@@ -511,7 +633,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      product_scope_type: "workstation" | "module"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -638,6 +760,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      product_scope_type: ["workstation", "module"],
+    },
   },
 } as const
