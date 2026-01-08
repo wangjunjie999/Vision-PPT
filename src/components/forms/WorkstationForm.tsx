@@ -11,7 +11,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { HardwareConfigPanel, HardwareItemData } from '@/components/hardware/HardwareConfigPanel';
 import { toast } from 'sonner';
-
+import { ProductAnnotationPanel } from '@/components/product/ProductAnnotationPanel';
 import {
   Tooltip,
   TooltipContent,
@@ -795,6 +795,13 @@ export function WorkstationForm() {
             }))}
           />
         </div>
+
+        {/* Product 3D & Annotation Section */}
+        {selectedWorkstationId && (
+          <div className="form-section">
+            <ProductAnnotationPanel workstationId={selectedWorkstationId} />
+          </div>
+        )}
       </div>
     </div>
   );
