@@ -379,6 +379,50 @@ export function HardwareConfigPanel({
     }
   }, [initialController]);
 
+  // Sync cameras array length when cameraCount changes
+  useEffect(() => {
+    setCameras(prev => {
+      const newLength = cameraCount;
+      const currentLength = prev.length;
+      if (currentLength === newLength) return prev;
+      if (currentLength < newLength) {
+        // Increase length: add null elements
+        return [...prev, ...Array(newLength - currentLength).fill(null)];
+      } else {
+        // Decrease length: truncate array
+        return prev.slice(0, newLength);
+      }
+    });
+  }, [cameraCount]);
+
+  // Sync lenses array length when lensCount changes
+  useEffect(() => {
+    setLenses(prev => {
+      const newLength = lensCount;
+      const currentLength = prev.length;
+      if (currentLength === newLength) return prev;
+      if (currentLength < newLength) {
+        return [...prev, ...Array(newLength - currentLength).fill(null)];
+      } else {
+        return prev.slice(0, newLength);
+      }
+    });
+  }, [lensCount]);
+
+  // Sync lights array length when lightCount changes
+  useEffect(() => {
+    setLights(prev => {
+      const newLength = lightCount;
+      const currentLength = prev.length;
+      if (currentLength === newLength) return prev;
+      if (currentLength < newLength) {
+        return [...prev, ...Array(newLength - currentLength).fill(null)];
+      } else {
+        return prev.slice(0, newLength);
+      }
+    });
+  }, [lightCount]);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<'cameras' | 'lenses' | 'lights' | 'controllers'>('cameras');
   const [selectedSlot, setSelectedSlot] = useState(0);
