@@ -5,8 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Save, Loader2, Copy, Settings, Image } from 'lucide-react';
+import { Save, Loader2, Copy } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
@@ -17,7 +16,6 @@ import { OCRForm } from './module/OCRForm';
 import { MeasurementForm } from './module/MeasurementForm';
 import { DeepLearningForm } from './module/DeepLearningForm';
 import { ModuleFormState, getDefaultFormState } from './module/types';
-import { ProductAssetPanel } from '@/components/product/ProductAssetPanel';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 
@@ -733,15 +731,6 @@ export function ModuleForm() {
               }
             />
           </div>
-        </div>
-
-        {/* Product Annotation Section */}
-        <div className="form-section">
-          <ProductAssetPanel
-            scope="module"
-            moduleId={selectedModuleId || undefined}
-            parentWorkstationId={module?.workstation_id}
-          />
         </div>
       </div>
     </div>
