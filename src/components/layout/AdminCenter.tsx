@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Camera, CircleDot, Lightbulb, Monitor, FileText } from 'lucide-react';
+import { Camera, CircleDot, Lightbulb, Monitor, FileText, Cog } from 'lucide-react';
 import { HardwareResourceManager } from '../admin/HardwareResourceManager';
 import { PPTTemplateManager } from '../admin/PPTTemplateManager';
+import { MechanismResourceManager } from '../admin/MechanismResourceManager';
 
 export function AdminCenter() {
   const [activeTab, setActiveTab] = useState('cameras');
@@ -13,12 +14,12 @@ export function AdminCenter() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-foreground">管理中心</h1>
           <p className="text-muted-foreground mt-1">
-            维护硬件资源库与PPT母版
+            维护硬件资源库、执行机构与PPT母版
           </p>
         </div>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-          <TabsList className="grid w-full max-w-2xl grid-cols-5">
+          <TabsList className="grid w-full max-w-3xl grid-cols-6">
             <TabsTrigger value="cameras" className="gap-2">
               <Camera className="h-4 w-4" />
               相机
@@ -34,6 +35,10 @@ export function AdminCenter() {
             <TabsTrigger value="controllers" className="gap-2">
               <Monitor className="h-4 w-4" />
               工控机
+            </TabsTrigger>
+            <TabsTrigger value="mechanisms" className="gap-2">
+              <Cog className="h-4 w-4" />
+              执行机构
             </TabsTrigger>
             <TabsTrigger value="templates" className="gap-2">
               <FileText className="h-4 w-4" />
@@ -53,6 +58,9 @@ export function AdminCenter() {
             </TabsContent>
             <TabsContent value="controllers">
               <HardwareResourceManager type="controllers" />
+            </TabsContent>
+            <TabsContent value="mechanisms">
+              <MechanismResourceManager />
             </TabsContent>
             <TabsContent value="templates">
               <PPTTemplateManager />

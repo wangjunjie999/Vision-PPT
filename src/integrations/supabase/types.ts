@@ -314,14 +314,18 @@ export type Database = {
           description: string | null
           front_view_image_url: string | null
           front_view_saved: boolean | null
+          grid_enabled: boolean | null
           height: number | null
           id: string
+          layout_objects: Json | null
           layout_type: string | null
           machine_outline: Json | null
           mechanisms: Json | null
           name: string
+          show_distances: boolean | null
           side_view_image_url: string | null
           side_view_saved: boolean | null
+          snap_enabled: boolean | null
           top_view_image_url: string | null
           top_view_saved: boolean | null
           updated_at: string
@@ -338,14 +342,18 @@ export type Database = {
           description?: string | null
           front_view_image_url?: string | null
           front_view_saved?: boolean | null
+          grid_enabled?: boolean | null
           height?: number | null
           id?: string
+          layout_objects?: Json | null
           layout_type?: string | null
           machine_outline?: Json | null
           mechanisms?: Json | null
           name: string
+          show_distances?: boolean | null
           side_view_image_url?: string | null
           side_view_saved?: boolean | null
+          snap_enabled?: boolean | null
           top_view_image_url?: string | null
           top_view_saved?: boolean | null
           updated_at?: string
@@ -362,14 +370,18 @@ export type Database = {
           description?: string | null
           front_view_image_url?: string | null
           front_view_saved?: boolean | null
+          grid_enabled?: boolean | null
           height?: number | null
           id?: string
+          layout_objects?: Json | null
           layout_type?: string | null
           machine_outline?: Json | null
           mechanisms?: Json | null
           name?: string
+          show_distances?: boolean | null
           side_view_image_url?: string | null
           side_view_saved?: boolean | null
+          snap_enabled?: boolean | null
           top_view_image_url?: string | null
           top_view_saved?: boolean | null
           updated_at?: string
@@ -386,6 +398,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mechanisms: {
+        Row: {
+          created_at: string
+          default_depth: number | null
+          default_height: number | null
+          default_width: number | null
+          description: string | null
+          enabled: boolean | null
+          front_view_image_url: string | null
+          id: string
+          name: string
+          notes: string | null
+          side_view_image_url: string | null
+          top_view_image_url: string | null
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_depth?: number | null
+          default_height?: number | null
+          default_width?: number | null
+          description?: string | null
+          enabled?: boolean | null
+          front_view_image_url?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          side_view_image_url?: string | null
+          top_view_image_url?: string | null
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_depth?: number | null
+          default_height?: number | null
+          default_width?: number | null
+          description?: string | null
+          enabled?: boolean | null
+          front_view_image_url?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          side_view_image_url?: string | null
+          top_view_image_url?: string | null
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       product_annotations: {
         Row: {

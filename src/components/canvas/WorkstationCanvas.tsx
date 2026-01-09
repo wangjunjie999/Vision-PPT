@@ -2,16 +2,18 @@ import { useData } from '@/contexts/DataContext';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Save, RotateCcw, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Save, RotateCcw, Eye, EyeOff, Loader2, Move, Image } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { useState, useRef } from 'react';
 import { toPng } from 'html-to-image';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { DraggableLayoutCanvas } from './DraggableLayoutCanvas';
 
 type ViewType = 'front' | 'side' | 'top';
 type CameraMount = 'top' | 'side' | 'front' | 'bottom' | 'left' | 'right' | 'back';
 type Mechanism = string;
+type CanvasMode = 'static' | 'layout';
 
 export function WorkstationCanvas() {
   const { 
@@ -29,10 +31,44 @@ export function WorkstationCanvas() {
   const [currentView, setCurrentView] = useState<ViewType>('front');
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<{ current: number; total: number; viewName: string } | null>(null);
+  const [canvasMode, setCanvasMode] = useState<CanvasMode>('layout');
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const workstation = workstations.find(ws => ws.id === selectedWorkstationId) as any;
   if (!workstation) return null;
+
+  // Show draggable layout mode
+  if (canvasMode === 'layout') {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mode toggle bar */}
+        <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b border-border">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">画布模式:</span>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setCanvasMode('layout')}
+              className="gap-1"
+            >
+              <Move className="h-3.5 w-3.5" />
+              可拖拽布局
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCanvasMode('static')}
+              className="gap-1"
+            >
+              <Image className="h-3.5 w-3.5" />
+              静态三视图
+            </Button>
+          </div>
+        </div>
+        <DraggableLayoutCanvas workstationId={selectedWorkstationId!} />
+      </div>
+    );
+  }
 
   const layout = getLayoutByWorkstation(selectedWorkstationId!) as any;
   
@@ -224,6 +260,30 @@ export function WorkstationCanvas() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Mode toggle bar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b border-border">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">画布模式:</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCanvasMode('layout')}
+            className="gap-1"
+          >
+            <Move className="h-3.5 w-3.5" />
+            可拖拽布局
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setCanvasMode('static')}
+            className="gap-1"
+          >
+            <Image className="h-3.5 w-3.5" />
+            静态三视图
+          </Button>
+        </div>
+      </div>
       {/* View Tabs */}
       <div className="flex items-center justify-between px-4 py-3 bg-card border-b border-border">
         <div className="flex gap-1">
