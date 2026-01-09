@@ -18,6 +18,7 @@ import { DeepLearningForm } from './module/DeepLearningForm';
 import { ModuleFormState, getDefaultFormState } from './module/types';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ModuleAnnotationPanel } from '@/components/product/ModuleAnnotationPanel';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -731,6 +732,18 @@ export function ModuleForm() {
               }
             />
           </div>
+        </div>
+
+        {/* 第六部分：产品局部标注 */}
+        <div className="form-section">
+          <h3 className="form-section-title">
+            <span className="w-1 h-4 bg-purple-500 rounded-full" />
+            产品局部标注
+          </h3>
+          <ModuleAnnotationPanel 
+            moduleId={module.id} 
+            workstationId={module.workstation_id} 
+          />
         </div>
       </div>
     </div>
