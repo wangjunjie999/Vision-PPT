@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useData } from '@/contexts/DataContext';
 import { useMechanisms, type Mechanism } from '@/hooks/useMechanisms';
 import { Button } from '@/components/ui/button';
@@ -18,11 +18,15 @@ import { cn } from '@/lib/utils';
 import { 
   Save, RotateCcw, Grid3X3, Magnet, Ruler, Plus, 
   Camera, Trash2, Lock, Unlock, Loader2, Copy, 
-  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
+  Move
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
 import { CanvasControls } from './CanvasControls';
+import { AlignmentGuides, calculateSnapPosition } from './AlignmentGuides';
+import { DistanceAnnotations } from './DistanceAnnotations';
+import { ResizeHandles } from './ResizeHandles';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -68,6 +72,12 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   
   // Show property panel
   const [showPropertyPanel, setShowPropertyPanel] = useState(false);
+  
+  // Smart snap enabled
+  const [smartSnapEnabled, setSmartSnapEnabled] = useState(true);
+  
+  // Dragging object for alignment guides
+  const [draggingObject, setDraggingObject] = useState<LayoutObject | null>(null);
   
   const canvasRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -235,8 +245,36 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     if (!isDragging || !selectedId) return;
     
     const pos = screenToSvg(e.clientX, e.clientY);
-    const newX = snapToGrid(pos.x - dragOffset.x);
-    const newY = snapToGrid(pos.y - dragOffset.y);
+    let newX = pos.x - dragOffset.x;
+    let newY = pos.y - dragOffset.y;
+    
+    // Apply grid snap first
+    if (snapEnabled) {
+      newX = Math.round(newX / gridSize) * gridSize;
+      newY = Math.round(newY / gridSize) * gridSize;
+    }
+    
+    // Get current object for smart snap
+    const currentObj = objects.find(o => o.id === selectedId);
+    
+    // Apply smart snap to other objects
+    if (smartSnapEnabled && currentObj) {
+      const snapResult = calculateSnapPosition(
+        newX, newY,
+        currentObj.width, currentObj.height,
+        objects,
+        centerX, centerY,
+        15, // snap threshold
+        selectedId
+      );
+      newX = snapResult.x;
+      newY = snapResult.y;
+    }
+    
+    // Update dragging object for alignment guides
+    if (currentObj) {
+      setDraggingObject({ ...currentObj, x: newX, y: newY });
+    }
     
     setObjects(prev => prev.map(obj => 
       obj.id === selectedId ? { ...obj, x: newX, y: newY } : obj
@@ -246,6 +284,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const handleMouseUp = () => {
     setIsDragging(false);
     setIsPanning(false);
+    setDraggingObject(null);
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -269,6 +308,12 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const updateObject = (id: string, updates: Partial<LayoutObject>) => {
     setObjects(prev => prev.map(obj => 
       obj.id === id ? { ...obj, ...updates } : obj
+    ));
+  };
+
+  const handleResize = (id: string, width: number, height: number, x: number, y: number) => {
+    setObjects(prev => prev.map(obj => 
+      obj.id === id ? { ...obj, width, height, x, y } : obj
     ));
   };
 
@@ -525,14 +570,21 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             <Switch checked={snapEnabled} onCheckedChange={setSnapEnabled} id="snap" />
             <Label htmlFor="snap" className="text-xs cursor-pointer flex items-center gap-1">
               <Magnet className="h-3.5 w-3.5" />
-              吸附
+              网格吸附
+            </Label>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Switch checked={smartSnapEnabled} onCheckedChange={setSmartSnapEnabled} id="smartsnap" />
+            <Label htmlFor="smartsnap" className="text-xs cursor-pointer flex items-center gap-1">
+              <Move className="h-3.5 w-3.5" />
+              智能对齐
             </Label>
           </div>
           <div className="flex items-center gap-1.5">
             <Switch checked={showDistances} onCheckedChange={setShowDistances} id="dist" />
             <Label htmlFor="dist" className="text-xs cursor-pointer flex items-center gap-1">
               <Ruler className="h-3.5 w-3.5" />
-              距离
+              距离标注
             </Label>
           </div>
           
@@ -809,90 +861,52 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                         {obj.rotation}°
                       </text>
                     )}
+                    
+                    {/* Resize handles for selected object */}
+                    <ResizeHandles
+                      object={obj}
+                      isSelected={isSelected}
+                      onResize={handleResize}
+                    />
                   </g>
                 );
               })}
               
-              {/* Distance lines */}
-              {showDistances && selectedObj && (
-                <g>
-                  {/* Distance to product center */}
-                  <line
-                    x1={selectedObj.x}
-                    y1={selectedObj.y}
-                    x2={centerX}
-                    y2={centerY}
-                    stroke="#fbbf24"
-                    strokeWidth="2"
-                    strokeDasharray="8 4"
-                  />
-                  <rect
-                    x={(selectedObj.x + centerX) / 2 - 35}
-                    y={(selectedObj.y + centerY) / 2 - 14}
-                    width={70}
-                    height={28}
-                    fill="rgba(30, 41, 59, 0.95)"
-                    stroke="#fbbf24"
-                    strokeWidth="1.5"
-                    rx={6}
-                  />
-                  <text
-                    x={(selectedObj.x + centerX) / 2}
-                    y={(selectedObj.y + centerY) / 2 + 5}
-                    textAnchor="middle"
-                    fill="#fbbf24"
-                    fontSize="12"
-                    fontWeight="700"
-                  >
-                    {getDistance(selectedObj)}mm
-                  </text>
-                  
-                  {/* Distance between two selected objects */}
-                  {secondObj && (
-                    <>
-                      <line
-                        x1={selectedObj.x}
-                        y1={selectedObj.y}
-                        x2={secondObj.x}
-                        y2={secondObj.y}
-                        stroke="#22c55e"
-                        strokeWidth="2.5"
-                        strokeDasharray="8 4"
-                      />
-                      <rect
-                        x={(selectedObj.x + secondObj.x) / 2 - 40}
-                        y={(selectedObj.y + secondObj.y) / 2 - 14}
-                        width={80}
-                        height={28}
-                        fill="rgba(30, 41, 59, 0.95)"
-                        stroke="#22c55e"
-                        strokeWidth="1.5"
-                        rx={6}
-                      />
-                      <text
-                        x={(selectedObj.x + secondObj.x) / 2}
-                        y={(selectedObj.y + secondObj.y) / 2 + 5}
-                        textAnchor="middle"
-                        fill="#22c55e"
-                        fontSize="12"
-                        fontWeight="700"
-                      >
-                        {getDistance(selectedObj, secondObj)}mm
-                      </text>
-                    </>
-                  )}
-                </g>
+              {/* Alignment guides during drag */}
+              {isDragging && draggingObject && smartSnapEnabled && (
+                <AlignmentGuides
+                  objects={objects}
+                  draggingObject={draggingObject}
+                  centerX={centerX}
+                  centerY={centerY}
+                  snapThreshold={15}
+                />
+              )}
+              
+              {/* Distance annotations - using new component */}
+              {showDistances && (
+                <DistanceAnnotations
+                  objects={objects}
+                  selectedObject={selectedObj || null}
+                  secondSelectedObject={secondObj || null}
+                  centerX={centerX}
+                  centerY={centerY}
+                  scale={scale}
+                  showAll={!selectedObj && showDistances}
+                />
               )}
               
               {/* Instructions */}
               <g transform={`translate(20, ${canvasHeight - 30})`}>
-                <rect x={-8} y={-14} width={420} height={24} rx={6} fill="rgba(30, 41, 59, 0.9)" />
+                <rect x={-8} y={-14} width={500} height={24} rx={6} fill="rgba(30, 41, 59, 0.9)" />
                 <text fill="#94a3b8" fontSize="11">
                   <tspan>点击选择</tspan>
                   <tspan dx="8" fill="#64748b">|</tspan>
                   <tspan dx="8">拖拽移动</tspan>
                   <tspan dx="8" fill="#64748b">|</tspan>
                   <tspan dx="8">Shift+点击测距</tspan>
+                  <tspan dx="8" fill="#64748b">|</tspan>
+                  <tspan dx="8">拖角调整大小</tspan>
                   <tspan dx="8" fill="#64748b">|</tspan>
                   <tspan dx="8">滚轮缩放</tspan>
                   <tspan dx="8" fill="#64748b">|</tspan>
