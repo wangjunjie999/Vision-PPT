@@ -291,6 +291,7 @@ export function WorkstationForm() {
       
       // Upsert layout - this will update context state and trigger canvas re-render
       await upsertLayout(workstation.id, {
+        name: wsForm.name || '布局',
         conveyor_type: layoutForm.conveyorType,
         camera_count: layoutForm.cameraCount,
         camera_mounts: layoutForm.cameraMounts,

@@ -379,6 +379,10 @@ export type Database = {
           machine_outline: Json | null
           mechanisms: Json | null
           name: string
+          selected_cameras: Json | null
+          selected_controller: Json | null
+          selected_lenses: Json | null
+          selected_lights: Json | null
           show_distances: boolean | null
           side_view_image_url: string | null
           side_view_saved: boolean | null
@@ -407,6 +411,10 @@ export type Database = {
           machine_outline?: Json | null
           mechanisms?: Json | null
           name: string
+          selected_cameras?: Json | null
+          selected_controller?: Json | null
+          selected_lenses?: Json | null
+          selected_lights?: Json | null
           show_distances?: boolean | null
           side_view_image_url?: string | null
           side_view_saved?: boolean | null
@@ -435,6 +443,10 @@ export type Database = {
           machine_outline?: Json | null
           mechanisms?: Json | null
           name?: string
+          selected_cameras?: Json | null
+          selected_controller?: Json | null
+          selected_lenses?: Json | null
+          selected_lights?: Json | null
           show_distances?: boolean | null
           side_view_image_url?: string | null
           side_view_saved?: boolean | null
