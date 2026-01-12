@@ -30,6 +30,8 @@ import { toast } from 'sonner';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { checkPPTReadiness } from '@/services/pptReadiness';
 import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Collapsible,
   CollapsibleContent,
@@ -61,12 +63,16 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   } = useData();
   
   const { pptImageQuality, setPPTImageQuality } = useAppStore();
+  const { user } = useAuth();
 
   // Fetch hardware data
   const { cameras } = useCameras();
   const { lenses } = useLenses();
   const { lights } = useLights();
   const { controllers } = useControllers();
+  
+  // State for annotations
+  const [annotations, setAnnotations] = useState<any[]>([]);
 
   const [stage, setStage] = useState<'config' | 'generating' | 'complete' | 'error'>('config');
   const [mode, setMode] = useState<GenerationMode>('draft');
@@ -188,6 +194,50 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       setSelectedModules(modIds);
     }
   }, [selectedProjectId, open, projectWorkstations, getWorkstationModules]);
+  
+  // Fetch annotations when dialog opens
+  useEffect(() => {
+    if (open && user?.id && selectedProjectId) {
+      const fetchAnnotations = async () => {
+        const wsIds = projectWorkstations.map(ws => ws.id);
+        const modIds: string[] = [];
+        projectWorkstations.forEach(ws => {
+          getWorkstationModules(ws.id).forEach(m => modIds.push(m.id));
+        });
+        
+        // Get product assets with annotations
+        const { data: assets } = await supabase
+          .from('product_assets')
+          .select('id, workstation_id, module_id, scope_type')
+          .eq('user_id', user.id)
+          .or(`workstation_id.in.(${wsIds.join(',')}),module_id.in.(${modIds.join(',')})`);
+        
+        if (assets && assets.length > 0) {
+          const assetIds = assets.map(a => a.id);
+          const { data: annotationsData } = await supabase
+            .from('product_annotations')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('asset_id', assetIds);
+          
+          if (annotationsData) {
+            // Map annotations with scope info
+            const mappedAnnotations = annotationsData.map(ann => {
+              const asset = assets.find(a => a.id === ann.asset_id);
+              return {
+                ...ann,
+                scope_type: asset?.scope_type || 'workstation',
+                workstation_id: asset?.workstation_id,
+                module_id: asset?.module_id,
+              };
+            });
+            setAnnotations(mappedAnnotations);
+          }
+        }
+      };
+      fetchAnnotations();
+    }
+  }, [open, user?.id, selectedProjectId, projectWorkstations, getWorkstationModules]);
 
   const addLog = (type: GenerationLog['type'], message: string) => {
     setLogs(prev => [...prev, { type, message, timestamp: new Date() }]);
@@ -338,7 +388,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         })),
       };
 
-      // Generate PPTX
+      // Generate PPTX with annotations
       const blob = await generatePPTX(
         projectData,
         workstationData,
@@ -351,7 +401,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           addLog('info', log);
         },
         hardwareData,
-        readinessResult
+        readinessResult,
+        annotations
       );
 
       generatedBlobRef.current = blob;

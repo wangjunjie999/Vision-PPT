@@ -40,7 +40,6 @@ interface LayoutData {
   front_view_url: string | null;
   side_view_url: string | null;
   top_view_url: string | null;
-  // Workstation-level hardware selections
   selected_cameras: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_lenses: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_lights: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
@@ -62,7 +61,6 @@ interface ModuleData {
   selected_light: string | null;
   selected_controller: string | null;
   schematic_image_url?: string | null;
-  // Type-specific configs
   positioning_config?: Record<string, unknown> | null;
   defect_config?: Record<string, unknown> | null;
   ocr_config?: Record<string, unknown> | null;
@@ -110,6 +108,31 @@ interface HardwareData {
     performance: string;
     image_url: string | null;
   }>;
+}
+
+// Annotation data types for PPT generation
+interface AnnotationItem {
+  id: string;
+  type: 'rect' | 'circle' | 'arrow' | 'text';
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  radius?: number;
+  text?: string;
+  color?: string;
+  labelNumber?: number;
+  label?: string;
+}
+
+interface AnnotationData {
+  id: string;
+  snapshot_url: string;
+  annotations_json: AnnotationItem[];
+  remark?: string | null;
+  scope_type: 'workstation' | 'module';
+  workstation_id?: string;
+  module_id?: string;
 }
 
 interface GenerationOptions {
@@ -168,37 +191,29 @@ const TRIGGER_LABELS: Record<string, { zh: string; en: string }> = {
 const COMPANY_NAME_ZH = '苏州德星云智能装备有限公司';
 const COMPANY_NAME_EN = 'SuZhou DXY Intelligent Solution Co.,Ltd';
 
-// Helper to get workstation code with index (e.g., DB232323.01)
+// Helper to get workstation code with index
 const getWorkstationCode = (projectCode: string, wsIndex: number): string => {
   return `${projectCode}.${String(wsIndex + 1).padStart(2, '0')}`;
 };
 
-// Helper to get module display name (e.g., DB232323.01-引导定位)
+// Helper to get module display name
 const getModuleDisplayName = (wsCode: string, moduleType: string, isZh: boolean): string => {
   const typeLabel = MODULE_TYPE_LABELS[moduleType]?.[isZh ? 'zh' : 'en'] || moduleType;
   return `${wsCode}-${typeLabel}`;
 };
 
-// Image cache for dataUri conversion (limit to 50 images to prevent memory issues)
+// Image cache for dataUri conversion
 const imageCache = new Map<string, string>();
 const MAX_CACHE_SIZE = 50;
 
-/**
- * Fetch image as dataUri for stable embedding in PPTX
- * @param url Image URL
- * @returns DataUri string or empty string if failed
- */
 async function fetchImageAsDataUri(url: string): Promise<string> {
   if (!url || url.trim() === '') return '';
   
-  // Check cache
   if (imageCache.has(url)) {
     return imageCache.get(url)!;
   }
   
-  // If already base64 dataUri, return directly
   if (url.startsWith('data:')) {
-    // Limit cache size
     if (imageCache.size >= MAX_CACHE_SIZE) {
       const firstKey = imageCache.keys().next().value;
       imageCache.delete(firstKey);
@@ -222,7 +237,6 @@ async function fetchImageAsDataUri(url: string): Promise<string> {
       reader.readAsDataURL(blob);
     });
     
-    // Limit cache size
     if (imageCache.size >= MAX_CACHE_SIZE) {
       const firstKey = imageCache.keys().next().value;
       imageCache.delete(firstKey);
@@ -231,7 +245,7 @@ async function fetchImageAsDataUri(url: string): Promise<string> {
     return dataUri;
   } catch (error) {
     console.warn('Failed to fetch image as dataUri:', url, error);
-    return ''; // Return empty string, will use placeholder
+    return '';
   }
 }
 
@@ -243,7 +257,8 @@ export async function generatePPTX(
   options: GenerationOptions,
   onProgress: ProgressCallback,
   hardware?: HardwareData,
-  readinessResult?: { missing: Array<{ level: string; name: string; missing: string[] }>; warnings: Array<{ level: string; name: string; warning: string }> }
+  readinessResult?: { missing: Array<{ level: string; name: string; missing: string[] }>; warnings: Array<{ level: string; name: string; warning: string }> },
+  annotations?: AnnotationData[]
 ): Promise<Blob> {
   const pptx = new pptxgen();
   const isZh = options.language === 'zh';
@@ -259,9 +274,7 @@ export async function generatePPTX(
     title: 'MASTER_SLIDE',
     background: { color: COLORS.background },
     objects: [
-      // Header bar
       { rect: { x: 0, y: 0, w: '100%', h: 0.5, fill: { color: COLORS.primary } } },
-      // Footer
       { rect: { x: 0, y: 5.2, w: '100%', h: 0.3, fill: { color: COLORS.dark } } },
       { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: 5.25, w: 5, h: 0.2, fontSize: 8, color: COLORS.white } } },
       { text: { text: project.customer, options: { x: 8, y: 5.25, w: 2, h: 0.2, fontSize: 8, color: COLORS.white, align: 'right' } } },
@@ -277,7 +290,6 @@ export async function generatePPTX(
   
   const coverSlide = pptx.addSlide();
   
-  // Background gradient effect
   coverSlide.addShape('rect', {
     x: 0, y: 0, w: '100%', h: '100%',
     fill: { color: COLORS.primary },
@@ -287,25 +299,21 @@ export async function generatePPTX(
     fill: { color: COLORS.dark },
   });
 
-  // Company name at top
   coverSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
     x: 0.5, y: 0.8, w: 9, h: 0.4,
     fontSize: 14, color: COLORS.white, align: 'center',
   });
 
-  // Title
   coverSlide.addText(project.name, {
     x: 0.5, y: 1.8, w: 9, h: 1,
     fontSize: 36, color: COLORS.white, bold: true, align: 'center',
   });
 
-  // Subtitle
   coverSlide.addText(isZh ? '机器视觉系统技术方案' : 'Machine Vision System Technical Proposal', {
     x: 0.5, y: 2.7, w: 9, h: 0.5,
     fontSize: 18, color: COLORS.white, align: 'center',
   });
 
-  // Project info table
   const infoRows: TableRow[] = [
     row([isZh ? '项目编号' : 'Project Code', project.code]),
     row([isZh ? '客户' : 'Customer', project.customer]),
@@ -330,7 +338,6 @@ export async function generatePPTX(
     
     const missingSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
     
-    // Title
     missingSlide.addText(isZh ? '缺失项与风险提示' : 'Missing Items & Risk Warnings', {
       x: 0.5, y: 0.6, w: 9, h: 0.6,
       fontSize: 24, color: COLORS.dark, bold: true,
@@ -343,7 +350,6 @@ export async function generatePPTX(
     
     let yPos = 1.8;
     
-    // Missing items section
     if (readinessResult.missing.length > 0) {
       missingSlide.addText(isZh ? '缺失项（必须补齐）' : 'Missing Items (Must Complete)', {
         x: 0.5, y: yPos, w: 9, h: 0.3,
@@ -375,7 +381,6 @@ export async function generatePPTX(
       yPos += Math.min(2.5, missingRows.length * 0.15) + 0.2;
     }
     
-    // Warnings section
     if (readinessResult.warnings.length > 0 && yPos < 4.5) {
       missingSlide.addText(isZh ? '警告项（建议补齐）' : 'Warnings (Recommended)', {
         x: 0.5, y: yPos, w: 9, h: 0.3,
@@ -408,7 +413,7 @@ export async function generatePPTX(
     }
   }
 
-  // ========== SLIDE 2/3: Project Overview ==========
+  // ========== SLIDE: Project Overview ==========
   progress = 20;
   onProgress(progress, isZh ? '生成项目概览页...' : 'Generating project overview...', isZh ? '生成项目概览页' : 'Project overview');
 
@@ -419,7 +424,6 @@ export async function generatePPTX(
     fontSize: 24, color: COLORS.dark, bold: true,
   });
 
-  // Statistics cards
   const stats = [
     { label: isZh ? '工位数量' : 'Workstations', value: workstations.length.toString(), icon: '🔧' },
     { label: isZh ? '功能模块' : 'Modules', value: modules.length.toString(), icon: '📦' },
@@ -439,7 +443,6 @@ export async function generatePPTX(
     overviewSlide.addText(stat.label, { x, y: 2.3, w: 2.1, h: 0.3, fontSize: 10, color: COLORS.secondary, align: 'center' });
   });
 
-  // Workstation summary table
   overviewSlide.addText(isZh ? '工位清单' : 'Workstation List', {
     x: 0.5, y: 2.8, w: 9, h: 0.4,
     fontSize: 14, color: COLORS.dark, bold: true,
@@ -472,15 +475,18 @@ export async function generatePPTX(
     align: 'center',
   });
 
-  // ========== WORKSTATION SLIDES (按工位组织，先介绍完一个工位所有内容再介绍下一个) ==========
-  const totalWsProgress = 65; // 25-90 for workstations
+  // ========== WORKSTATION SLIDES ==========
+  const totalWsProgress = 65;
   const progressPerWs = totalWsProgress / Math.max(workstations.length, 1);
   
   for (let i = 0; i < workstations.length; i++) {
     const ws = workstations[i];
     const wsLayout = layouts.find(l => l.workstation_id === ws.id);
     const wsModules = modules.filter(m => m.workstation_id === ws.id);
-    const wsCode = getWorkstationCode(project.code, i); // e.g., DB232323.01
+    const wsCode = getWorkstationCode(project.code, i);
+
+    // Find workstation-level annotation
+    const wsAnnotation = annotations?.find(a => a.scope_type === 'workstation' && a.workstation_id === ws.id);
 
     progress = 25 + i * progressPerWs;
     onProgress(progress, `${isZh ? '处理工位' : 'Processing workstation'}: ${ws.name}...`, `${isZh ? '生成工位页' : 'Workstation slide'}: ${ws.name}`);
@@ -498,7 +504,6 @@ export async function generatePPTX(
       fontSize: 12, color: COLORS.secondary, align: 'right',
     });
 
-    // Workstation info panel
     const dims = ws.product_dimensions;
     const wsInfoRows: TableRow[] = [
       row([isZh ? '工位类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type]),
@@ -518,7 +523,6 @@ export async function generatePPTX(
       fill: { color: COLORS.white },
     });
 
-    // Camera mounts
     if (wsLayout?.camera_mounts && wsLayout.camera_mounts.length > 0) {
       wsSlide.addText(isZh ? '相机安装方式' : 'Camera Mounts', {
         x: 5, y: 1.3, w: 4.5, h: 0.3,
@@ -530,7 +534,6 @@ export async function generatePPTX(
       });
     }
 
-    // Mechanisms
     if (wsLayout?.mechanisms && wsLayout.mechanisms.length > 0) {
       wsSlide.addText(isZh ? '执行机构' : 'Mechanisms', {
         x: 5, y: 2, w: 4.5, h: 0.3,
@@ -542,7 +545,6 @@ export async function generatePPTX(
       });
     }
 
-    // Workstation-level hardware configuration display
     const layoutCameras = wsLayout?.selected_cameras?.filter(c => c) || [];
     const layoutLenses = wsLayout?.selected_lenses?.filter(l => l) || [];
     const layoutLights = wsLayout?.selected_lights?.filter(l => l) || [];
@@ -574,7 +576,6 @@ export async function generatePPTX(
       });
     }
 
-    // Module list for this workstation with proper naming
     if (wsModules.length > 0) {
       wsSlide.addText(isZh ? '功能模块' : 'Function Modules', {
         x: 0.5, y: 3.5, w: 9, h: 0.4,
@@ -607,8 +608,84 @@ export async function generatePPTX(
       });
     }
 
-    // ========== 2. 机械布局三视图 Slide (三个视图放在一个页面) ==========
-    // 优先使用数据库中的URL，fallback到localStorage
+    // ========== 2. Workstation Product Annotation Slide (NEW) ==========
+    if (wsAnnotation && wsAnnotation.snapshot_url) {
+      onProgress(progress, `${isZh ? '添加工位产品标注页' : 'Adding workstation annotation'}: ${ws.name}...`, `${isZh ? '工位产品标注页' : 'Workstation Annotation'}`);
+      
+      const annotationSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+      
+      annotationSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '产品标注' : 'Product Annotation'}`, {
+        x: 0.5, y: 0.6, w: 9, h: 0.5,
+        fontSize: 20, color: COLORS.dark, bold: true,
+      });
+
+      annotationSlide.addText(`${isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN} | ${project.customer}`, {
+        x: 0.5, y: 1.05, w: 9, h: 0.25,
+        fontSize: 10, color: COLORS.secondary,
+      });
+
+      // Left: Annotated image
+      try {
+        const dataUri = await fetchImageAsDataUri(wsAnnotation.snapshot_url);
+        if (dataUri) {
+          annotationSlide.addImage({
+            data: dataUri,
+            x: 0.5, y: 1.4, w: 5.5, h: 3.6,
+            sizing: { type: 'contain', w: 5.5, h: 3.6 },
+          });
+        } else {
+          throw new Error('Failed to fetch annotation image');
+        }
+      } catch (e) {
+        console.warn('Failed to add annotation image:', e);
+        annotationSlide.addShape('rect', {
+          x: 0.5, y: 1.4, w: 5.5, h: 3.6,
+          fill: { color: COLORS.border },
+          line: { color: COLORS.secondary, width: 1 },
+        });
+        annotationSlide.addText(isZh ? '标注图片加载失败' : 'Annotation image failed', {
+          x: 0.5, y: 3, w: 5.5, h: 0.4,
+          fontSize: 12, color: COLORS.secondary, align: 'center',
+        });
+      }
+
+      // Right: Annotation legend
+      annotationSlide.addText(isZh ? '标注说明' : 'Annotation Legend', {
+        x: 6.2, y: 1.4, w: 3.3, h: 0.3,
+        fontSize: 12, color: COLORS.dark, bold: true,
+      });
+
+      const annotationItems = wsAnnotation.annotations_json || [];
+      const legendRows: TableRow[] = annotationItems
+        .filter(item => item.labelNumber && item.label)
+        .map(item => row([`#${item.labelNumber}`, item.label || '']));
+
+      if (legendRows.length > 0) {
+        annotationSlide.addTable(legendRows, {
+          x: 6.2, y: 1.8, w: 3.3, h: Math.min(legendRows.length * 0.35 + 0.1, 2.8),
+          fontFace: 'Arial',
+          fontSize: 9,
+          colW: [0.6, 2.7],
+          border: { pt: 0.5, color: COLORS.border },
+          fill: { color: COLORS.white },
+          valign: 'middle',
+        });
+      }
+
+      // Remark
+      if (wsAnnotation.remark) {
+        annotationSlide.addText(isZh ? '备注' : 'Remark', {
+          x: 6.2, y: 4.2, w: 3.3, h: 0.25,
+          fontSize: 10, color: COLORS.dark, bold: true,
+        });
+        annotationSlide.addText(wsAnnotation.remark, {
+          x: 6.2, y: 4.5, w: 3.3, h: 0.5,
+          fontSize: 9, color: COLORS.secondary,
+        });
+      }
+    }
+
+    // ========== 3. Mechanical Layout Views Slide ==========
     const frontViewUrl = wsLayout?.front_view_url || localStorage.getItem(`workstation-view-${ws.id}-front`);
     const sideViewUrl = wsLayout?.side_view_url || localStorage.getItem(`workstation-view-${ws.id}-side`);
     const topViewUrl = wsLayout?.top_view_url || localStorage.getItem(`workstation-view-${ws.id}-top`);
@@ -618,7 +695,6 @@ export async function generatePPTX(
     const hasTopView = topViewUrl && wsLayout?.top_view_saved;
     const hasAnyView = hasFrontView || hasSideView || hasTopView;
 
-    // Only create mechanical layout slide if there are any saved views
     if (hasAnyView) {
       onProgress(progress, `${isZh ? '添加机械布局图' : 'Adding mechanical layout'}: ${ws.name}...`, `${isZh ? '机械布局图' : 'Mechanical Layout'}`);
       
@@ -634,13 +710,12 @@ export async function generatePPTX(
         fontSize: 10, color: COLORS.secondary,
       });
 
-      // Three views layout: 正视图(左上), 侧视图(右上), 俯视图(下)
       const viewWidth = 4.2;
       const viewHeight = 1.8;
       const bottomViewWidth = 8.5;
       const bottomViewHeight = 2.2;
 
-      // 正视图 (Front View) - 左上
+      // Front View - top left
       layoutSlide.addText(isZh ? '正视图' : 'Front View', {
         x: 0.5, y: 1.35, w: viewWidth, h: 0.25,
         fontSize: 10, color: COLORS.dark, bold: true, align: 'center',
@@ -677,7 +752,7 @@ export async function generatePPTX(
         });
       }
 
-      // 侧视图 (Side View) - 右上
+      // Side View - top right
       layoutSlide.addText(isZh ? '侧视图' : 'Side View', {
         x: 5, y: 1.35, w: viewWidth, h: 0.25,
         fontSize: 10, color: COLORS.dark, bold: true, align: 'center',
@@ -714,7 +789,7 @@ export async function generatePPTX(
         });
       }
 
-      // 俯视图 (Top View) - 下方居中
+      // Top View - bottom center
       layoutSlide.addText(isZh ? '俯视图' : 'Top View', {
         x: 0.5, y: 3.5, w: bottomViewWidth, h: 0.25,
         fontSize: 10, color: COLORS.dark, bold: true, align: 'center',
@@ -752,10 +827,13 @@ export async function generatePPTX(
       }
     }
 
-    // ========== 3. Module Detail Slides (左图右表布局) ==========
+    // ========== 4. Module Detail Slides ==========
     for (let j = 0; j < wsModules.length; j++) {
       const mod = wsModules[j];
-      const moduleCode = getModuleDisplayName(wsCode, mod.type, isZh); // e.g., DB232323.01-定位检测
+      const moduleCode = getModuleDisplayName(wsCode, mod.type, isZh);
+      
+      // Find module-level annotation
+      const modAnnotation = annotations?.find(a => a.scope_type === 'module' && a.module_id === mod.id);
       
       onProgress(progress + (j / wsModules.length) * (progressPerWs * 0.5), 
         `${isZh ? '处理模块' : 'Processing module'}: ${moduleCode}...`, 
@@ -773,13 +851,12 @@ export async function generatePPTX(
         fontSize: 10, color: COLORS.secondary,
       });
 
-      // ========== 左侧：视觉系统示意图 ==========
+      // Left: Vision System Diagram
       modSlide.addText(isZh ? '视觉系统示意图' : 'Vision System Diagram', {
         x: 0.5, y: 1.35, w: 4.5, h: 0.3,
         fontSize: 12, color: COLORS.dark, bold: true,
       });
 
-      // Check for saved schematic image
       const schematicUrl = mod.schematic_image_url;
       
       if (schematicUrl) {
@@ -796,7 +873,6 @@ export async function generatePPTX(
           }
         } catch (e) {
           console.warn('Failed to add schematic image:', e);
-          // Fallback placeholder
           modSlide.addShape('rect', {
             x: 0.5, y: 1.7, w: 4.5, h: 3.3,
             fill: { color: COLORS.border },
@@ -808,7 +884,6 @@ export async function generatePPTX(
           });
         }
       } else {
-        // Placeholder for missing schematic
         modSlide.addShape('rect', {
           x: 0.5, y: 1.7, w: 4.5, h: 3.3,
           fill: { color: COLORS.border },
@@ -820,221 +895,163 @@ export async function generatePPTX(
         });
       }
 
-      // ========== 右侧：模块配置参数表 ==========
+      // Right: Module Configuration Parameters
       modSlide.addText(isZh ? '模块配置参数' : 'Module Configuration', {
         x: 5.2, y: 1.35, w: 4.3, h: 0.3,
         fontSize: 12, color: COLORS.dark, bold: true,
       });
 
-      // Get hardware details
       const selectedCamera = hardware?.cameras.find(c => c.id === mod.selected_camera);
       const selectedLens = hardware?.lenses.find(l => l.id === mod.selected_lens);
       const selectedLight = hardware?.lights.find(l => l.id === mod.selected_light);
       const selectedController = hardware?.controllers.find(c => c.id === mod.selected_controller);
 
-      // Build comprehensive parameter table
       const paramRows: TableRow[] = [
-        // Basic info section
         row([isZh ? '模块类型' : 'Type', MODULE_TYPE_LABELS[mod.type]?.[options.language] || mod.type]),
         row([isZh ? '触发方式' : 'Trigger', TRIGGER_LABELS[mod.trigger_type || 'io']?.[options.language] || mod.trigger_type || '-']),
         row([isZh ? '处理时限' : 'Time Limit', mod.processing_time_limit ? `${mod.processing_time_limit}ms` : '-']),
       ];
       
-      // Get config for common and imaging parameters
-      const cfg = (mod.defect_config || mod.positioning_config || mod.ocr_config || mod.deep_learning_config || (mod as any).measurement_config) as any;
+      const cfg = (mod.defect_config || mod.positioning_config || mod.ocr_config || mod.deep_learning_config || mod.measurement_config) as Record<string, unknown> | null;
       
-      // Add common parameters if available
       if (cfg) {
-        if (cfg.detectionObject) paramRows.push(row([isZh ? '检测对象' : 'Detection Object', cfg.detectionObject]));
+        if (cfg.detectionObject) paramRows.push(row([isZh ? '检测对象' : 'Detection Object', String(cfg.detectionObject)]));
         if (cfg.judgmentStrategy) {
           const strategyLabels: Record<string, Record<string, string>> = {
             no_miss: { zh: '宁可误杀不可漏检', en: 'No Miss' },
             balanced: { zh: '平衡', en: 'Balanced' },
             allow_pass: { zh: '宁可放行', en: 'Allow Pass' },
           };
-          paramRows.push(row([isZh ? '判定策略' : 'Judgment Strategy', strategyLabels[cfg.judgmentStrategy]?.[options.language] || cfg.judgmentStrategy]));
+          paramRows.push(row([isZh ? '判定策略' : 'Judgment Strategy', strategyLabels[cfg.judgmentStrategy as string]?.[options.language] || String(cfg.judgmentStrategy)]));
         }
         if (cfg.outputAction && Array.isArray(cfg.outputAction) && cfg.outputAction.length > 0) {
-          paramRows.push(row([isZh ? '输出动作' : 'Output Actions', cfg.outputAction.join('、')]));
+          paramRows.push(row([isZh ? '输出动作' : 'Output Actions', (cfg.outputAction as string[]).join('、')]));
         }
-        if (cfg.communicationMethod) paramRows.push(row([isZh ? '通讯方式' : 'Communication', cfg.communicationMethod]));
-        if (cfg.signalDefinition) paramRows.push(row([isZh ? '信号定义' : 'Signal Definition', cfg.signalDefinition]));
-        if (cfg.dataRetentionDays) paramRows.push(row([isZh ? '数据留存天数' : 'Data Retention Days', `${cfg.dataRetentionDays}天`]));
-      }
-      
-      // Add imaging parameters if available
-      if (cfg?.imaging) {
-        const img = cfg.imaging;
-        paramRows.push(row(['', ''])); // Separator
-        paramRows.push(row([isZh ? '【成像参数】' : '[Imaging]', '']));
-        if (img.workingDistance) paramRows.push(row([isZh ? '工作距离 WD' : 'Working Distance', `${img.workingDistance}mm`]));
-        if (img.fieldOfView) paramRows.push(row([isZh ? '视野 FOV' : 'Field of View', `${img.fieldOfView}mm`]));
-        if (img.resolutionPerPixel) paramRows.push(row([isZh ? '分辨率换算' : 'Resolution', `${img.resolutionPerPixel}mm/px`]));
-        if (img.exposure) paramRows.push(row([isZh ? '曝光' : 'Exposure', img.exposure]));
-        if (img.gain !== null && img.gain !== undefined) paramRows.push(row([isZh ? '增益' : 'Gain', `${img.gain}dB`]));
-        if (img.triggerDelay !== null && img.triggerDelay !== undefined) paramRows.push(row([isZh ? '触发延时' : 'Trigger Delay', `${img.triggerDelay}ms`]));
-        if (img.lightMode) paramRows.push(row([isZh ? '光源模式' : 'Light Mode', img.lightMode]));
-        if (img.lightAngle) paramRows.push(row([isZh ? '光源角度' : 'Light Angle', img.lightAngle]));
-        if (img.lightDistance) paramRows.push(row([isZh ? '光源距离' : 'Light Distance', `${img.lightDistance}mm`]));
-        if (img.lensAperture) paramRows.push(row([isZh ? '镜头光圈' : 'Lens Aperture', img.lensAperture]));
-        if (img.depthOfField !== null && img.depthOfField !== undefined) paramRows.push(row([isZh ? '景深要求' : 'Depth of Field', `${img.depthOfField}mm`]));
       }
 
-      // Add type-specific config rows
-      if (mod.type === 'positioning' && mod.positioning_config) {
-        const cfg = mod.positioning_config as Record<string, unknown>;
-        if (cfg.fieldOfView) paramRows.push(row([isZh ? '视野范围' : 'FOV', `${cfg.fieldOfView}mm`]));
-        if (cfg.accuracyRequirement) paramRows.push(row([isZh ? '定位精度' : 'Accuracy', `${cfg.accuracyRequirement}mm`]));
-        if (cfg.repeatabilityRequirement) paramRows.push(row([isZh ? '重复精度' : 'Repeatability', `${cfg.repeatabilityRequirement}mm`]));
-        // Industrial positioning parameters
-        if (cfg.outputCoordinateSystem) paramRows.push(row([isZh ? '输出坐标系' : 'Output Coordinate System', String(cfg.outputCoordinateSystem)]));
-        if (cfg.calibrationCycle) paramRows.push(row([isZh ? '标定周期' : 'Calibration Cycle', String(cfg.calibrationCycle)]));
-        if (cfg.accuracyAcceptanceMethod) paramRows.push(row([isZh ? '精度验收方法' : 'Accuracy Acceptance', String(cfg.accuracyAcceptanceMethod)]));
-        if (cfg.targetFeatureType) paramRows.push(row([isZh ? '目标特征类型' : 'Target Feature Type', String(cfg.targetFeatureType)]));
-        if (cfg.targetCount) paramRows.push(row([isZh ? '目标数量' : 'Target Count', String(cfg.targetCount)]));
-        if (cfg.occlusionTolerance) paramRows.push(row([isZh ? '遮挡容忍' : 'Occlusion Tolerance', String(cfg.occlusionTolerance)]));
-      }
-
-      if (mod.type === 'defect' && mod.defect_config) {
-        const cfg = mod.defect_config as Record<string, unknown>;
-        if (cfg.defectClasses && Array.isArray(cfg.defectClasses)) {
-          paramRows.push(row([isZh ? '缺陷类别' : 'Defect Classes', (cfg.defectClasses as string[]).slice(0, 4).join(', ') + ((cfg.defectClasses as string[]).length > 4 ? '...' : '')]));
-        }
-        if (cfg.minDefectSize) paramRows.push(row([isZh ? '最小缺陷' : 'Min Defect', `${cfg.minDefectSize}mm`]));
-        if (cfg.detectionAreaLength && cfg.detectionAreaWidth) {
-          paramRows.push(row([isZh ? '检测区域' : 'Detection Area', `${cfg.detectionAreaLength}×${cfg.detectionAreaWidth}mm`]));
-        }
-        // Industrial defect parameters
-        if (cfg.defectContrast) paramRows.push(row([isZh ? '缺陷对比度' : 'Defect Contrast', String(cfg.defectContrast)]));
-        if (cfg.materialReflectionLevel) paramRows.push(row([isZh ? '材质反光等级' : 'Material Reflection', String(cfg.materialReflectionLevel)]));
-        if (cfg.allowedMissRate) paramRows.push(row([isZh ? '允许漏检率' : 'Allowed Miss Rate', String(cfg.allowedMissRate)]));
-        if (cfg.allowedFalseRate) paramRows.push(row([isZh ? '允许误检率' : 'Allowed False Rate', String(cfg.allowedFalseRate)]));
-        if (cfg.confidenceThreshold) paramRows.push(row([isZh ? '置信度阈值' : 'Confidence Threshold', String(cfg.confidenceThreshold)]));
-      }
-
-      if (mod.type === 'ocr' && mod.ocr_config) {
-        const cfg = mod.ocr_config as Record<string, unknown>;
-        if (cfg.charType) paramRows.push(row([isZh ? '字符类型' : 'Char Type', String(cfg.charType)]));
-        if (cfg.minCharHeight) paramRows.push(row([isZh ? '字符高度' : 'Char Height', `${cfg.minCharHeight}mm`]));
-        if (cfg.contentRule) paramRows.push(row([isZh ? '内容规则' : 'Content Rule', String(cfg.contentRule)]));
-        // Industrial OCR parameters
-        if (cfg.charWidth) paramRows.push(row([isZh ? '字符宽度' : 'Char Width', `${cfg.charWidth}mm`]));
-        if (cfg.minStrokeWidth) paramRows.push(row([isZh ? '最小笔画' : 'Min Stroke Width', `${cfg.minStrokeWidth}mm`]));
-        if (cfg.allowedRotationAngle) paramRows.push(row([isZh ? '允许旋转角度' : 'Allowed Rotation', `${cfg.allowedRotationAngle}°`]));
-        if (cfg.allowedDamageLevel) paramRows.push(row([isZh ? '允许污损等级' : 'Allowed Damage Level', String(cfg.allowedDamageLevel)]));
-        if (cfg.charRuleExample) paramRows.push(row([isZh ? '字符规则示例' : 'Char Rule Example', String(cfg.charRuleExample)]));
-      }
-
-      if (mod.type === 'deeplearning' && mod.deep_learning_config) {
-        const cfg = mod.deep_learning_config as Record<string, unknown>;
-        if (cfg.taskType) paramRows.push(row([isZh ? '任务类型' : 'Task Type', String(cfg.taskType)]));
-        if (cfg.targetClasses && Array.isArray(cfg.targetClasses)) {
-          paramRows.push(row([isZh ? '目标类别' : 'Classes', (cfg.targetClasses as string[]).slice(0, 4).join(', ') + ((cfg.targetClasses as string[]).length > 4 ? '...' : '')]));
-        }
-        if (cfg.inferenceTimeTarget) paramRows.push(row([isZh ? '推理时间' : 'Inference Time', `${cfg.inferenceTimeTarget}ms`]));
-      }
-
-      if (mod.type === 'measurement' && mod.measurement_config) {
-        const cfg = mod.measurement_config as Record<string, unknown>;
-        if (cfg.measurementItems && Array.isArray(cfg.measurementItems)) {
-          paramRows.push(row([isZh ? '测量项' : 'Measurement Items', (cfg.measurementItems as string[]).slice(0, 3).join(', ') + ((cfg.measurementItems as string[]).length > 3 ? '...' : '')]));
-        }
-        if (cfg.targetAccuracy) paramRows.push(row([isZh ? '目标精度' : 'Target Accuracy', `${cfg.targetAccuracy}mm`]));
-        if (cfg.systemAccuracy) paramRows.push(row([isZh ? '系统精度' : 'System Accuracy', `${cfg.systemAccuracy}mm`]));
-        // Industrial measurement parameters
-        if (cfg.grr) paramRows.push(row([isZh ? 'GRR' : 'GRR', String(cfg.grr)]));
-        if (cfg.calibrationCycle) paramRows.push(row([isZh ? '标定周期' : 'Calibration Cycle', String(cfg.calibrationCycle)]));
-        if (cfg.calibrationBlockType) paramRows.push(row([isZh ? '量块类型' : 'Calibration Block Type', String(cfg.calibrationBlockType)]));
-        if (cfg.edgeExtractionMethod) paramRows.push(row([isZh ? '边缘提取方式' : 'Edge Extraction', String(cfg.edgeExtractionMethod)]));
-      }
-
-      // Hardware section - separator
+      // Hardware section
       paramRows.push(row(['', '']));
       paramRows.push(row([isZh ? '【硬件配置】' : '[Hardware]', '']));
       
-      // Check if we need to split into two columns or add continuation page
-      const MAX_ROWS_PER_COLUMN = 20; // Maximum rows before splitting
-      
-      // Hardware details
       if (selectedCamera) {
         paramRows.push(row([isZh ? '相机' : 'Camera', `${selectedCamera.brand} ${selectedCamera.model}`]));
-        paramRows.push(row([isZh ? '分辨率' : 'Resolution', `${selectedCamera.resolution} @ ${selectedCamera.frame_rate}fps`]));
       }
       if (selectedLens) {
         paramRows.push(row([isZh ? '镜头' : 'Lens', `${selectedLens.brand} ${selectedLens.model}`]));
-        paramRows.push(row([isZh ? '焦距/光圈' : 'Focal/Aperture', `${selectedLens.focal_length} · ${selectedLens.aperture}`]));
       }
       if (selectedLight) {
         paramRows.push(row([isZh ? '光源' : 'Light', `${selectedLight.brand} ${selectedLight.model}`]));
-        paramRows.push(row([isZh ? '光源类型' : 'Light Type', `${selectedLight.color}${selectedLight.type} · ${selectedLight.power}`]));
       }
       if (selectedController) {
         paramRows.push(row([isZh ? '工控机' : 'IPC', `${selectedController.brand} ${selectedController.model}`]));
-        paramRows.push(row([isZh ? 'CPU/内存' : 'CPU/RAM', `${selectedController.cpu} · ${selectedController.memory}`]));
       }
 
-      // Filter out empty rows and check if we need to split
       const filteredRows = paramRows.filter(r => r[0].text || r[1].text);
       
-      // If too many rows, split into two columns or create continuation page
-      if (filteredRows.length > MAX_ROWS_PER_COLUMN) {
-        // Split into two columns
-        const midPoint = Math.ceil(filteredRows.length / 2);
-        const leftRows = filteredRows.slice(0, midPoint);
-        const rightRows = filteredRows.slice(midPoint);
+      modSlide.addTable(filteredRows, {
+        x: 5.2, y: 1.7, w: 4.3, h: 3.3,
+        fontFace: 'Arial',
+        fontSize: 8,
+        colW: [1.5, 2.8],
+        border: { pt: 0.5, color: COLORS.border },
+        fill: { color: COLORS.white },
+        valign: 'middle',
+      });
+
+      // ========== 5. Module Local Annotation Slide (NEW) ==========
+      if (modAnnotation && modAnnotation.snapshot_url) {
+        onProgress(progress, `${isZh ? '添加模块局部标注页' : 'Adding module annotation'}: ${moduleCode}...`, `${isZh ? '模块局部标注页' : 'Module Annotation'}`);
         
-        modSlide.addTable(leftRows, {
-          x: 5.2, y: 1.7, w: 2.0, h: 3.3,
-          fontFace: 'Arial',
-          fontSize: 7,
-          colW: [0.8, 1.2],
-          border: { pt: 0.5, color: COLORS.border },
-          fill: { color: COLORS.white },
-          valign: 'middle',
-        });
+        const modAnnotationSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
         
-        modSlide.addTable(rightRows, {
-          x: 7.3, y: 1.7, w: 2.0, h: 3.3,
-          fontFace: 'Arial',
-          fontSize: 7,
-          colW: [0.8, 1.2],
-          border: { pt: 0.5, color: COLORS.border },
-          fill: { color: COLORS.white },
-          valign: 'middle',
+        modAnnotationSlide.addText(`${moduleCode} - ${isZh ? '产品局部标注' : 'Local Annotation'}`, {
+          x: 0.5, y: 0.6, w: 9, h: 0.5,
+          fontSize: 20, color: COLORS.dark, bold: true,
         });
-      } else {
-        // Single column table
-        modSlide.addTable(filteredRows, {
-          x: 5.2, y: 1.7, w: 4.3, h: 3.3,
-          fontFace: 'Arial',
-          fontSize: 8,
-          colW: [1.5, 2.8],
-          border: { pt: 0.5, color: COLORS.border },
-          fill: { color: COLORS.white },
-          valign: 'middle',
+
+        modAnnotationSlide.addText(`${isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN} | ${project.customer}`, {
+          x: 0.5, y: 1.05, w: 9, h: 0.25,
+          fontSize: 10, color: COLORS.secondary,
         });
+
+        // Left: Annotated image
+        try {
+          const dataUri = await fetchImageAsDataUri(modAnnotation.snapshot_url);
+          if (dataUri) {
+            modAnnotationSlide.addImage({
+              data: dataUri,
+              x: 0.5, y: 1.4, w: 5.5, h: 3.6,
+              sizing: { type: 'contain', w: 5.5, h: 3.6 },
+            });
+          } else {
+            throw new Error('Failed to fetch annotation image');
+          }
+        } catch (e) {
+          console.warn('Failed to add module annotation image:', e);
+          modAnnotationSlide.addShape('rect', {
+            x: 0.5, y: 1.4, w: 5.5, h: 3.6,
+            fill: { color: COLORS.border },
+            line: { color: COLORS.secondary, width: 1 },
+          });
+          modAnnotationSlide.addText(isZh ? '标注图片加载失败' : 'Annotation image failed', {
+            x: 0.5, y: 3, w: 5.5, h: 0.4,
+            fontSize: 12, color: COLORS.secondary, align: 'center',
+          });
+        }
+
+        // Right: Annotation legend
+        modAnnotationSlide.addText(isZh ? '标注说明' : 'Annotation Legend', {
+          x: 6.2, y: 1.4, w: 3.3, h: 0.3,
+          fontSize: 12, color: COLORS.dark, bold: true,
+        });
+
+        const modAnnotationItems = modAnnotation.annotations_json || [];
+        const modLegendRows: TableRow[] = modAnnotationItems
+          .filter(item => item.labelNumber && item.label)
+          .map(item => row([`#${item.labelNumber}`, item.label || '']));
+
+        if (modLegendRows.length > 0) {
+          modAnnotationSlide.addTable(modLegendRows, {
+            x: 6.2, y: 1.8, w: 3.3, h: Math.min(modLegendRows.length * 0.35 + 0.1, 2.8),
+            fontFace: 'Arial',
+            fontSize: 9,
+            colW: [0.6, 2.7],
+            border: { pt: 0.5, color: COLORS.border },
+            fill: { color: COLORS.white },
+            valign: 'middle',
+          });
+        }
+
+        // Remark
+        if (modAnnotation.remark) {
+          modAnnotationSlide.addText(isZh ? '备注' : 'Remark', {
+            x: 6.2, y: 4.2, w: 3.3, h: 0.25,
+            fontSize: 10, color: COLORS.dark, bold: true,
+          });
+          modAnnotationSlide.addText(modAnnotation.remark, {
+            x: 6.2, y: 4.5, w: 3.3, h: 0.5,
+            fontSize: 9, color: COLORS.secondary,
+          });
+        }
       }
     }
   }
 
-  // ========== HARDWARE DETAIL SLIDES (左图右文布局) ==========
+  // ========== HARDWARE DETAIL SLIDES ==========
   if (hardware) {
     progress = 88;
     onProgress(progress, isZh ? '生成硬件详情...' : 'Generating hardware details...', isZh ? '硬件详情页' : 'Hardware details');
 
-    // Get unique hardware IDs used in modules
     const usedCameraIds = new Set(modules.filter(m => m.selected_camera).map(m => m.selected_camera));
     const usedLensIds = new Set(modules.filter(m => m.selected_lens).map(m => m.selected_lens));
     const usedLightIds = new Set(modules.filter(m => m.selected_light).map(m => m.selected_light));
     const usedControllerIds = new Set(modules.filter(m => m.selected_controller).map(m => m.selected_controller));
 
-    // Filter to only used hardware
     const usedCameras = hardware.cameras.filter(c => usedCameraIds.has(c.id));
     const usedLenses = hardware.lenses.filter(l => usedLensIds.has(l.id));
     const usedLights = hardware.lights.filter(l => usedLightIds.has(l.id));
     const usedControllers = hardware.controllers.filter(c => usedControllerIds.has(c.id));
 
-    // Helper function to add hardware detail slide with left-image-right-text layout
     const addHardwareDetailSlide = async (
       title: string,
       subtitle: string,
@@ -1043,22 +1060,18 @@ export async function generatePPTX(
     ) => {
       const slide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
       
-      // Title
       slide.addText(title, {
         x: 0.5, y: 0.6, w: 9, h: 0.5,
         fontSize: 22, color: COLORS.dark, bold: true,
       });
 
-      // Subtitle
       slide.addText(subtitle, {
         x: 0.5, y: 1.05, w: 9, h: 0.3,
         fontSize: 12, color: COLORS.secondary,
       });
 
-      // Left side: Image placeholder or actual image
       if (imageUrl) {
         try {
-          // Add image on left side using dataUri
           const dataUri = await fetchImageAsDataUri(imageUrl);
           if (dataUri) {
             slide.addImage({
@@ -1070,7 +1083,6 @@ export async function generatePPTX(
             throw new Error('Failed to fetch image');
           }
         } catch (e) {
-          // Fallback to placeholder
           slide.addShape('rect', {
             x: 0.5, y: 1.5, w: 4, h: 3.5,
             fill: { color: COLORS.border },
@@ -1082,7 +1094,6 @@ export async function generatePPTX(
           });
         }
       } else {
-        // Placeholder for missing image
         slide.addShape('rect', {
           x: 0.5, y: 1.5, w: 4, h: 3.5,
           fill: { color: COLORS.border },
@@ -1094,7 +1105,6 @@ export async function generatePPTX(
         });
       }
 
-      // Right side: Info table
       slide.addText(isZh ? '规格参数' : 'Specifications', {
         x: 5, y: 1.5, w: 4.5, h: 0.4,
         fontSize: 14, color: COLORS.dark, bold: true,
@@ -1111,7 +1121,6 @@ export async function generatePPTX(
       });
     };
 
-    // Generate camera detail slides
     for (const camera of usedCameras) {
       const cameraInfoRows: TableRow[] = [
         row([isZh ? '品牌' : 'Brand', camera.brand]),
@@ -1129,7 +1138,6 @@ export async function generatePPTX(
       );
     }
 
-    // Generate lens detail slides
     for (const lens of usedLenses) {
       const lensInfoRows: TableRow[] = [
         row([isZh ? '品牌' : 'Brand', lens.brand]),
@@ -1146,7 +1154,6 @@ export async function generatePPTX(
       );
     }
 
-    // Generate light detail slides
     for (const light of usedLights) {
       const lightInfoRows: TableRow[] = [
         row([isZh ? '品牌' : 'Brand', light.brand]),
@@ -1163,7 +1170,6 @@ export async function generatePPTX(
       );
     }
 
-    // Generate controller detail slides
     for (const controller of usedControllers) {
       const controllerInfoRows: TableRow[] = [
         row([isZh ? '品牌' : 'Brand', controller.brand]),
@@ -1196,20 +1202,16 @@ export async function generatePPTX(
     fontSize: 24, color: COLORS.dark, bold: true,
   });
 
-  // Count hardware from both module-level and layout-level selections
-  // Module-level counts
   const moduleCameraCount = modules.filter(m => m.selected_camera).length;
   const moduleLensCount = modules.filter(m => m.selected_lens).length;
   const moduleLightCount = modules.filter(m => m.selected_light).length;
   const moduleControllerIds = new Set(modules.filter(m => m.selected_controller).map(m => m.selected_controller));
   
-  // Layout-level counts (workstation hardware configuration)
   const layoutCameraCount = layouts.reduce((sum, l) => sum + (l.selected_cameras?.filter(c => c)?.length || 0), 0);
   const layoutLensCount = layouts.reduce((sum, l) => sum + (l.selected_lenses?.filter(c => c)?.length || 0), 0);
   const layoutLightCount = layouts.reduce((sum, l) => sum + (l.selected_lights?.filter(c => c)?.length || 0), 0);
   const layoutControllerCount = layouts.filter(l => l.selected_controller).length;
   
-  // Total counts (prefer layout-level if available, otherwise use module-level)
   const totalCameraCount = layoutCameraCount > 0 ? layoutCameraCount : moduleCameraCount;
   const totalLensCount = layoutLensCount > 0 ? layoutLensCount : moduleLensCount;
   const totalLightCount = layoutLightCount > 0 ? layoutLightCount : moduleLightCount;
@@ -1245,7 +1247,6 @@ export async function generatePPTX(
     fill: { color: COLORS.dark },
   });
 
-  // Company name at top
   endSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
     x: 0.5, y: 1.5, w: 9, h: 0.5,
     fontSize: 16, color: COLORS.white, align: 'center',
