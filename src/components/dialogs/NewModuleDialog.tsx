@@ -32,8 +32,6 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
         type: form.type, 
         trigger_type: 'io', 
         output_types: ['okng'], 
-        flowchart_saved: false, 
-        status: 'draft',
         selected_camera: selectedCameras.length > 0 ? selectedCameras[0].id : null,
         selected_lens: selectedLenses.length > 0 ? selectedLenses[0].id : null,
         selected_light: selectedLights.length > 0 ? selectedLights[0].id : null,

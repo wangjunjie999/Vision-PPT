@@ -7,29 +7,24 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
 import { 
-  Save, RotateCcw, Grid3X3, Magnet, Ruler, Plus, Minus, 
-  Camera, Trash2, Move, Lock, Unlock, Loader2, Check
+  Save, RotateCcw, Grid3X3, Magnet, Ruler, Plus, 
+  Camera, Trash2, Lock, Unlock, Loader2, Copy, 
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
+import { CanvasControls } from './CanvasControls';
 
 type ViewType = 'front' | 'side' | 'top';
-
-interface LayoutObject {
-  id: string;
-  type: 'camera' | 'mechanism';
-  mechanismId?: string;
-  mechanismType?: string;
-  name: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  locked: boolean;
-  cameraIndex?: number;
-}
 
 interface DraggableLayoutCanvasProps {
   workstationId: string;
@@ -61,12 +56,25 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const [isSaving, setIsSaving] = useState(false);
   const [mechanismCounts, setMechanismCounts] = useState<Record<string, number>>({});
   
+  // Zoom and pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [panMode, setPanMode] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  
+  // Grid size selection
+  const [gridSize, setGridSize] = useState(20);
+  
+  // Show property panel
+  const [showPropertyPanel, setShowPropertyPanel] = useState(false);
+  
   const canvasRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   // Canvas dimensions
-  const canvasWidth = 900;
-  const canvasHeight = 600;
-  const gridSize = 20;
+  const canvasWidth = 1200;
+  const canvasHeight = 800;
   const centerX = canvasWidth / 2;
   const centerY = canvasHeight / 2;
   
@@ -107,13 +115,93 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     setMechanismCounts(counts);
   }, [objects]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Space for pan mode
+      if (e.code === 'Space' && !e.repeat) {
+        setPanMode(true);
+      }
+      
+      if (!selectedId) return;
+      
+      const selectedObj = objects.find(o => o.id === selectedId);
+      if (!selectedObj || selectedObj.locked) return;
+      
+      const nudgeAmount = e.shiftKey ? 10 : 1;
+      
+      switch (e.key) {
+        case 'Delete':
+        case 'Backspace':
+          deleteObject(selectedId);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          updateObject(selectedId, { y: selectedObj.y - nudgeAmount * scale });
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          updateObject(selectedId, { y: selectedObj.y + nudgeAmount * scale });
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          updateObject(selectedId, { x: selectedObj.x - nudgeAmount * scale });
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          updateObject(selectedId, { x: selectedObj.x + nudgeAmount * scale });
+          break;
+        case 'd':
+        case 'D':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            duplicateObject(selectedId);
+          }
+          break;
+        case 'Escape':
+          setSelectedId(null);
+          setSecondSelectedId(null);
+          setShowPropertyPanel(false);
+          break;
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setPanMode(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [selectedId, objects]);
+
   const snapToGrid = useCallback((value: number) => {
     if (!snapEnabled) return value;
     return Math.round(value / gridSize) * gridSize;
   }, [snapEnabled, gridSize]);
 
+  // Convert screen coordinates to SVG coordinates
+  const screenToSvg = useCallback((clientX: number, clientY: number) => {
+    const svg = canvasRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    
+    const rect = svg.getBoundingClientRect();
+    const scaleX = canvasWidth / rect.width;
+    const scaleY = canvasHeight / rect.height;
+    
+    return {
+      x: (clientX - rect.left) * scaleX / zoom - pan.x / zoom,
+      y: (clientY - rect.top) * scaleY / zoom - pan.y / zoom,
+    };
+  }, [zoom, pan]);
+
   const handleMouseDown = (e: React.MouseEvent, obj: LayoutObject) => {
-    if (obj.locked) return;
+    if (obj.locked || panMode) return;
     e.stopPropagation();
     
     // Handle multi-selection with shift key
@@ -124,33 +212,31 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     
     setSelectedId(obj.id);
     setSecondSelectedId(null);
+    setShowPropertyPanel(true);
     setIsDragging(true);
     
-    const svg = canvasRef.current;
-    if (!svg) return;
-    
-    const rect = svg.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * canvasWidth;
-    const svgY = ((e.clientY - rect.top) / rect.height) * canvasHeight;
-    
+    const pos = screenToSvg(e.clientX, e.clientY);
     setDragOffset({
-      x: svgX - obj.x,
-      y: svgY - obj.y
+      x: pos.x - obj.x,
+      y: pos.y - obj.y
     });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // Handle panning
+    if (isPanning && panMode) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      setPan({ x: pan.x + dx, y: pan.y + dy });
+      setPanStart({ x: e.clientX, y: e.clientY });
+      return;
+    }
+    
     if (!isDragging || !selectedId) return;
     
-    const svg = canvasRef.current;
-    if (!svg) return;
-    
-    const rect = svg.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * canvasWidth;
-    const svgY = ((e.clientY - rect.top) / rect.height) * canvasHeight;
-    
-    const newX = snapToGrid(svgX - dragOffset.x);
-    const newY = snapToGrid(svgY - dragOffset.y);
+    const pos = screenToSvg(e.clientX, e.clientY);
+    const newX = snapToGrid(pos.x - dragOffset.x);
+    const newY = snapToGrid(pos.y - dragOffset.y);
     
     setObjects(prev => prev.map(obj => 
       obj.id === selectedId ? { ...obj, x: newX, y: newY } : obj
@@ -159,11 +245,68 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   const handleMouseUp = () => {
     setIsDragging(false);
+    setIsPanning(false);
   };
 
-  const handleCanvasClick = () => {
-    setSelectedId(null);
-    setSecondSelectedId(null);
+  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    if (panMode) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+    } else {
+      setSelectedId(null);
+      setSecondSelectedId(null);
+      setShowPropertyPanel(false);
+    }
+  };
+
+  // Handle wheel zoom
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoom(prev => Math.min(3, Math.max(0.25, prev + delta)));
+  };
+
+  const updateObject = (id: string, updates: Partial<LayoutObject>) => {
+    setObjects(prev => prev.map(obj => 
+      obj.id === id ? { ...obj, ...updates } : obj
+    ));
+  };
+
+  const deleteObject = (id: string) => {
+    setObjects(prev => prev.filter(o => o.id !== id));
+    if (selectedId === id) {
+      setSelectedId(null);
+      setShowPropertyPanel(false);
+    }
+    if (secondSelectedId === id) {
+      setSecondSelectedId(null);
+    }
+  };
+
+  const duplicateObject = (id: string) => {
+    const obj = objects.find(o => o.id === id);
+    if (!obj) return;
+    
+    const newObj: LayoutObject = {
+      ...obj,
+      id: `${obj.type}-${Date.now()}`,
+      x: obj.x + 40,
+      y: obj.y + 40,
+      locked: false,
+    };
+    
+    if (obj.type === 'camera') {
+      const cameraCount = objects.filter(o => o.type === 'camera').length;
+      newObj.name = `CAM${cameraCount + 1}`;
+      newObj.cameraIndex = cameraCount + 1;
+    } else if (obj.mechanismId) {
+      const mechCount = (mechanismCounts[obj.mechanismId] || 0) + 1;
+      const mech = mechanisms.find(m => m.id === obj.mechanismId);
+      newObj.name = `${mech?.name || 'Mechanism'}#${mechCount}`;
+    }
+    
+    setObjects(prev => [...prev, newObj]);
+    setSelectedId(newObj.id);
   };
 
   const addCamera = () => {
@@ -172,15 +315,17 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       id: `camera-${Date.now()}`,
       type: 'camera',
       name: `CAM${cameraCount + 1}`,
-      x: centerX + (cameraCount * 60 - 60),
-      y: centerY - 150,
-      width: 40,
-      height: 50,
+      x: centerX + (cameraCount * 80 - 80),
+      y: centerY - 180,
+      width: 50,
+      height: 60,
       rotation: 0,
       locked: false,
       cameraIndex: cameraCount + 1,
     };
     setObjects(prev => [...prev, newCamera]);
+    setSelectedId(newCamera.id);
+    setShowPropertyPanel(true);
   };
 
   const addMechanism = (mechanism: Mechanism) => {
@@ -191,27 +336,16 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       mechanismId: mechanism.id,
       mechanismType: mechanism.type,
       name: `${mechanism.name}#${count + 1}`,
-      x: centerX + 100 + (count * 30),
-      y: centerY + 80,
-      width: (mechanism.default_width || 80) * scale,
-      height: (mechanism.default_height || 60) * scale,
+      x: centerX + 120 + (count * 40),
+      y: centerY + 100,
+      width: (mechanism.default_width || 100) * scale,
+      height: (mechanism.default_height || 80) * scale,
       rotation: 0,
       locked: false,
     };
     setObjects(prev => [...prev, newMech]);
-  };
-
-  const deleteSelected = () => {
-    if (!selectedId) return;
-    setObjects(prev => prev.filter(o => o.id !== selectedId));
-    setSelectedId(null);
-  };
-
-  const toggleLock = () => {
-    if (!selectedId) return;
-    setObjects(prev => prev.map(o => 
-      o.id === selectedId ? { ...o, locked: !o.locked } : o
-    ));
+    setSelectedId(newMech.id);
+    setShowPropertyPanel(true);
   };
 
   const handleSave = async () => {
@@ -246,6 +380,17 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     if (!confirm('确定要重置布局吗？所有对象将被清除。')) return;
     setObjects([]);
     setSelectedId(null);
+    setShowPropertyPanel(false);
+  };
+
+  const fitToScreen = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const resetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
   };
 
   // Calculate distance between two objects or from product center
@@ -283,8 +428,12 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   if (!workstation) return null;
 
+  // Current product dimensions based on view
+  const currentProductW = currentView === 'side' ? productD : productW;
+  const currentProductH = currentView === 'top' ? productD : productH;
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden relative">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-card border-b border-border">
         {/* Left: View tabs */}
@@ -294,10 +443,10 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               key={view}
               onClick={() => setCurrentView(view)}
               className={cn(
-                'px-3 py-1.5 text-sm rounded-md transition-colors',
+                'px-4 py-2 text-sm font-medium rounded-md transition-all',
                 currentView === view 
-                  ? 'bg-primary text-primary-foreground' 
-                  : 'bg-muted hover:bg-muted/80'
+                  ? 'bg-primary text-primary-foreground shadow-md' 
+                  : 'bg-muted hover:bg-muted/80 text-muted-foreground'
               )}
             >
               {view === 'front' ? '正视图' : view === 'side' ? '侧视图' : '俯视图'}
@@ -307,84 +456,92 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         
         {/* Center: Add objects */}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={addCamera} className="gap-1">
+          <Button variant="default" size="sm" onClick={addCamera} className="gap-2">
             <Camera className="h-4 w-4" />
             添加相机
           </Button>
           
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1">
+              <Button variant="outline" size="sm" className="gap-2">
                 <Plus className="h-4 w-4" />
                 添加机构
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 p-2" align="start">
-              <div className="space-y-1 max-h-64 overflow-y-auto">
-                {enabledMechanisms.map(mech => (
-                  <button
-                    key={mech.id}
-                    onClick={() => addMechanism(mech)}
-                    className="w-full flex items-center gap-2 p-2 rounded hover:bg-muted text-left text-sm"
-                  >
-                    <div className="w-8 h-8 rounded bg-muted flex items-center justify-center overflow-hidden">
-                      {mech.front_view_image_url ? (
-                        <img src={mech.front_view_image_url} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-xs">📦</span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{mech.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {mechanismCounts[mech.id] ? `已添加 ${mechanismCounts[mech.id]} 个` : '点击添加'}
+            <PopoverContent className="w-72 p-2" align="start">
+              <div className="space-y-1 max-h-72 overflow-y-auto">
+                {enabledMechanisms.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-3 text-center">暂无可用机构</p>
+                ) : (
+                  enabledMechanisms.map(mech => (
+                    <button
+                      key={mech.id}
+                      onClick={() => addMechanism(mech)}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted text-left transition-colors"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-600/10 flex items-center justify-center overflow-hidden border border-orange-500/20">
+                        {mech.front_view_image_url ? (
+                          <img src={mech.front_view_image_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-lg">⚙️</span>
+                        )}
                       </div>
-                    </div>
-                  </button>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{mech.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {mechanismCounts[mech.id] ? `已添加 ${mechanismCounts[mech.id]} 个` : '点击添加'}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </PopoverContent>
           </Popover>
-          
-          {selectedId && (
-            <>
-              <Button variant="ghost" size="icon" onClick={toggleLock} className="h-8 w-8">
-                {selectedObj?.locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-              </Button>
-              <Button variant="ghost" size="icon" onClick={deleteSelected} className="h-8 w-8 text-destructive">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </>
-          )}
         </div>
         
         {/* Right: Settings and save */}
         <div className="flex items-center gap-3">
+          {/* Grid Size */}
+          <Select value={gridSize.toString()} onValueChange={(v) => setGridSize(parseInt(v))}>
+            <SelectTrigger className="w-20 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10px</SelectItem>
+              <SelectItem value="20">20px</SelectItem>
+              <SelectItem value="40">40px</SelectItem>
+            </SelectContent>
+          </Select>
+          
           <div className="flex items-center gap-1.5">
             <Switch checked={gridEnabled} onCheckedChange={setGridEnabled} id="grid" />
-            <Label htmlFor="grid" className="text-xs cursor-pointer">
+            <Label htmlFor="grid" className="text-xs cursor-pointer flex items-center gap-1">
               <Grid3X3 className="h-3.5 w-3.5" />
+              网格
             </Label>
           </div>
           <div className="flex items-center gap-1.5">
             <Switch checked={snapEnabled} onCheckedChange={setSnapEnabled} id="snap" />
-            <Label htmlFor="snap" className="text-xs cursor-pointer">
+            <Label htmlFor="snap" className="text-xs cursor-pointer flex items-center gap-1">
               <Magnet className="h-3.5 w-3.5" />
+              吸附
             </Label>
           </div>
           <div className="flex items-center gap-1.5">
             <Switch checked={showDistances} onCheckedChange={setShowDistances} id="dist" />
-            <Label htmlFor="dist" className="text-xs cursor-pointer">
+            <Label htmlFor="dist" className="text-xs cursor-pointer flex items-center gap-1">
               <Ruler className="h-3.5 w-3.5" />
+              距离
             </Label>
           </div>
           
-          <div className="h-4 w-px bg-border" />
+          <div className="h-5 w-px bg-border" />
           
-          <Button variant="outline" size="sm" onClick={resetLayout}>
+          <Button variant="outline" size="sm" onClick={resetLayout} className="gap-1">
             <RotateCcw className="h-4 w-4" />
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving} className="gap-1">
+          <Button size="sm" onClick={handleSave} disabled={isSaving} className="gap-2">
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             保存布局
           </Button>
@@ -394,248 +551,417 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       {/* Objects count summary */}
       <div className="flex items-center gap-2 px-4 py-2 bg-muted/30 border-b border-border text-sm">
         <span className="text-muted-foreground">当前布局:</span>
-        <Badge variant="secondary">
-          相机 {objects.filter(o => o.type === 'camera').length}
+        <Badge variant="secondary" className="gap-1">
+          <Camera className="h-3 w-3" />
+          {objects.filter(o => o.type === 'camera').length} 相机
         </Badge>
         {Object.entries(mechanismCounts).map(([mechId, count]) => {
           const mech = mechanisms.find(m => m.id === mechId);
           return mech ? (
-            <Badge key={mechId} variant="outline">
+            <Badge key={mechId} variant="outline" className="gap-1">
               {mech.name} ×{count}
             </Badge>
           ) : null;
         })}
+        {selectedId && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            已选中: {selectedObj?.name} | 按 Delete 删除 | Ctrl+D 复制
+          </span>
+        )}
       </div>
       
-      {/* Canvas */}
-      <div className="flex-1 p-4 overflow-hidden">
-        <svg
-          ref={canvasRef}
-          viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
-          className="w-full h-full bg-slate-900 rounded-lg"
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onClick={handleCanvasClick}
-        >
-          <defs>
-            <pattern id="grid-pattern" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
-              <path 
-                d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} 
-                fill="none" 
-                stroke="#334155" 
-                strokeWidth="0.5" 
-              />
-            </pattern>
-            <linearGradient id="product-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#06b6d4" />
-              <stop offset="100%" stopColor="#0891b2" />
-            </linearGradient>
-          </defs>
-          
-          {/* Grid */}
-          {gridEnabled && (
-            <rect width={canvasWidth} height={canvasHeight} fill="url(#grid-pattern)" />
-          )}
-          
-          {/* View label */}
-          <text x={centerX} y={30} textAnchor="middle" fill="#e2e8f0" fontSize="16" fontWeight="600">
-            {currentView === 'front' ? '正视图 (Front View)' : currentView === 'side' ? '侧视图 (Side View)' : '俯视图 (Top View)'}
-          </text>
-          
-          {/* Product (center reference) */}
-          <g>
-            <rect
-              x={centerX - (currentView === 'side' ? productD : productW) / 2}
-              y={centerY - (currentView === 'top' ? productD : productH) / 2}
-              width={currentView === 'side' ? productD : productW}
-              height={currentView === 'top' ? productD : productH}
-              fill="url(#product-grad)"
-              stroke="#22d3ee"
-              strokeWidth="2"
-              rx={4}
-            />
-            <text
-              x={centerX}
-              y={centerY + 4}
-              textAnchor="middle"
-              fill="#ffffff"
-              fontSize="12"
-              fontWeight="600"
+      {/* Canvas Container */}
+      <div 
+        ref={containerRef}
+        className="flex-1 overflow-hidden relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"
+      >
+        {/* Canvas */}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <svg
+              ref={canvasRef}
+              viewBox={`${-pan.x / zoom} ${-pan.y / zoom} ${canvasWidth / zoom} ${canvasHeight / zoom}`}
+              className={cn(
+                "w-full h-full",
+                panMode ? "cursor-grab" : "cursor-default",
+                isPanning && "cursor-grabbing"
+              )}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onMouseDown={handleCanvasMouseDown}
+              onWheel={handleWheel}
             >
-              产品
-            </text>
-            <text
-              x={centerX}
-              y={centerY + 18}
-              textAnchor="middle"
-              fill="#ffffff"
-              fontSize="10"
-              opacity="0.8"
-            >
-              {productDimensions.length}×{productDimensions.width}×{productDimensions.height}mm
-            </text>
-          </g>
-          
-          {/* Draggable objects */}
-          {objects.map(obj => {
-            const isSelected = obj.id === selectedId;
-            const isSecondSelected = obj.id === secondSelectedId;
-            const mechImage = obj.type === 'mechanism' ? getMechanismImage(obj) : null;
-            
-            return (
-              <g 
-                key={obj.id}
-                transform={`translate(${obj.x}, ${obj.y}) rotate(${obj.rotation})`}
-                onMouseDown={(e) => handleMouseDown(e, obj)}
-                style={{ cursor: obj.locked ? 'not-allowed' : 'move' }}
-              >
-                {/* Object body */}
-                {obj.type === 'camera' ? (
-                  <>
-                    <rect
-                      x={-obj.width / 2}
-                      y={-obj.height / 2}
-                      width={obj.width}
-                      height={obj.height}
-                      fill={isSelected ? '#3b82f6' : '#2563eb'}
-                      stroke={isSelected ? '#60a5fa' : '#1d4ed8'}
-                      strokeWidth={isSelected ? 3 : 2}
-                      rx={4}
-                    />
-                    <circle cx={0} cy={obj.height / 4} r={8} fill="#1e40af" stroke="#3b82f6" strokeWidth="1.5" />
-                    <text x={0} y={-obj.height / 2 - 8} textAnchor="middle" fill="#e2e8f0" fontSize="11" fontWeight="600">
-                      {obj.name}
-                    </text>
-                  </>
-                ) : (
-                  <>
-                    {mechImage ? (
-                      <image
-                        href={mechImage}
-                        x={-obj.width / 2}
-                        y={-obj.height / 2}
-                        width={obj.width}
-                        height={obj.height}
-                        preserveAspectRatio="xMidYMid meet"
-                        style={{ pointerEvents: 'none' }}
-                      />
-                    ) : (
-                      <rect
-                        x={-obj.width / 2}
-                        y={-obj.height / 2}
-                        width={obj.width}
-                        height={obj.height}
-                        fill={isSelected ? '#f97316' : '#ea580c'}
-                        stroke={isSelected ? '#fb923c' : '#c2410c'}
-                        strokeWidth={isSelected ? 3 : 2}
-                        rx={4}
-                      />
-                    )}
+              <defs>
+                {/* Grid pattern */}
+                <pattern id="grid-pattern" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
+                  <path 
+                    d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} 
+                    fill="none" 
+                    stroke="rgba(148, 163, 184, 0.15)" 
+                    strokeWidth="0.5" 
+                  />
+                </pattern>
+                <pattern id="grid-pattern-major" width={gridSize * 5} height={gridSize * 5} patternUnits="userSpaceOnUse">
+                  <path 
+                    d={`M ${gridSize * 5} 0 L 0 0 0 ${gridSize * 5}`} 
+                    fill="none" 
+                    stroke="rgba(148, 163, 184, 0.3)" 
+                    strokeWidth="1" 
+                  />
+                </pattern>
+                
+                {/* Product gradient */}
+                <linearGradient id="product-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.8" />
+                  <stop offset="100%" stopColor="#0891b2" stopOpacity="0.6" />
+                </linearGradient>
+                
+                {/* Camera gradient */}
+                <linearGradient id="camera-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#3b82f6" />
+                  <stop offset="100%" stopColor="#1d4ed8" />
+                </linearGradient>
+                
+                {/* Selected camera gradient */}
+                <linearGradient id="camera-selected-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#60a5fa" />
+                  <stop offset="100%" stopColor="#3b82f6" />
+                </linearGradient>
+                
+                {/* Mechanism gradient */}
+                <linearGradient id="mech-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#f97316" />
+                  <stop offset="100%" stopColor="#ea580c" />
+                </linearGradient>
+                
+                {/* Shadow filter */}
+                <filter id="drop-shadow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx="2" dy="4" stdDeviation="4" floodColor="#000" floodOpacity="0.3" />
+                </filter>
+                
+                {/* Glow filter for selected */}
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                  <feMerge>
+                    <feMergeNode in="coloredBlur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              
+              {/* Grid */}
+              {gridEnabled && (
+                <>
+                  <rect x={-pan.x / zoom} y={-pan.y / zoom} width={canvasWidth * 2} height={canvasHeight * 2} fill="url(#grid-pattern)" />
+                  <rect x={-pan.x / zoom} y={-pan.y / zoom} width={canvasWidth * 2} height={canvasHeight * 2} fill="url(#grid-pattern-major)" />
+                </>
+              )}
+              
+              {/* Axis lines */}
+              <line x1={0} y1={centerY} x2={canvasWidth} y2={centerY} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="8 4" />
+              <line x1={centerX} y1={0} x2={centerX} y2={canvasHeight} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="8 4" />
+              
+              {/* View label */}
+              <g transform={`translate(${centerX}, 40)`}>
+                <rect x={-80} y={-16} width={160} height={32} rx={8} fill="rgba(30, 41, 59, 0.9)" />
+                <text x={0} y={6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="600">
+                  {currentView === 'front' ? '🎯 正视图 (Front)' : currentView === 'side' ? '📐 侧视图 (Side)' : '🔍 俯视图 (Top)'}
+                </text>
+              </g>
+              
+              {/* Product (center reference) */}
+              <g filter="url(#drop-shadow)">
+                <rect
+                  x={centerX - currentProductW / 2}
+                  y={centerY - currentProductH / 2}
+                  width={currentProductW}
+                  height={currentProductH}
+                  fill="url(#product-grad)"
+                  stroke="#22d3ee"
+                  strokeWidth="2"
+                  rx={6}
+                />
+                {/* Product cross-hair */}
+                <line x1={centerX - 15} y1={centerY} x2={centerX + 15} y2={centerY} stroke="#fff" strokeWidth="1" opacity="0.5" />
+                <line x1={centerX} y1={centerY - 15} x2={centerX} y2={centerY + 15} stroke="#fff" strokeWidth="1" opacity="0.5" />
+                <circle cx={centerX} cy={centerY} r={4} fill="#fff" opacity="0.7" />
+                
+                <text
+                  x={centerX}
+                  y={centerY + currentProductH / 2 + 20}
+                  textAnchor="middle"
+                  fill="#94a3b8"
+                  fontSize="11"
+                >
+                  产品 {productDimensions.length}×{productDimensions.width}×{productDimensions.height}mm
+                </text>
+              </g>
+              
+              {/* Draggable objects */}
+              {objects.map(obj => {
+                const isSelected = obj.id === selectedId;
+                const isSecondSelected = obj.id === secondSelectedId;
+                const mechImage = obj.type === 'mechanism' ? getMechanismImage(obj) : null;
+                
+                return (
+                  <g 
+                    key={obj.id}
+                    transform={`translate(${obj.x}, ${obj.y}) rotate(${obj.rotation})`}
+                    onMouseDown={(e) => handleMouseDown(e, obj)}
+                    style={{ cursor: obj.locked ? 'not-allowed' : panMode ? 'inherit' : 'move' }}
+                    filter={isSelected ? "url(#glow)" : "url(#drop-shadow)"}
+                  >
+                    {/* Selection outline */}
                     {(isSelected || isSecondSelected) && (
                       <rect
-                        x={-obj.width / 2 - 4}
-                        y={-obj.height / 2 - 4}
-                        width={obj.width + 8}
-                        height={obj.height + 8}
+                        x={-obj.width / 2 - 6}
+                        y={-obj.height / 2 - 6}
+                        width={obj.width + 12}
+                        height={obj.height + 12}
                         fill="none"
                         stroke={isSecondSelected ? '#22c55e' : '#60a5fa'}
                         strokeWidth="2"
-                        strokeDasharray="4 2"
-                        rx={6}
+                        strokeDasharray="6 3"
+                        rx={8}
+                        className="animate-pulse"
                       />
                     )}
-                    <text x={0} y={obj.height / 2 + 16} textAnchor="middle" fill="#e2e8f0" fontSize="10" fontWeight="500">
-                      {obj.name}
-                    </text>
-                  </>
-                )}
-                
-                {/* Lock indicator */}
-                {obj.locked && (
-                  <g transform={`translate(${obj.width / 2 - 8}, ${-obj.height / 2 - 8})`}>
-                    <circle r={8} fill="#1e293b" stroke="#64748b" />
-                    <text x={0} y={4} textAnchor="middle" fill="#94a3b8" fontSize="10">🔒</text>
+                    
+                    {/* Object body */}
+                    {obj.type === 'camera' ? (
+                      <>
+                        {/* Camera body */}
+                        <rect
+                          x={-obj.width / 2}
+                          y={-obj.height / 2}
+                          width={obj.width}
+                          height={obj.height}
+                          fill={isSelected ? 'url(#camera-selected-grad)' : 'url(#camera-grad)'}
+                          stroke={isSelected ? '#93c5fd' : '#3b82f6'}
+                          strokeWidth={isSelected ? 3 : 2}
+                          rx={6}
+                        />
+                        {/* Lens */}
+                        <circle cx={0} cy={obj.height / 4} r={10} fill="#1e3a8a" stroke="#60a5fa" strokeWidth="2" />
+                        <circle cx={0} cy={obj.height / 4} r={5} fill="#1e40af" />
+                        {/* Camera label */}
+                        <rect x={-20} y={-obj.height / 2 - 22} width={40} height={18} rx={4} fill="rgba(30, 41, 59, 0.95)" />
+                        <text x={0} y={-obj.height / 2 - 10} textAnchor="middle" fill="#60a5fa" fontSize="11" fontWeight="700">
+                          {obj.name}
+                        </text>
+                      </>
+                    ) : (
+                      <>
+                        {mechImage ? (
+                          <>
+                            <rect
+                              x={-obj.width / 2 - 2}
+                              y={-obj.height / 2 - 2}
+                              width={obj.width + 4}
+                              height={obj.height + 4}
+                              fill="rgba(30, 41, 59, 0.9)"
+                              stroke={isSelected ? '#fb923c' : '#ea580c'}
+                              strokeWidth={isSelected ? 3 : 2}
+                              rx={6}
+                            />
+                            <image
+                              href={mechImage}
+                              x={-obj.width / 2}
+                              y={-obj.height / 2}
+                              width={obj.width}
+                              height={obj.height}
+                              preserveAspectRatio="xMidYMid meet"
+                              style={{ pointerEvents: 'none' }}
+                            />
+                          </>
+                        ) : (
+                          <rect
+                            x={-obj.width / 2}
+                            y={-obj.height / 2}
+                            width={obj.width}
+                            height={obj.height}
+                            fill={isSelected ? 'url(#mech-grad)' : '#ea580c'}
+                            stroke={isSelected ? '#fdba74' : '#c2410c'}
+                            strokeWidth={isSelected ? 3 : 2}
+                            rx={6}
+                          />
+                        )}
+                        {/* Mechanism label */}
+                        <rect x={-obj.width / 2} y={obj.height / 2 + 4} width={obj.width} height={18} rx={4} fill="rgba(30, 41, 59, 0.95)" />
+                        <text x={0} y={obj.height / 2 + 16} textAnchor="middle" fill="#fdba74" fontSize="10" fontWeight="600">
+                          {obj.name}
+                        </text>
+                      </>
+                    )}
+                    
+                    {/* Lock indicator */}
+                    {obj.locked && (
+                      <g transform={`translate(${obj.width / 2 - 6}, ${-obj.height / 2 - 6})`}>
+                        <circle r={10} fill="#1e293b" stroke="#64748b" strokeWidth="1.5" />
+                        <Lock x={-5} y={-5} width={10} height={10} className="text-amber-400" />
+                      </g>
+                    )}
+                    
+                    {/* Rotation indicator for selected */}
+                    {isSelected && obj.rotation !== 0 && (
+                      <text x={obj.width / 2 + 8} y={0} fill="#94a3b8" fontSize="9">
+                        {obj.rotation}°
+                      </text>
+                    )}
                   </g>
-                )}
-              </g>
-            );
-          })}
-          
-          {/* Distance lines */}
-          {showDistances && selectedObj && (
-            <g>
-              {/* Distance to product center */}
-              <line
-                x1={selectedObj.x}
-                y1={selectedObj.y}
-                x2={centerX}
-                y2={centerY}
-                stroke="#fbbf24"
-                strokeWidth="1.5"
-                strokeDasharray="6 3"
-              />
-              <rect
-                x={(selectedObj.x + centerX) / 2 - 30}
-                y={(selectedObj.y + centerY) / 2 - 12}
-                width={60}
-                height={24}
-                fill="#1e293b"
-                stroke="#fbbf24"
-                rx={4}
-              />
-              <text
-                x={(selectedObj.x + centerX) / 2}
-                y={(selectedObj.y + centerY) / 2 + 4}
-                textAnchor="middle"
-                fill="#fbbf24"
-                fontSize="11"
-                fontWeight="600"
-              >
-                {getDistance(selectedObj)}mm
-              </text>
+                );
+              })}
               
-              {/* Distance between two selected objects */}
-              {secondObj && (
-                <>
+              {/* Distance lines */}
+              {showDistances && selectedObj && (
+                <g>
+                  {/* Distance to product center */}
                   <line
                     x1={selectedObj.x}
                     y1={selectedObj.y}
-                    x2={secondObj.x}
-                    y2={secondObj.y}
-                    stroke="#22c55e"
+                    x2={centerX}
+                    y2={centerY}
+                    stroke="#fbbf24"
                     strokeWidth="2"
-                    strokeDasharray="6 3"
+                    strokeDasharray="8 4"
                   />
                   <rect
-                    x={(selectedObj.x + secondObj.x) / 2 - 35}
-                    y={(selectedObj.y + secondObj.y) / 2 - 12}
+                    x={(selectedObj.x + centerX) / 2 - 35}
+                    y={(selectedObj.y + centerY) / 2 - 14}
                     width={70}
-                    height={24}
-                    fill="#1e293b"
-                    stroke="#22c55e"
-                    rx={4}
+                    height={28}
+                    fill="rgba(30, 41, 59, 0.95)"
+                    stroke="#fbbf24"
+                    strokeWidth="1.5"
+                    rx={6}
                   />
                   <text
-                    x={(selectedObj.x + secondObj.x) / 2}
-                    y={(selectedObj.y + secondObj.y) / 2 + 4}
+                    x={(selectedObj.x + centerX) / 2}
+                    y={(selectedObj.y + centerY) / 2 + 5}
                     textAnchor="middle"
-                    fill="#22c55e"
-                    fontSize="11"
-                    fontWeight="600"
+                    fill="#fbbf24"
+                    fontSize="12"
+                    fontWeight="700"
                   >
-                    {getDistance(selectedObj, secondObj)}mm
+                    {getDistance(selectedObj)}mm
                   </text>
-                </>
+                  
+                  {/* Distance between two selected objects */}
+                  {secondObj && (
+                    <>
+                      <line
+                        x1={selectedObj.x}
+                        y1={selectedObj.y}
+                        x2={secondObj.x}
+                        y2={secondObj.y}
+                        stroke="#22c55e"
+                        strokeWidth="2.5"
+                        strokeDasharray="8 4"
+                      />
+                      <rect
+                        x={(selectedObj.x + secondObj.x) / 2 - 40}
+                        y={(selectedObj.y + secondObj.y) / 2 - 14}
+                        width={80}
+                        height={28}
+                        fill="rgba(30, 41, 59, 0.95)"
+                        stroke="#22c55e"
+                        strokeWidth="1.5"
+                        rx={6}
+                      />
+                      <text
+                        x={(selectedObj.x + secondObj.x) / 2}
+                        y={(selectedObj.y + secondObj.y) / 2 + 5}
+                        textAnchor="middle"
+                        fill="#22c55e"
+                        fontSize="12"
+                        fontWeight="700"
+                      >
+                        {getDistance(selectedObj, secondObj)}mm
+                      </text>
+                    </>
+                  )}
+                </g>
               )}
-            </g>
-          )}
+              
+              {/* Instructions */}
+              <g transform={`translate(20, ${canvasHeight - 30})`}>
+                <rect x={-8} y={-14} width={420} height={24} rx={6} fill="rgba(30, 41, 59, 0.9)" />
+                <text fill="#94a3b8" fontSize="11">
+                  <tspan>点击选择</tspan>
+                  <tspan dx="8" fill="#64748b">|</tspan>
+                  <tspan dx="8">拖拽移动</tspan>
+                  <tspan dx="8" fill="#64748b">|</tspan>
+                  <tspan dx="8">Shift+点击测距</tspan>
+                  <tspan dx="8" fill="#64748b">|</tspan>
+                  <tspan dx="8">滚轮缩放</tspan>
+                  <tspan dx="8" fill="#64748b">|</tspan>
+                  <tspan dx="8">空格+拖拽平移</tspan>
+                </text>
+              </g>
+            </svg>
+          </ContextMenuTrigger>
           
-          {/* Instructions */}
-          <text x={20} y={canvasHeight - 20} fill="#64748b" fontSize="11">
-            点击选择对象 | 拖拽移动 | Shift+点击测量两点距离
-          </text>
-        </svg>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={addCamera} className="gap-2">
+              <Camera className="h-4 w-4" />
+              添加相机
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            {selectedId && (
+              <>
+                <ContextMenuItem onClick={() => duplicateObject(selectedId)} className="gap-2">
+                  <Copy className="h-4 w-4" />
+                  复制对象
+                </ContextMenuItem>
+                <ContextMenuItem 
+                  onClick={() => updateObject(selectedId, { locked: !selectedObj?.locked })}
+                  className="gap-2"
+                >
+                  {selectedObj?.locked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                  {selectedObj?.locked ? '解锁' : '锁定'}
+                </ContextMenuItem>
+                <ContextMenuItem 
+                  onClick={() => deleteObject(selectedId)}
+                  className="gap-2 text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  删除
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+              </>
+            )}
+            <ContextMenuItem onClick={fitToScreen} className="gap-2">
+              <Crosshair className="h-4 w-4" />
+              适应屏幕
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+        
+        {/* Property Panel */}
+        {showPropertyPanel && selectedObj && (
+          <ObjectPropertyPanel
+            object={selectedObj}
+            onUpdate={updateObject}
+            onDelete={deleteObject}
+            onClose={() => {
+              setShowPropertyPanel(false);
+              setSelectedId(null);
+            }}
+            scale={scale}
+            canvasCenter={{ x: centerX, y: centerY }}
+          />
+        )}
+        
+        {/* Zoom Controls */}
+        <CanvasControls
+          zoom={zoom}
+          onZoomChange={setZoom}
+          onFitToScreen={fitToScreen}
+          onResetView={resetView}
+          panMode={panMode}
+          onPanModeChange={setPanMode}
+        />
       </div>
     </div>
   );
