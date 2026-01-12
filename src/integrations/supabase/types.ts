@@ -450,6 +450,51 @@ export type Database = {
         }
         Relationships: []
       }
+      ppt_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          enabled: boolean | null
+          file_url: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          scope: string | null
+          structure_meta: Json | null
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean | null
+          file_url?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          scope?: string | null
+          structure_meta?: Json | null
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean | null
+          file_url?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          scope?: string | null
+          structure_meta?: Json | null
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
       product_annotations: {
         Row: {
           annotations_json: Json
