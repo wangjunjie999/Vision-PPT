@@ -1,16 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { 
   Trash2, Lock, Unlock, X, RotateCcw, Move, 
   Copy, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
   Maximize2, Minimize2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+type ViewType = 'front' | 'side' | 'top';
 
 export interface LayoutObject {
   id: string;
@@ -25,6 +28,10 @@ export interface LayoutObject {
   rotation: number;
   locked: boolean;
   cameraIndex?: number;
+  // 3D coordinates (optional, derived from view)
+  posX?: number;
+  posY?: number;
+  posZ?: number;
 }
 
 interface ObjectPropertyPanelProps {
@@ -34,6 +41,8 @@ interface ObjectPropertyPanelProps {
   onClose: () => void;
   scale: number;
   canvasCenter: { x: number; y: number };
+  currentView?: ViewType;
+  allObjects?: LayoutObject[];
 }
 
 export function ObjectPropertyPanel({
@@ -43,6 +52,8 @@ export function ObjectPropertyPanel({
   onClose,
   scale,
   canvasCenter,
+  currentView = 'front',
+  allObjects = [],
 }: ObjectPropertyPanelProps) {
   const [localValues, setLocalValues] = useState({
     x: 0,
@@ -138,6 +149,66 @@ export function ObjectPropertyPanel({
     )
   );
 
+  // Calculate 3D coordinates based on current view
+  const get3DCoordinates = useMemo(() => {
+    const canvasXmm = localValues.x;
+    const canvasYmm = localValues.y;
+    
+    let posX = 0, posY = 0, posZ = 0;
+    
+    switch (currentView) {
+      case 'front': // X-Z plane
+        posX = canvasXmm;
+        posZ = canvasYmm;
+        posY = 0;
+        break;
+      case 'side': // Y-Z plane
+        posY = canvasXmm;
+        posZ = canvasYmm;
+        posX = 0;
+        break;
+      case 'top': // X-Y plane
+        posX = canvasXmm;
+        posY = canvasYmm;
+        posZ = object.type === 'camera' ? 300 : 0; // Default camera height
+        break;
+    }
+    
+    return { posX, posY, posZ };
+  }, [localValues.x, localValues.y, currentView, object.type]);
+
+  // Get axis labels based on view
+  const axisLabels = useMemo(() => {
+    switch (currentView) {
+      case 'front': return { horizontal: 'X', vertical: 'Z' };
+      case 'side': return { horizontal: 'Y', vertical: 'Z' };
+      case 'top': return { horizontal: 'X', vertical: 'Y' };
+      default: return { horizontal: 'X', vertical: 'Z' };
+    }
+  }, [currentView]);
+
+  // Calculate distances to nearby objects
+  const nearbyDevices = useMemo(() => {
+    if (!allObjects || allObjects.length <= 1) return [];
+    
+    return allObjects
+      .filter(o => o.id !== object.id)
+      .map(o => {
+        const dx = ((o.x - canvasCenter.x) / scale) - localValues.x;
+        const dy = ((canvasCenter.y - o.y) / scale) - localValues.y;
+        const distance = Math.round(Math.sqrt(dx * dx + dy * dy));
+        return {
+          name: o.name,
+          type: o.type,
+          distance,
+          deltaX: Math.round(dx),
+          deltaY: Math.round(dy),
+        };
+      })
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 3); // Show top 3 nearest
+  }, [allObjects, object.id, localValues.x, localValues.y, scale, canvasCenter]);
+
   const typeColor = object.type === 'camera' ? 'bg-blue-500' : 'bg-orange-500';
   const typeLabel = object.type === 'camera' ? '相机' : '机构';
 
@@ -202,7 +273,7 @@ export function ObjectPropertyPanel({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <Label className="text-[10px] text-muted-foreground">X</Label>
+                  <Label className="text-[10px] text-red-400 font-semibold">{axisLabels.horizontal}</Label>
                   <div className="flex gap-0.5">
                     <Button 
                       variant="ghost" 
@@ -234,7 +305,7 @@ export function ObjectPropertyPanel({
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <Label className="text-[10px] text-muted-foreground">Y</Label>
+                  <Label className="text-[10px] text-green-400 font-semibold">{axisLabels.vertical}</Label>
                   <div className="flex gap-0.5">
                     <Button 
                       variant="ghost" 
@@ -266,11 +337,53 @@ export function ObjectPropertyPanel({
               </div>
             </div>
             
-            {/* Distance indicator */}
-            <div className="flex items-center justify-between px-2 py-1.5 rounded-md bg-muted/50 text-xs">
-              <span className="text-muted-foreground">距产品中心</span>
-              <span className="font-semibold text-foreground">{distanceFromCenter}mm</span>
+            {/* 3D Coordinates display */}
+            <div className="grid grid-cols-3 gap-1 p-2 rounded-lg bg-muted/30 border border-border">
+              <div className="text-center">
+                <div className="text-[9px] text-red-400 font-semibold">X</div>
+                <div className="text-xs font-mono font-semibold">{get3DCoordinates.posX}</div>
+              </div>
+              <div className="text-center border-x border-border">
+                <div className="text-[9px] text-green-400 font-semibold">Y</div>
+                <div className="text-xs font-mono font-semibold">{get3DCoordinates.posY}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-[9px] text-blue-400 font-semibold">Z</div>
+                <div className="text-xs font-mono font-semibold">{get3DCoordinates.posZ}</div>
+              </div>
             </div>
+            
+            {/* Distance indicator */}
+            <div className="flex items-center justify-between px-2 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-xs">
+              <span className="text-muted-foreground">距产品中心</span>
+              <span className="font-semibold text-amber-400">{distanceFromCenter}mm</span>
+            </div>
+            
+            {/* Nearby devices */}
+            {nearbyDevices.length > 0 && (
+              <div className="space-y-1.5 pt-2">
+                <Label className="text-[10px] text-muted-foreground">邻近设备间距</Label>
+                <div className="space-y-1">
+                  {nearbyDevices.map((device, i) => (
+                    <div 
+                      key={i}
+                      className="flex items-center justify-between px-2 py-1 rounded bg-muted/40 text-[10px]"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${device.type === 'camera' ? 'bg-blue-500' : 'bg-orange-500'}`} />
+                        <span className="text-muted-foreground truncate max-w-[80px]">{device.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">
+                          Δ{axisLabels.horizontal}:<span className="text-red-400 ml-0.5">{device.deltaX}</span>
+                        </span>
+                        <span className="font-mono font-semibold text-emerald-400">{device.distance}mm</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <Separator className="my-3" />

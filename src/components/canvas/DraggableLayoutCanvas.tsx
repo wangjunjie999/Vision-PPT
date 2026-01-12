@@ -25,8 +25,10 @@ import { toast } from 'sonner';
 import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
 import { CanvasControls } from './CanvasControls';
 import { AlignmentGuides, calculateSnapPosition } from './AlignmentGuides';
-import { DistanceAnnotations } from './DistanceAnnotations';
+import { EngineeringAnnotations } from './EngineeringAnnotations';
 import { ResizeHandles } from './ResizeHandles';
+import { CoordinateSystem } from './CoordinateSystem';
+import { DimensionTable } from './DimensionTable';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -78,6 +80,13 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   
   // Dragging object for alignment guides
   const [draggingObject, setDraggingObject] = useState<LayoutObject | null>(null);
+  
+  // Show dimension table
+  const [showDimensionTable, setShowDimensionTable] = useState(true);
+  
+  // Show camera spacing and working distance
+  const [showCameraSpacing, setShowCameraSpacing] = useState(true);
+  const [showWorkingDistance, setShowWorkingDistance] = useState(true);
   
   const canvasRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -584,7 +593,19 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             <Switch checked={showDistances} onCheckedChange={setShowDistances} id="dist" />
             <Label htmlFor="dist" className="text-xs cursor-pointer flex items-center gap-1">
               <Ruler className="h-3.5 w-3.5" />
-              距离标注
+              标注
+            </Label>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Switch checked={showCameraSpacing} onCheckedChange={setShowCameraSpacing} id="spacing" />
+            <Label htmlFor="spacing" className="text-xs cursor-pointer">
+              相机间距
+            </Label>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Switch checked={showDimensionTable} onCheckedChange={setShowDimensionTable} id="table" />
+            <Label htmlFor="table" className="text-xs cursor-pointer">
+              位置表
             </Label>
           </div>
           
@@ -883,16 +904,29 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                 />
               )}
               
-              {/* Distance annotations - using new component */}
+              {/* Coordinate system with axes and rulers */}
+              <CoordinateSystem
+                centerX={centerX}
+                centerY={centerY}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+                scale={scale}
+                currentView={currentView}
+                gridSize={gridSize}
+              />
+              
+              {/* Engineering annotations - camera spacing and working distance */}
               {showDistances && (
-                <DistanceAnnotations
+                <EngineeringAnnotations
                   objects={objects}
                   selectedObject={selectedObj || null}
                   secondSelectedObject={secondObj || null}
                   centerX={centerX}
                   centerY={centerY}
                   scale={scale}
-                  showAll={!selectedObj && showDistances}
+                  currentView={currentView}
+                  showCameraSpacing={showCameraSpacing}
+                  showWorkingDistance={showWorkingDistance}
                 />
               )}
               
@@ -952,6 +986,22 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           </ContextMenuContent>
         </ContextMenu>
         
+        {/* Dimension Table */}
+        {showDimensionTable && (
+          <DimensionTable
+            objects={objects}
+            centerX={centerX}
+            centerY={centerY}
+            scale={scale}
+            currentView={currentView}
+            selectedId={selectedId}
+            onSelectObject={(id) => {
+              setSelectedId(id);
+              setShowPropertyPanel(true);
+            }}
+          />
+        )}
+        
         {/* Property Panel */}
         {showPropertyPanel && selectedObj && (
           <ObjectPropertyPanel
@@ -964,6 +1014,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             }}
             scale={scale}
             canvasCenter={{ x: centerX, y: centerY }}
+            currentView={currentView}
+            allObjects={objects}
           />
         )}
         
