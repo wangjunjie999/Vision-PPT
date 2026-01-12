@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      asset_registry: {
+        Row: {
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at: string
+          file_path: string
+          file_size: number | null
+          file_url: string
+          id: string
+          is_current: boolean
+          metadata: Json | null
+          mime_type: string | null
+          original_name: string | null
+          related_id: string
+          related_type: string
+          standard_name: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          file_path: string
+          file_size?: number | null
+          file_url: string
+          id?: string
+          is_current?: boolean
+          metadata?: Json | null
+          mime_type?: string | null
+          original_name?: string | null
+          related_id: string
+          related_type: string
+          standard_name: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          asset_type?: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          file_path?: string
+          file_size?: number | null
+          file_url?: string
+          id?: string
+          is_current?: boolean
+          metadata?: Json | null
+          mime_type?: string | null
+          original_name?: string | null
+          related_id?: string
+          related_type?: string
+          standard_name?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
       cameras: {
         Row: {
           brand: string
@@ -741,6 +798,16 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      asset_type:
+        | "workstation_product"
+        | "module_annotation"
+        | "layout_front_view"
+        | "layout_side_view"
+        | "layout_top_view"
+        | "module_schematic"
+        | "hardware_image"
+        | "mechanism_view"
+        | "ppt_template"
       product_scope_type: "workstation" | "module"
     }
     CompositeTypes: {
@@ -869,6 +936,17 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      asset_type: [
+        "workstation_product",
+        "module_annotation",
+        "layout_front_view",
+        "layout_side_view",
+        "layout_top_view",
+        "module_schematic",
+        "hardware_image",
+        "mechanism_view",
+        "ppt_template",
+      ],
       product_scope_type: ["workstation", "module"],
     },
   },
