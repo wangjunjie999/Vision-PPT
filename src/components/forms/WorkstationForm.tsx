@@ -297,8 +297,11 @@ export function WorkstationForm() {
         mechanisms: layoutForm.mechanisms,
         front_view_saved: (layout as any)?.front_view_saved || false, 
         side_view_saved: (layout as any)?.side_view_saved || false, 
-        top_view_saved: (layout as any)?.top_view_saved || false, 
-        status: 'draft' 
+        top_view_saved: (layout as any)?.top_view_saved || false,
+        selected_cameras: layoutForm.selectedCameras,
+        selected_lenses: layoutForm.selectedLenses,
+        selected_lights: layoutForm.selectedLights,
+        selected_controller: layoutForm.selectedController,
       } as any);
       
       toast.success('工位配置已保存');
