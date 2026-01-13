@@ -31,6 +31,7 @@ import { CoordinateSystem } from './CoordinateSystem';
 import { DimensionTable } from './DimensionTable';
 import { MechanismSVG, getMechanismMountPoints, type CameraMountPoint } from './MechanismSVG';
 import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } from './CameraMountPoints';
+import { getMechanismImage } from '@/utils/mechanismImageUrls';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -484,11 +485,23 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const secondObj = objects.find(o => o.id === secondSelectedId);
   const enabledMechanisms = getEnabledMechanisms();
 
-  // Get mechanism image URL for current view
-  const getMechanismImage = (obj: LayoutObject) => {
+  // Get mechanism image URL for current view - prioritize local assets
+  const getMechanismImageForObject = (obj: LayoutObject) => {
+    // First try to get from local bundled assets using mechanism type
+    if (obj.mechanismType) {
+      const localImage = getMechanismImage(obj.mechanismType, currentView);
+      if (localImage) return localImage;
+    }
+    
+    // Fallback to database URLs
     const mech = mechanisms.find(m => m.id === obj.mechanismId);
     if (!mech) return null;
     
+    // Try local assets by mechanism type from database
+    const localImage = getMechanismImage(mech.type, currentView);
+    if (localImage) return localImage;
+    
+    // Last resort: database URLs (might not work if they're file paths)
     switch (currentView) {
       case 'front': return mech.front_view_image_url;
       case 'side': return mech.side_view_image_url;
@@ -792,7 +805,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               {objects.map(obj => {
                 const isSelected = obj.id === selectedId;
                 const isSecondSelected = obj.id === secondSelectedId;
-                const mechImage = obj.type === 'mechanism' ? getMechanismImage(obj) : null;
+                const mechImage = obj.type === 'mechanism' ? getMechanismImageForObject(obj) : null;
                 
                 return (
                   <g 
