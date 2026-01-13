@@ -116,7 +116,7 @@ export function ObjectPropertyPanel({
     }
   }, [object, scale, canvasCenter]);
 
-  if (!object) return null;
+  // Early return moved after all hooks - see below
 
   const handlePositionChange = (axis: 'x' | 'y', value: string) => {
     const num = parseFloat(value) || 0;
@@ -207,12 +207,12 @@ export function ObjectPropertyPanel({
       case 'top': // X-Y plane
         posX = canvasXmm;
         posY = canvasYmm;
-        posZ = object.type === 'camera' ? 300 : 0; // Default camera height
+        posZ = object?.type === 'camera' ? 300 : 0; // Default camera height
         break;
     }
     
     return { posX, posY, posZ };
-  }, [localValues.x, localValues.y, currentView, object.type]);
+  }, [localValues.x, localValues.y, currentView, object?.type]);
 
   // Get axis labels based on view
   const axisLabels = useMemo(() => {
@@ -226,7 +226,7 @@ export function ObjectPropertyPanel({
 
   // Calculate distances to nearby objects
   const nearbyDevices = useMemo(() => {
-    if (!allObjects || allObjects.length <= 1) return [];
+    if (!allObjects || allObjects.length <= 1 || !object) return [];
     
     return allObjects
       .filter(o => o.id !== object.id)
@@ -244,7 +244,10 @@ export function ObjectPropertyPanel({
       })
       .sort((a, b) => a.distance - b.distance)
       .slice(0, 3); // Show top 3 nearest
-  }, [allObjects, object.id, localValues.x, localValues.y, scale, canvasCenter]);
+  }, [allObjects, object?.id, localValues.x, localValues.y, scale, canvasCenter]);
+
+  // Early return after all hooks
+  if (!object) return null;
 
   const typeColor = object.type === 'camera' ? 'bg-blue-500' : 'bg-orange-500';
   const typeLabel = object.type === 'camera' ? '相机' : '机构';
