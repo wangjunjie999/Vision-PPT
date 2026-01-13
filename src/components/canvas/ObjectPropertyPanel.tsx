@@ -119,6 +119,7 @@ export function ObjectPropertyPanel({
   // Early return moved after all hooks - see below
 
   const handlePositionChange = (axis: 'x' | 'y', value: string) => {
+    if (!object) return;
     const num = parseFloat(value) || 0;
     setLocalValues(prev => ({ ...prev, [axis]: num }));
     
@@ -148,34 +149,40 @@ export function ObjectPropertyPanel({
   };
 
   const handleRotationChange = (value: number[]) => {
+    if (!object) return;
     const rotation = value[0];
     setLocalValues(prev => ({ ...prev, rotation }));
     onUpdate(object.id, { rotation });
   };
 
   const handleQuickRotation = (degrees: number) => {
+    if (!object) return;
     const newRotation = (localValues.rotation + degrees) % 360;
     setLocalValues(prev => ({ ...prev, rotation: newRotation }));
     onUpdate(object.id, { rotation: newRotation });
   };
 
   const handleSizeChange = (dim: 'width' | 'height', value: string) => {
+    if (!object) return;
     const num = Math.max(20, parseFloat(value) || 0);
     setLocalValues(prev => ({ ...prev, [dim]: num }));
     onUpdate(object.id, { [dim]: num * scale });
   };
 
   const handleNameChange = (value: string) => {
+    if (!object) return;
     setLocalValues(prev => ({ ...prev, name: value }));
     onUpdate(object.id, { name: value });
   };
 
   const handleResetRotation = () => {
+    if (!object) return;
     setLocalValues(prev => ({ ...prev, rotation: 0 }));
     onUpdate(object.id, { rotation: 0 });
   };
 
   const handleCenterObject = () => {
+    if (!object) return;
     setLocalValues(prev => ({ ...prev, x: 0, y: 0 }));
     onUpdate(object.id, { x: canvasCenter.x, y: canvasCenter.y });
   };
