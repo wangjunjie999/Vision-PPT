@@ -1232,3 +1232,130 @@
   background: radial-gradient(ellipse at center, transparent 60%, hsl(var(--background) / 0.8) 100%);
   pointer-events: none;
 }
+
+/* ========== Mobile Form Optimizations ========== */
+
+/* Mobile form container */
+.mobile-form-container {
+  @apply pb-safe;
+}
+
+.mobile-form-container .form-section {
+  @apply px-4 py-4;
+}
+
+.mobile-form-container .panel-header {
+  @apply px-4 py-3 sticky top-0 bg-card/95 backdrop-blur-sm z-10;
+}
+
+/* Larger touch targets for mobile */
+@media (max-width: 768px) {
+  .mobile-form-container input,
+  .mobile-form-container select,
+  .mobile-form-container textarea,
+  .mobile-form-container [role="combobox"] {
+    @apply h-11 text-base;
+  }
+
+  .mobile-form-container button {
+    @apply min-h-[44px];
+  }
+
+  .mobile-form-container label {
+    @apply text-sm mb-2;
+  }
+
+  .mobile-form-container .space-y-1\.5 {
+    @apply space-y-2;
+  }
+
+  .mobile-form-container .grid-cols-2 {
+    @apply grid-cols-1;
+  }
+
+  /* Better checkbox/switch touch targets */
+  .mobile-form-container [role="checkbox"],
+  .mobile-form-container [role="switch"] {
+    @apply scale-110;
+  }
+
+  /* Form section spacing */
+  .mobile-form-container .form-section {
+    @apply space-y-5;
+  }
+
+  /* Floating save button for mobile */
+  .mobile-form-container .panel-header {
+    @apply flex-col gap-2;
+  }
+
+  .mobile-form-container .panel-header > div:last-child {
+    @apply w-full flex gap-2;
+  }
+
+  .mobile-form-container .panel-header > div:last-child button {
+    @apply flex-1;
+  }
+}
+
+/* Tablet form optimizations */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .mobile-form-container input,
+  .mobile-form-container select,
+  .mobile-form-container textarea,
+  .mobile-form-container [role="combobox"] {
+    @apply h-10;
+  }
+}
+
+/* Safe area padding for bottom sheet */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* Smooth scroll behavior for forms */
+.mobile-form-container {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Focus state improvements for mobile */
+@media (max-width: 768px) {
+  .mobile-form-container input:focus,
+  .mobile-form-container textarea:focus,
+  .mobile-form-container select:focus {
+    @apply ring-2 ring-primary/30;
+  }
+}
+
+/* Collapsible form sections for mobile */
+.mobile-form-section-header {
+  @apply flex items-center justify-between py-3 px-4 cursor-pointer;
+  @apply hover:bg-secondary/50 transition-colors;
+  @apply border-b border-border/50;
+}
+
+.mobile-form-section-header[data-state="open"] .mobile-form-chevron {
+  transform: rotate(180deg);
+}
+
+.mobile-form-chevron {
+  @apply h-4 w-4 text-muted-foreground transition-transform duration-200;
+}
+
+/* Safe area for bottom navigation */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Mobile-optimized scrollbar */
+@media (max-width: 768px) {
+  .mobile-form-container::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .mobile-form-container::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 2px;
+  }
+}

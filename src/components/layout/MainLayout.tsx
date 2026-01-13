@@ -8,9 +8,10 @@ import { AdminCenter } from './AdminCenter';
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBreakpoint } from '@/hooks/use-mobile';
-import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Menu, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { MobileFormDrawer, MobileFormTrigger } from '@/components/forms/MobileFormDrawer';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -83,10 +84,10 @@ export function MainLayout() {
           
           {/* Mobile Bottom Navigation */}
           {!showAdmin && (
-            <div className="h-14 bg-card/95 backdrop-blur-md border-t border-border flex items-center justify-around px-4 shrink-0">
+            <div className="h-16 bg-card/95 backdrop-blur-md border-t border-border flex items-center justify-around px-2 shrink-0 safe-area-bottom">
               <Sheet open={leftDrawerOpen} onOpenChange={setLeftDrawerOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="sm" className="flex-col gap-1 h-12">
+                  <Button variant="ghost" size="sm" className="flex-col gap-1 h-14 min-w-[64px]">
                     <Menu className="h-5 w-5" />
                     <span className="text-[10px]">项目</span>
                   </Button>
@@ -96,19 +97,23 @@ export function MainLayout() {
                 </SheetContent>
               </Sheet>
               
-              <Sheet open={rightDrawerOpen} onOpenChange={setRightDrawerOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="sm" className="flex-col gap-1 h-12">
-                    <ChevronRight className="h-5 w-5" />
-                    <span className="text-[10px]">配置</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
-                  <FormPanel />
-                </SheetContent>
-              </Sheet>
+              {/* Center - Canvas indicator */}
+              <div className="flex-1 flex items-center justify-center">
+                <div className="px-4 py-2 rounded-full bg-secondary/50 text-xs text-muted-foreground">
+                  画布区域
+                </div>
+              </div>
+              
+              {/* Right - Form drawer trigger */}
+              <MobileFormTrigger onClick={() => setRightDrawerOpen(true)} />
             </div>
           )}
+          
+          {/* Mobile Form Drawer */}
+          <MobileFormDrawer 
+            open={rightDrawerOpen} 
+            onOpenChange={setRightDrawerOpen} 
+          />
         </div>
       </div>
     );
