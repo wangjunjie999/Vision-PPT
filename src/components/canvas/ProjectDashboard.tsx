@@ -12,7 +12,8 @@ import {
   ArrowRight,
   CheckCircle2,
   Save,
-  Loader2
+  Loader2,
+  TrendingUp
 } from 'lucide-react';
 import { useState, useRef, useCallback } from 'react';
 import { NewWorkstationDialog } from '@/components/dialogs/NewWorkstationDialog';
@@ -27,6 +28,9 @@ import { toast } from 'sonner';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toPng } from 'html-to-image';
+import { CircularProgress, StatsCircularCard } from '@/components/ui/circular-progress';
+import { motion } from 'framer-motion';
+import { StaggerList, StaggerItem } from '@/components/transitions/AnimatedLayout';
 
 export function ProjectDashboard() {
   const { 
@@ -77,6 +81,11 @@ export function ProjectDashboard() {
   if (schematicsComplete < moduleCount) missingItems.push(`完成视觉系统示意图 (${schematicsComplete}/${moduleCount})`);
 
   const template = templates.find(t => t.id === project.template_id);
+
+  // Calculate overall progress
+  const totalTasks = workstationCount + moduleCount;
+  const completedTasks = layoutsComplete + schematicsComplete;
+  const overallProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   // Batch save all project images (layouts + schematics)
   const handleBatchSaveAll = useCallback(async () => {
@@ -131,137 +140,278 @@ export function ProjectDashboard() {
   return (
     <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{project.name}</h1>
-          <p className="text-muted-foreground mt-1">项目概览驾驶舱</p>
-        </div>
+        {/* Header with overall progress */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-start justify-between gap-6"
+        >
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{project.name}</h1>
+            <p className="text-muted-foreground mt-1">项目概览驾驶舱</p>
+          </div>
+          
+          {/* Overall Progress Ring */}
+          <motion.div 
+            className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-primary/5 to-accent/5 border border-primary/20"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2 }}
+          >
+            <CircularProgress
+              value={overallProgress}
+              size="lg"
+              color={overallProgress === 100 ? 'success' : 'primary'}
+              animated
+            />
+            <div>
+              <p className="text-sm font-medium text-foreground">整体进度</p>
+              <p className="text-xs text-muted-foreground">
+                {completedTasks}/{totalTasks} 任务完成
+              </p>
+              {overallProgress === 100 && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-center gap-1 mt-1 text-xs text-success"
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>已就绪</span>
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
 
         {/* Project Summary Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">项目摘要</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-muted-foreground">项目编号</p>
-                <p className="font-medium">{project.code}</p>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <Card variant="elevated">
+            <CardHeader>
+              <CardTitle className="text-base">项目摘要</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">项目编号</p>
+                  <p className="font-medium">{project.code}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">客户名称</p>
+                  <p className="font-medium">{project.customer}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">方案日期</p>
+                  <p className="font-medium">{project.date}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">负责人</p>
+                  <p className="font-medium">{project.responsible}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">产品/工艺段</p>
+                  <p className="font-medium">{project.product_process}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">PPT母版</p>
+                  <p className="font-medium">{template?.name || '未选择'}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">客户名称</p>
-                <p className="font-medium">{project.customer}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">方案日期</p>
-                <p className="font-medium">{project.date}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">负责人</p>
-                <p className="font-medium">{project.responsible}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">产品/工艺段</p>
-                <p className="font-medium">{project.product_process}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">PPT母版</p>
-                <p className="font-medium">{template?.name || '未选择'}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <Cpu className="h-5 w-5 text-accent" />
+        {/* Stats Cards with Circular Progress */}
+        <StaggerList className="grid grid-cols-2 md:grid-cols-4 gap-4" staggerDelay={0.08}>
+          <StaggerItem>
+            <Card variant="interactive" className="group">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <CircularProgress
+                      value={workstationCount}
+                      max={Math.max(workstationCount, 1)}
+                      size="md"
+                      color="accent"
+                      showValue={false}
+                    >
+                      <Cpu className="h-5 w-5 text-accent" />
+                    </CircularProgress>
+                  </div>
+                  <div>
+                    <motion.p 
+                      className="text-2xl font-bold"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      key={workstationCount}
+                    >
+                      {workstationCount}
+                    </motion.p>
+                    <p className="text-xs text-muted-foreground">工位数量</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{workstationCount}</p>
-                  <p className="text-xs text-muted-foreground">工位数量</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </StaggerItem>
           
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
-                  <Box className="h-5 w-5 text-success" />
+          <StaggerItem>
+            <Card variant="interactive" className="group">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <CircularProgress
+                      value={moduleCount}
+                      max={Math.max(moduleCount, 1)}
+                      size="md"
+                      color="success"
+                      showValue={false}
+                    >
+                      <Box className="h-5 w-5 text-success" />
+                    </CircularProgress>
+                  </div>
+                  <div>
+                    <motion.p 
+                      className="text-2xl font-bold"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      key={moduleCount}
+                    >
+                      {moduleCount}
+                    </motion.p>
+                    <p className="text-xs text-muted-foreground">功能模块</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{moduleCount}</p>
-                  <p className="text-xs text-muted-foreground">功能模块</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </StaggerItem>
           
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Image className="h-5 w-5 text-primary" />
+          <StaggerItem>
+            <Card variant="interactive" className="group">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <CircularProgress
+                    value={layoutsComplete}
+                    max={Math.max(workstationCount, 1)}
+                    size="md"
+                    color={layoutsComplete === workstationCount && workstationCount > 0 ? 'success' : 'primary'}
+                    valueFormat="fraction"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Image className="h-4 w-4 text-primary" />
+                      <p className="text-xs text-muted-foreground">布局图</p>
+                    </div>
+                    <p className="text-sm font-medium mt-1">
+                      {layoutsComplete === workstationCount && workstationCount > 0 ? (
+                        <span className="text-success flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          已完成
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          待完成 {workstationCount - layoutsComplete} 个
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{layoutsComplete}/{workstationCount}</p>
-                  <p className="text-xs text-muted-foreground">布局图完成</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </StaggerItem>
           
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center">
-                  <FileCheck className="h-5 w-5 text-warning" />
+          <StaggerItem>
+            <Card variant="interactive" className="group">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <CircularProgress
+                    value={schematicsComplete}
+                    max={Math.max(moduleCount, 1)}
+                    size="md"
+                    color={schematicsComplete === moduleCount && moduleCount > 0 ? 'success' : 'warning'}
+                    valueFormat="fraction"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="h-4 w-4 text-warning" />
+                      <p className="text-xs text-muted-foreground">示意图</p>
+                    </div>
+                    <p className="text-sm font-medium mt-1">
+                      {schematicsComplete === moduleCount && moduleCount > 0 ? (
+                        <span className="text-success flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          已完成
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          待完成 {moduleCount - schematicsComplete} 个
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{schematicsComplete}/{moduleCount}</p>
-                  <p className="text-xs text-muted-foreground">示意图完成</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </StaggerItem>
+        </StaggerList>
 
         {/* Generation Readiness */}
-        <Card className={canGenerate ? 'border-success' : 'border-warning'}>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              {canGenerate ? (
-                <>
-                  <CheckCircle2 className="h-5 w-5 text-success" />
-                  已满足PPT生成条件
-                </>
-              ) : (
-                <>
-                  <AlertTriangle className="h-5 w-5 text-warning" />
-                  PPT生成条件未满足
-                </>
-              )}
-            </CardTitle>
-          </CardHeader>
-          {!canGenerate && (
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">请完成以下事项后方可生成PPT：</p>
-              <ul className="space-y-2">
-                {missingItems.map((item, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm">
-                    <div className="w-1.5 h-1.5 rounded-full bg-warning" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          )}
-        </Card>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+        >
+          <Card 
+            className={canGenerate 
+              ? 'border-success bg-success/5' 
+              : 'border-warning/50 bg-warning/5'
+            }
+            variant="glow"
+          >
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                {canGenerate ? (
+                  <>
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                    >
+                      <CheckCircle2 className="h-5 w-5 text-success" />
+                    </motion.div>
+                    已满足PPT生成条件
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="h-5 w-5 text-warning" />
+                    PPT生成条件未满足
+                  </>
+                )}
+              </CardTitle>
+            </CardHeader>
+            {!canGenerate && (
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-3">请完成以下事项后方可生成PPT：</p>
+                <ul className="space-y-2">
+                  {missingItems.map((item, i) => (
+                    <motion.li 
+                      key={i} 
+                      className="flex items-center gap-2 text-sm"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.5 + i * 0.1 }}
+                    >
+                      <div className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+                      {item}
+                    </motion.li>
+                  ))}
+                </ul>
+              </CardContent>
+            )}
+          </Card>
+        </motion.div>
 
         {/* Quick Actions */}
         <Card>
