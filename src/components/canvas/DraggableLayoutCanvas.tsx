@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
 import { CanvasControls } from './CanvasControls';
 import { AlignmentGuides, calculateSnapPosition } from './AlignmentGuides';
+import { CameraViewRepresentation } from './EngineeringAnnotations';
 import { EngineeringAnnotations } from './EngineeringAnnotations';
 import { ResizeHandles } from './ResizeHandles';
 import { CoordinateSystem } from './CoordinateSystem';
@@ -1003,25 +1004,24 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                     {/* Object body */}
                     {obj.type === 'camera' ? (
                       <>
-                        {/* Camera body */}
-                        <rect
-                          x={-obj.width / 2}
-                          y={-obj.height / 2}
-                          width={obj.width}
-                          height={obj.height}
-                          fill={isSelected ? 'url(#camera-selected-grad)' : 'url(#camera-grad)'}
-                          stroke={isSelected ? '#93c5fd' : '#3b82f6'}
-                          strokeWidth={isSelected ? 3 : 2}
-                          rx={6}
+                        {/* Camera with view-aware representation */}
+                        <CameraViewRepresentation
+                          camera={obj}
+                          currentView={currentView}
+                          isSelected={isSelected}
                         />
-                        {/* Lens */}
-                        <circle cx={0} cy={obj.height / 4} r={10} fill="#1e3a8a" stroke="#60a5fa" strokeWidth="2" />
-                        <circle cx={0} cy={obj.height / 4} r={5} fill="#1e40af" />
                         {/* Camera label */}
                         <rect x={-20} y={-obj.height / 2 - 22} width={40} height={18} rx={4} fill="rgba(30, 41, 59, 0.95)" />
                         <text x={0} y={-obj.height / 2 - 10} textAnchor="middle" fill="#60a5fa" fontSize="11" fontWeight="700">
                           {obj.name}
                         </text>
+                        {/* 3D position indicator */}
+                        <g transform={`translate(${obj.width / 2 + 8}, ${-obj.height / 2 + 5})`}>
+                          <rect x="-2" y="-2" width="50" height="36" rx="4" fill="rgba(30, 41, 59, 0.85)" />
+                          <text x="2" y="8" fill="#ef4444" fontSize="8">X:{obj.posX ?? 0}</text>
+                          <text x="2" y="18" fill="#22c55e" fontSize="8">Y:{obj.posY ?? 0}</text>
+                          <text x="2" y="28" fill="#3b82f6" fontSize="8">Z:{obj.posZ ?? 0}</text>
+                        </g>
                       </>
                     ) : (
                       <>

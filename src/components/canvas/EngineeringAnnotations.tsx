@@ -32,8 +32,6 @@ const DimensionLine = memo(function DimensionLine({
 }) {
   const dx = x2 - x1;
   const dy = y2 - y1;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  const angle = Math.atan2(dy, dx);
   
   const isHorizontal = orientation === 'horizontal' || 
     (orientation === 'auto' && Math.abs(dx) > Math.abs(dy));
@@ -234,92 +232,341 @@ const CameraSpacingLine = memo(function CameraSpacingLine({
   );
 });
 
-// Working distance line (camera to product center)
+// Enhanced working distance visualization with view-aware projection
 const WorkingDistanceLine = memo(function WorkingDistanceLine({
-  camera, centerX, centerY, scale, color = '#fbbf24',
+  camera, centerX, centerY, scale, color = '#fbbf24', currentView,
 }: {
   camera: LayoutObject;
   centerX: number;
   centerY: number;
   scale: number;
   color?: string;
+  currentView: ViewType;
 }) {
-  const dx = (camera.x - centerX) / scale;
-  const dy = (centerY - camera.y) / scale;
-  const distance = Math.round(Math.sqrt(dx * dx + dy * dy));
-  const horizontalDist = Math.abs(Math.round(dx));
-  const verticalDist = Math.abs(Math.round(dy));
+  // Get the real 3D coordinates
+  const posX = camera.posX ?? 0;
+  const posY = camera.posY ?? 0;
+  const posZ = camera.posZ ?? 300;
+  
+  // Calculate the actual 3D working distance (from camera to product center at 0,0,0)
+  const distance3D = Math.round(Math.sqrt(posX * posX + posY * posY + posZ * posZ));
+  
+  // Get visible components based on view
+  const getViewDistances = () => {
+    switch (currentView) {
+      case 'front': // X-Z plane visible
+        return {
+          horizontal: posX,
+          vertical: posZ,
+          horizontalLabel: 'X',
+          verticalLabel: 'Z',
+          depthLabel: 'Y',
+          depth: posY,
+        };
+      case 'side': // Y-Z plane visible  
+        return {
+          horizontal: posY,
+          vertical: posZ,
+          horizontalLabel: 'Y',
+          verticalLabel: 'Z',
+          depthLabel: 'X',
+          depth: posX,
+        };
+      case 'top': // X-Y plane visible
+        return {
+          horizontal: posX,
+          vertical: -posY, // Invert for top view display
+          horizontalLabel: 'X',
+          verticalLabel: 'Y',
+          depthLabel: 'Z',
+          depth: posZ,
+        };
+    }
+  };
+  
+  const viewDist = getViewDistances();
+  const hasHorizontalOffset = Math.abs(viewDist.horizontal) > 20;
+  const hasVerticalOffset = Math.abs(viewDist.vertical) > 20;
   
   const midX = (camera.x + centerX) / 2;
   const midY = (camera.y + centerY) / 2;
   
   return (
     <g className="working-distance">
-      {/* Main line */}
+      {/* Gradient definition for the beam */}
+      <defs>
+        <linearGradient id={`wd-gradient-${camera.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={color} stopOpacity="0.9" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.3" />
+        </linearGradient>
+      </defs>
+      
+      {/* Vision cone / beam from camera to product */}
+      <polygon
+        points={`
+          ${camera.x},${camera.y}
+          ${centerX - 25},${centerY - 15}
+          ${centerX + 25},${centerY - 15}
+          ${centerX + 25},${centerY + 15}
+          ${centerX - 25},${centerY + 15}
+        `}
+        fill={`url(#wd-gradient-${camera.id})`}
+        opacity="0.15"
+      />
+      
+      {/* Main working distance line */}
       <line
         x1={camera.x}
         y1={camera.y}
         x2={centerX}
         y2={centerY}
         stroke={color}
-        strokeWidth="2"
-        strokeDasharray="6 3"
+        strokeWidth="2.5"
+        strokeDasharray="8 4"
         opacity="0.9"
       />
       
-      {/* End markers */}
-      <circle cx={camera.x} cy={camera.y} r="4" fill={color} />
-      <circle cx={centerX} cy={centerY} r="6" fill="none" stroke={color} strokeWidth="2" />
-      <circle cx={centerX} cy={centerY} r="2" fill={color} />
+      {/* Camera end marker */}
+      <circle cx={camera.x} cy={camera.y} r="6" fill={color} opacity="0.9" />
+      <circle cx={camera.x} cy={camera.y} r="3" fill="#fff" opacity="0.8" />
       
-      {/* Horizontal/Vertical components */}
-      {horizontalDist > 30 && verticalDist > 30 && (
+      {/* Product center target */}
+      <g transform={`translate(${centerX}, ${centerY})`}>
+        <circle r="12" fill="none" stroke={color} strokeWidth="2" opacity="0.5" />
+        <circle r="8" fill="none" stroke={color} strokeWidth="1.5" opacity="0.7" />
+        <line x1="-15" y1="0" x2="15" y2="0" stroke={color} strokeWidth="1" opacity="0.6" />
+        <line x1="0" y1="-15" x2="0" y2="15" stroke={color} strokeWidth="1" opacity="0.6" />
+        <circle r="3" fill={color} opacity="0.9" />
+      </g>
+      
+      {/* Horizontal/Vertical component visualization */}
+      {hasHorizontalOffset && hasVerticalOffset && (
         <>
-          {/* Horizontal component */}
-          <DimensionLine
-            x1={centerX}
-            y1={centerY}
-            x2={camera.x}
-            y2={centerY}
-            label={`X:${Math.round(dx)}mm`}
-            color="#ef4444"
-            offset={35}
-            orientation="horizontal"
+          {/* Right-angle marker */}
+          <path
+            d={`M ${camera.x} ${centerY} L ${camera.x} ${centerY - Math.sign(camera.y - centerY) * 12} L ${camera.x + Math.sign(centerX - camera.x) * 12} ${centerY - Math.sign(camera.y - centerY) * 12}`}
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth="1"
+            opacity="0.5"
           />
           
-          {/* Vertical component */}
-          <DimensionLine
+          {/* Horizontal component */}
+          <line
             x1={camera.x}
             y1={centerY}
-            x2={camera.x}
-            y2={camera.y}
-            label={`Z:${Math.round(dy)}mm`}
-            color="#22c55e"
-            offset={35}
-            orientation="vertical"
+            x2={centerX}
+            y2={centerY}
+            stroke="#ef4444"
+            strokeWidth="1.5"
+            strokeDasharray="4 2"
+            opacity="0.7"
           />
+          <g transform={`translate(${midX}, ${centerY + 22})`}>
+            <rect x="-30" y="-10" width="60" height="20" rx="4" fill="rgba(239, 68, 68, 0.2)" stroke="#ef4444" strokeWidth="1" />
+            <text x="0" y="4" textAnchor="middle" fill="#ef4444" fontSize="10" fontWeight="600">
+              {viewDist.horizontalLabel}: {Math.round(viewDist.horizontal)}
+            </text>
+          </g>
+          
+          {/* Vertical component */}
+          <line
+            x1={camera.x}
+            y1={camera.y}
+            x2={camera.x}
+            y2={centerY}
+            stroke="#3b82f6"
+            strokeWidth="1.5"
+            strokeDasharray="4 2"
+            opacity="0.7"
+          />
+          <g transform={`translate(${camera.x - 35}, ${(camera.y + centerY) / 2})`}>
+            <rect x="-30" y="-10" width="60" height="20" rx="4" fill="rgba(59, 130, 246, 0.2)" stroke="#3b82f6" strokeWidth="1" />
+            <text x="0" y="4" textAnchor="middle" fill="#3b82f6" fontSize="10" fontWeight="600">
+              {viewDist.verticalLabel}: {Math.round(viewDist.vertical)}
+            </text>
+          </g>
         </>
       )}
       
-      {/* Total distance label */}
+      {/* Depth indicator (the axis not visible in this view) */}
+      {Math.abs(viewDist.depth) > 10 && (
+        <g transform={`translate(${camera.x + 40}, ${camera.y - 20})`}>
+          <rect x="-28" y="-10" width="56" height="20" rx="4" fill="rgba(168, 85, 247, 0.2)" stroke="#a855f7" strokeWidth="1" />
+          <text x="0" y="4" textAnchor="middle" fill="#a855f7" fontSize="9" fontWeight="600">
+            {viewDist.depthLabel}: {Math.round(viewDist.depth)}
+          </text>
+        </g>
+      )}
+      
+      {/* Main distance label */}
       <g transform={`translate(${midX}, ${midY})`}>
         <rect
-          x="-45"
-          y="-16"
-          width="90"
-          height="32"
-          fill="rgba(251, 191, 36, 0.15)"
+          x="-55"
+          y="-22"
+          width="110"
+          height="44"
+          fill="rgba(15, 23, 42, 0.95)"
           stroke={color}
           strokeWidth="2"
-          rx="6"
+          rx="8"
         />
-        <text x={0} y={-2} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="9">
-          工作距离
+        <text x={0} y={-6} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="10">
+          工作距离 (3D)
         </text>
-        <text x={0} y={12} textAnchor="middle" fill={color} fontSize="14" fontWeight="700">
-          {distance}mm
+        <text x={0} y={12} textAnchor="middle" fill={color} fontSize="16" fontWeight="700">
+          {distance3D}mm
         </text>
       </g>
+    </g>
+  );
+});
+
+// Camera representation that changes based on view
+export const CameraViewRepresentation = memo(function CameraViewRepresentation({
+  camera,
+  currentView,
+  isSelected,
+}: {
+  camera: LayoutObject;
+  currentView: ViewType;
+  isSelected: boolean;
+}) {
+  const width = camera.width;
+  const height = camera.height;
+  
+  // Calculate the visual angle of the camera based on its 3D position and current view
+  const posX = camera.posX ?? 0;
+  const posY = camera.posY ?? 0;
+  const posZ = camera.posZ ?? 300;
+  
+  // Determine camera's visual orientation based on view
+  const getCameraAngle = () => {
+    switch (currentView) {
+      case 'front': // X-Z plane - camera looks down if posZ > 0, tilted if posX != 0
+        if (posZ > 0) {
+          const tilt = Math.atan2(posX, posZ) * (180 / Math.PI);
+          return Math.max(-45, Math.min(45, tilt));
+        }
+        return 0;
+      case 'side': // Y-Z plane - shows camera from side
+        if (posZ > 0) {
+          const tilt = Math.atan2(posY, posZ) * (180 / Math.PI);
+          return Math.max(-45, Math.min(45, tilt));
+        }
+        return 0;
+      case 'top': // X-Y plane - camera looks like a circle from above
+        return 0;
+    }
+  };
+  
+  const viewAngle = getCameraAngle();
+  const cameraColor = isSelected ? '#60a5fa' : '#3b82f6';
+  const lensColor = isSelected ? '#93c5fd' : '#60a5fa';
+  
+  if (currentView === 'top') {
+    // Top view: camera appears as circle with lens facing down
+    return (
+      <g className="camera-top-view">
+        {/* Camera housing (circular from top) */}
+        <circle
+          cx={0}
+          cy={0}
+          r={Math.min(width, height) / 2}
+          fill={cameraColor}
+          stroke={lensColor}
+          strokeWidth={isSelected ? 3 : 2}
+        />
+        {/* Lens (inner circle) */}
+        <circle
+          cx={0}
+          cy={0}
+          r={Math.min(width, height) / 4}
+          fill="#1e3a8a"
+          stroke="#60a5fa"
+          strokeWidth="2"
+        />
+        {/* Lens center */}
+        <circle cx={0} cy={0} r={Math.min(width, height) / 8} fill="#1e40af" />
+        {/* Direction indicator (shows which way camera is pointing in depth) */}
+        <line
+          x1={0}
+          y1={-Math.min(width, height) / 2 - 5}
+          x2={0}
+          y2={-Math.min(width, height) / 2 - 15}
+          stroke={lensColor}
+          strokeWidth="2"
+          markerEnd="url(#camera-arrow)"
+        />
+      </g>
+    );
+  }
+  
+  // Front and Side views: camera shows lens pointing toward product
+  return (
+    <g className="camera-side-view" transform={`rotate(${viewAngle})`}>
+      {/* Camera body */}
+      <rect
+        x={-width / 2}
+        y={-height / 2}
+        width={width}
+        height={height}
+        fill={cameraColor}
+        stroke={lensColor}
+        strokeWidth={isSelected ? 3 : 2}
+        rx={6}
+      />
+      {/* Lens barrel (pointing down toward product) */}
+      <rect
+        x={-12}
+        y={height / 2 - 5}
+        width={24}
+        height={18}
+        fill="#1e3a8a"
+        stroke="#60a5fa"
+        strokeWidth="1.5"
+        rx={3}
+      />
+      {/* Lens glass */}
+      <ellipse
+        cx={0}
+        cy={height / 2 + 12}
+        rx={10}
+        ry={5}
+        fill="#1e40af"
+        stroke="#60a5fa"
+        strokeWidth="1"
+      />
+      {/* FOV indicator lines */}
+      <line
+        x1={-8}
+        y1={height / 2 + 15}
+        x2={-25}
+        y2={height / 2 + 40}
+        stroke={lensColor}
+        strokeWidth="1"
+        strokeDasharray="3 2"
+        opacity="0.6"
+      />
+      <line
+        x1={8}
+        y1={height / 2 + 15}
+        x2={25}
+        y2={height / 2 + 40}
+        stroke={lensColor}
+        strokeWidth="1"
+        strokeDasharray="3 2"
+        opacity="0.6"
+      />
+      {/* Tilt angle indicator */}
+      {Math.abs(viewAngle) > 5 && (
+        <g transform={`translate(${width / 2 + 15}, 0) rotate(${-viewAngle})`}>
+          <rect x="-16" y="-8" width="32" height="16" rx="4" fill="rgba(30, 41, 59, 0.9)" />
+          <text x="0" y="4" textAnchor="middle" fill="#a855f7" fontSize="9" fontWeight="600">
+            {Math.round(viewAngle)}°
+          </text>
+        </g>
+      )}
     </g>
   );
 });
@@ -351,13 +598,27 @@ export const EngineeringAnnotations = memo(function EngineeringAnnotations({
 
   return (
     <g className="engineering-annotations">
+      {/* Arrow marker for camera direction */}
+      <defs>
+        <marker
+          id="camera-arrow"
+          markerWidth="8"
+          markerHeight="8"
+          refX="4"
+          refY="4"
+          orient="auto"
+        >
+          <path d="M0,0 L8,4 L0,8 Z" fill="#60a5fa" />
+        </marker>
+      </defs>
+      
       {/* Camera spacing lines */}
       {cameraSpacingPairs.map(([cam1, cam2], i) => (
         <CameraSpacingLine key={`spacing-${i}`} cam1={cam1} cam2={cam2} scale={scale} />
       ))}
       
       {/* Working distance for all cameras */}
-      {showWorkingDistance && cameras.map((camera, i) => (
+      {showWorkingDistance && cameras.map((camera) => (
         <WorkingDistanceLine
           key={`wd-${camera.id}`}
           camera={camera}
@@ -365,6 +626,7 @@ export const EngineeringAnnotations = memo(function EngineeringAnnotations({
           centerY={centerY}
           scale={scale}
           color={selectedObject?.id === camera.id ? '#f59e0b' : '#fbbf24'}
+          currentView={currentView}
         />
       ))}
       
