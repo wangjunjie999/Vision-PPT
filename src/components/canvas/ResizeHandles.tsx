@@ -31,25 +31,9 @@ export function ResizeHandles({
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [startSize, setStartSize] = useState({ width: 0, height: 0, x: 0, y: 0 });
 
-  if (!isSelected || object.locked) return null;
-
-  const handleSize = 8;
-  const halfW = object.width / 2;
-  const halfH = object.height / 2;
-
-  const handles: { position: HandlePosition; x: number; y: number }[] = [
-    { position: 'nw', x: -halfW, y: -halfH },
-    { position: 'n', x: 0, y: -halfH },
-    { position: 'ne', x: halfW, y: -halfH },
-    { position: 'e', x: halfW, y: 0 },
-    { position: 'se', x: halfW, y: halfH },
-    { position: 's', x: 0, y: halfH },
-    { position: 'sw', x: -halfW, y: halfH },
-    { position: 'w', x: -halfW, y: 0 },
-  ];
-
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, position: HandlePosition) => {
+      if (!object) return;
       e.stopPropagation();
       setResizing(position);
       setStartPos({ x: e.clientX, y: e.clientY });
@@ -60,52 +44,59 @@ export function ResizeHandles({
         y: object.y,
       });
 
+      const currentStartSize = {
+        width: object.width,
+        height: object.height,
+        x: object.x,
+        y: object.y,
+      };
+
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const dx = moveEvent.clientX - e.clientX;
         const dy = moveEvent.clientY - e.clientY;
 
-        let newWidth = startSize.width;
-        let newHeight = startSize.height;
-        let newX = startSize.x;
-        let newY = startSize.y;
+        let newWidth = currentStartSize.width;
+        let newHeight = currentStartSize.height;
+        let newX = currentStartSize.x;
+        let newY = currentStartSize.y;
 
         // Scale factor for mouse movement
         const scaleFactor = 0.5;
 
         switch (position) {
           case 'e':
-            newWidth = Math.max(minSize, startSize.width + dx * scaleFactor);
+            newWidth = Math.max(minSize, currentStartSize.width + dx * scaleFactor);
             break;
           case 'w':
-            newWidth = Math.max(minSize, startSize.width - dx * scaleFactor);
-            newX = startSize.x + dx * scaleFactor / 2;
+            newWidth = Math.max(minSize, currentStartSize.width - dx * scaleFactor);
+            newX = currentStartSize.x + dx * scaleFactor / 2;
             break;
           case 's':
-            newHeight = Math.max(minSize, startSize.height + dy * scaleFactor);
+            newHeight = Math.max(minSize, currentStartSize.height + dy * scaleFactor);
             break;
           case 'n':
-            newHeight = Math.max(minSize, startSize.height - dy * scaleFactor);
-            newY = startSize.y + dy * scaleFactor / 2;
+            newHeight = Math.max(minSize, currentStartSize.height - dy * scaleFactor);
+            newY = currentStartSize.y + dy * scaleFactor / 2;
             break;
           case 'se':
-            newWidth = Math.max(minSize, startSize.width + dx * scaleFactor);
-            newHeight = Math.max(minSize, startSize.height + dy * scaleFactor);
+            newWidth = Math.max(minSize, currentStartSize.width + dx * scaleFactor);
+            newHeight = Math.max(minSize, currentStartSize.height + dy * scaleFactor);
             break;
           case 'sw':
-            newWidth = Math.max(minSize, startSize.width - dx * scaleFactor);
-            newHeight = Math.max(minSize, startSize.height + dy * scaleFactor);
-            newX = startSize.x + dx * scaleFactor / 2;
+            newWidth = Math.max(minSize, currentStartSize.width - dx * scaleFactor);
+            newHeight = Math.max(minSize, currentStartSize.height + dy * scaleFactor);
+            newX = currentStartSize.x + dx * scaleFactor / 2;
             break;
           case 'ne':
-            newWidth = Math.max(minSize, startSize.width + dx * scaleFactor);
-            newHeight = Math.max(minSize, startSize.height - dy * scaleFactor);
-            newY = startSize.y + dy * scaleFactor / 2;
+            newWidth = Math.max(minSize, currentStartSize.width + dx * scaleFactor);
+            newHeight = Math.max(minSize, currentStartSize.height - dy * scaleFactor);
+            newY = currentStartSize.y + dy * scaleFactor / 2;
             break;
           case 'nw':
-            newWidth = Math.max(minSize, startSize.width - dx * scaleFactor);
-            newHeight = Math.max(minSize, startSize.height - dy * scaleFactor);
-            newX = startSize.x + dx * scaleFactor / 2;
-            newY = startSize.y + dy * scaleFactor / 2;
+            newWidth = Math.max(minSize, currentStartSize.width - dx * scaleFactor);
+            newHeight = Math.max(minSize, currentStartSize.height - dy * scaleFactor);
+            newX = currentStartSize.x + dx * scaleFactor / 2;
+            newY = currentStartSize.y + dy * scaleFactor / 2;
             break;
         }
 
@@ -121,8 +112,26 @@ export function ResizeHandles({
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     },
-    [object, onResize, startSize, minSize]
+    [object, onResize, minSize]
   );
+
+  // Early return AFTER all hooks
+  if (!isSelected || object?.locked) return null;
+
+  const handleSize = 8;
+  const halfW = object.width / 2;
+  const halfH = object.height / 2;
+
+  const handles: { position: HandlePosition; x: number; y: number }[] = [
+    { position: 'nw', x: -halfW, y: -halfH },
+    { position: 'n', x: 0, y: -halfH },
+    { position: 'ne', x: halfW, y: -halfH },
+    { position: 'e', x: halfW, y: 0 },
+    { position: 'se', x: halfW, y: halfH },
+    { position: 's', x: 0, y: halfH },
+    { position: 'sw', x: -halfW, y: halfH },
+    { position: 'w', x: -halfW, y: 0 },
+  ];
 
   return (
     <g className="resize-handles">
