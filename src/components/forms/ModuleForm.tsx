@@ -1,24 +1,16 @@
 import { useData } from '@/contexts/DataContext';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, Loader2, Copy } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
-import { HardwareSelector } from '@/components/hardware/HardwareSelector';
-import { PositioningForm } from './module/PositioningForm';
-import { DefectForm } from './module/DefectForm';
-import { OCRForm } from './module/OCRForm';
-import { MeasurementForm } from './module/MeasurementForm';
-import { DeepLearningForm } from './module/DeepLearningForm';
 import { ModuleFormState, getDefaultFormState } from './module/types';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ModuleAnnotationPanel } from '@/components/product/ModuleAnnotationPanel';
+import { FormStepWizard, FormStep } from './FormStepWizard';
+import { ModuleStep1Basic } from './module/ModuleStep1Basic';
+import { ModuleStep2Detection } from './module/ModuleStep2Detection';
+import { ModuleStep3Imaging } from './module/ModuleStep3Imaging';
+import { ModuleStep4Output } from './module/ModuleStep4Output';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -41,6 +33,7 @@ export function ModuleForm() {
   const module = modules.find(m => m.id === selectedModuleId) as any;
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ModuleFormState>(getDefaultFormState());
+  const [currentStep, setCurrentStep] = useState(0);
   
   // Get workstation layout for hardware inheritance
   const workstationLayout = module ? getLayoutByWorkstation(module.workstation_id) : null;
@@ -167,8 +160,103 @@ export function ModuleForm() {
           edgeExtractionMethod: measureCfg.edgeExtractionMethod || '',
         }),
       });
+      
+      // Reset to first step when switching modules
+      setCurrentStep(0);
     }
   }, [module]);
+
+  // Step completion logic
+  const isStep1Complete = useMemo(() => 
+    Boolean(form.name && form.type), 
+    [form.name, form.type]
+  );
+  
+  const isStep2Complete = useMemo(() => {
+    if (!form.type) return false;
+    // Check type-specific required fields
+    switch (form.type) {
+      case 'positioning':
+        return Boolean(form.accuracyRequirement);
+      case 'defect':
+        return form.defectClasses.length > 0;
+      case 'ocr':
+        return Boolean(form.minCharHeight);
+      case 'measurement':
+        return form.measurementItems.length > 0;
+      case 'deeplearning':
+        return form.targetClasses.length > 0;
+      default:
+        return false;
+    }
+  }, [form]);
+  
+  const isStep3Complete = useMemo(() => 
+    Boolean(form.workingDistance || form.fieldOfView || form.fieldOfViewCommon),
+    [form.workingDistance, form.fieldOfView, form.fieldOfViewCommon]
+  );
+  
+  const isStep4Complete = useMemo(() => 
+    form.outputAction.length > 0,
+    [form.outputAction]
+  );
+
+  const steps: FormStep[] = useMemo(() => [
+    {
+      id: 'basic',
+      title: '基本信息',
+      shortTitle: '基本',
+      description: '设置模块名称、类型和触发方式',
+      content: <ModuleStep1Basic form={form} setForm={setForm} />,
+      isComplete: isStep1Complete,
+      nextHint: isStep1Complete 
+        ? '基本信息已完成，点击"下一步"配置检测参数' 
+        : '请填写模块名称和选择类型后继续',
+    },
+    {
+      id: 'detection',
+      title: '检测参数',
+      shortTitle: '检测',
+      description: '配置模块专属的检测参数',
+      content: <ModuleStep2Detection form={form} setForm={setForm} />,
+      isComplete: isStep2Complete,
+      nextHint: isStep2Complete 
+        ? '检测参数已配置，下一步设置成像参数' 
+        : '请至少配置一项关键检测参数',
+    },
+    {
+      id: 'imaging',
+      title: '成像配置',
+      shortTitle: '成像',
+      description: '设置工作距离、视场和光学参数',
+      content: <ModuleStep3Imaging form={form} setForm={setForm} />,
+      isComplete: isStep3Complete,
+      nextHint: isStep3Complete 
+        ? '成像参数已设置，最后配置输出和硬件' 
+        : '请至少设置工作距离或视场',
+    },
+    {
+      id: 'output',
+      title: '输出与硬件',
+      shortTitle: '输出',
+      description: '配置输出动作、通讯方式和硬件选型',
+      content: (
+        <ModuleStep4Output 
+          form={form} 
+          setForm={setForm}
+          cameras={cameras}
+          lenses={lenses}
+          lights={lights}
+          controllers={controllers}
+          workstationLayout={workstationLayout}
+        />
+      ),
+      isComplete: isStep4Complete,
+      nextHint: isStep4Complete 
+        ? '配置完成！点击"保存完成"保存所有设置' 
+        : '请至少选择一个输出动作',
+    },
+  ], [form, setForm, cameras, lenses, lights, controllers, workstationLayout, isStep1Complete, isStep2Complete, isStep3Complete, isStep4Complete]);
 
   if (!module) return null;
 
@@ -318,422 +406,18 @@ export function ModuleForm() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="panel-header flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-medium">模块配置</span>
-          <Badge variant="outline" className="text-xs">
-            {moduleTypeLabels[form.type]}
-          </Badge>
-        </div>
-        <Button size="sm" onClick={handleSave} disabled={saving}>
-          {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-          保存
-        </Button>
-      </div>
-      
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/* 第一部分：基本信息 */}
-        <div className="form-section">
-          <h3 className="form-section-title">
-            <span className="w-1 h-4 bg-destructive rounded-full" />
-            基本信息
-          </h3>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">模块名称 *</Label>
-                <Input 
-                  value={form.name} 
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))} 
-                  className="h-9" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">模块类型</Label>
-                <Select value={form.type} onValueChange={v => setForm(p => ({ ...p, type: v as ModuleType }))}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="positioning">引导定位</SelectItem>
-                    <SelectItem value="defect">缺陷检测</SelectItem>
-                    <SelectItem value="ocr">OCR识别</SelectItem>
-                    <SelectItem value="measurement">尺寸测量</SelectItem>
-                    <SelectItem value="deeplearning">深度学习</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">功能说明</Label>
-              <Textarea 
-                value={form.description} 
-                onChange={e => setForm(p => ({ ...p, description: e.target.value }))} 
-                placeholder="描述该模块的检测目的、关键要求等..."
-                className="min-h-[50px] text-sm resize-none" 
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">触发方式</Label>
-                <Select value={form.triggerType} onValueChange={v => setForm(p => ({ ...p, triggerType: v as TriggerType }))}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="io">IO触发</SelectItem>
-                    <SelectItem value="encoder">编码器</SelectItem>
-                    <SelectItem value="software">软件触发</SelectItem>
-                    <SelectItem value="continuous">连续采集</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">处理时限 (ms)</Label>
-                <Input 
-                  type="number"
-                  value={form.processingTimeLimit} 
-                  onChange={e => setForm(p => ({ ...p, processingTimeLimit: e.target.value }))} 
-                  placeholder="200"
-                  className="h-9" 
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 共通参数区块 */}
-        <div className="form-section">
-          <h3 className="form-section-title">
-            <span className="w-1 h-4 bg-accent rounded-full" />
-            共通参数
-          </h3>
-          <div className="space-y-4">
-            {/* 检测对象描述 */}
-            <div className="space-y-1">
-              <Label className="text-xs">检测对象/检测内容描述</Label>
-              <Textarea 
-                value={form.detectionObject} 
-                onChange={e => setForm(p => ({ ...p, detectionObject: e.target.value }))} 
-                placeholder="描述该模块的检测对象、关键要求等..."
-                className="min-h-[60px] text-sm resize-none" 
-              />
-            </div>
-            
-            {/* 判定策略 */}
-            <div className="space-y-1">
-              <Label className="text-xs">判定策略</Label>
-              <Select 
-                value={form.judgmentStrategy} 
-                onValueChange={v => setForm(p => ({ ...p, judgmentStrategy: v as 'no_miss' | 'balanced' | 'allow_pass' }))}
-              >
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="no_miss">宁可误杀不可漏检</SelectItem>
-                  <SelectItem value="balanced">平衡</SelectItem>
-                  <SelectItem value="allow_pass">宁可放行</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* 输出动作 */}
-            <div className="space-y-2">
-              <Label className="text-xs">输出动作</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {['报警', '停机', '剔除', '标记', '上传MES', '存图'].map(action => (
-                  <label key={action} className="flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-muted">
-                    <Checkbox
-                      checked={form.outputAction.includes(action)}
-                      onCheckedChange={(checked) => {
-                        setForm(p => ({
-                          ...p,
-                          outputAction: checked 
-                            ? [...p.outputAction, action]
-                            : p.outputAction.filter(a => a !== action)
-                        }));
-                      }}
-                    />
-                    <span className="text-xs">{action}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            
-            {/* 通讯方式和信号定义 */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">通讯方式</Label>
-                <Select 
-                  value={form.communicationMethod} 
-                  onValueChange={v => setForm(p => ({ ...p, communicationMethod: v }))}
-                >
-                  <SelectTrigger className="h-9"><SelectValue placeholder="请选择" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="IO">IO</SelectItem>
-                    <SelectItem value="PLC">PLC</SelectItem>
-                    <SelectItem value="TCP">TCP</SelectItem>
-                    <SelectItem value="串口">串口</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">信号定义</Label>
-                <Input 
-                  value={form.signalDefinition} 
-                  onChange={e => setForm(p => ({ ...p, signalDefinition: e.target.value }))} 
-                  placeholder="简要说明"
-                  className="h-9" 
-                />
-              </div>
-            </div>
-            
-            {/* 数据留存策略 */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">数据留存策略</Label>
-                <Select 
-                  value={form.dataRetention} 
-                  onValueChange={v => setForm(p => ({ ...p, dataRetention: v as any }))}
-                >
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">不保存</SelectItem>
-                    <SelectItem value="ng_only">NG存图</SelectItem>
-                    <SelectItem value="all">全存</SelectItem>
-                    <SelectItem value="sampled">抽检比例</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">保存天数</Label>
-                <Input 
-                  type="number"
-                  value={form.dataRetentionDays} 
-                  onChange={e => setForm(p => ({ ...p, dataRetentionDays: e.target.value }))} 
-                  placeholder="30"
-                  className="h-9" 
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 成像与光学参数 - 紧凑单行布局 */}
-        <div className="form-section">
-          <h3 className="form-section-title">
-            <span className="w-1 h-4 bg-primary rounded-full" />
-            成像与光学参数
-          </h3>
-          <div className="space-y-3">
-            {/* 第一行：核心参数 */}
-            <div className="grid grid-cols-5 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">WD (mm)</Label>
-                <Input 
-                  value={form.workingDistance || ''} 
-                  onChange={e => setForm(p => ({ ...p, workingDistance: e.target.value }))}
-                  placeholder="300"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">FOV (mm)</Label>
-                <Input 
-                  value={form.fieldOfViewCommon || form.fieldOfView || ''} 
-                  onChange={e => {
-                    if (form.type === 'positioning') {
-                      setForm(p => ({ ...p, fieldOfView: e.target.value }));
-                    } else {
-                      setForm(p => ({ ...p, fieldOfViewCommon: e.target.value }));
-                    }
-                  }}
-                  placeholder="100×80"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">分辨率 (mm/px)</Label>
-                <Input 
-                  value={form.resolutionPerPixel || ''} 
-                  onChange={e => setForm(p => ({ ...p, resolutionPerPixel: e.target.value }))} 
-                  placeholder="0.1"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">曝光</Label>
-                <Input 
-                  value={form.exposure || ''} 
-                  onChange={e => setForm(p => ({ ...p, exposure: e.target.value }))} 
-                  placeholder="10ms"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">增益 (dB)</Label>
-                <Input 
-                  value={form.gain || ''} 
-                  onChange={e => setForm(p => ({ ...p, gain: e.target.value }))} 
-                  placeholder="0"
-                  className="h-8 text-sm" 
-                />
-              </div>
-            </div>
-            
-            {/* 第二行：光源与镜头参数 */}
-            <div className="grid grid-cols-6 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">触发延时</Label>
-                <Input 
-                  value={form.triggerDelay || ''} 
-                  onChange={e => setForm(p => ({ ...p, triggerDelay: e.target.value }))} 
-                  placeholder="0ms"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">光源模式</Label>
-                <Select 
-                  value={form.lightMode} 
-                  onValueChange={v => setForm(p => ({ ...p, lightMode: v }))}
-                >
-                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="选择" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="常亮">常亮</SelectItem>
-                    <SelectItem value="频闪">频闪</SelectItem>
-                    <SelectItem value="PWM">PWM</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">光源角度</Label>
-                <Input 
-                  value={form.lightAngle || ''} 
-                  onChange={e => setForm(p => ({ ...p, lightAngle: e.target.value }))} 
-                  placeholder="45°"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">光源距离</Label>
-                <Input 
-                  value={form.lightDistance || ''} 
-                  onChange={e => setForm(p => ({ ...p, lightDistance: e.target.value }))} 
-                  placeholder="100mm"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">光圈 (F值)</Label>
-                <Input 
-                  value={form.lensAperture || ''} 
-                  onChange={e => setForm(p => ({ ...p, lensAperture: e.target.value }))} 
-                  placeholder="F2.8"
-                  className="h-8 text-sm" 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">景深 (mm)</Label>
-                <Input 
-                  value={form.depthOfField || ''} 
-                  onChange={e => setForm(p => ({ ...p, depthOfField: e.target.value }))} 
-                  placeholder="5"
-                  className="h-8 text-sm" 
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 第二部分：类型专属配置 */}
-        {form.type === 'positioning' && <PositioningForm form={form} setForm={setForm} />}
-        {form.type === 'defect' && <DefectForm form={form} setForm={setForm} />}
-        {form.type === 'ocr' && <OCRForm form={form} setForm={setForm} />}
-        {form.type === 'measurement' && <MeasurementForm form={form} setForm={setForm} />}
-        {form.type === 'deeplearning' && <DeepLearningForm form={form} setForm={setForm} />}
-
-        {/* 第三部分：硬件选型 */}
-        <div className="form-section">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="form-section-title">
-              <span className="w-1 h-4 bg-primary rounded-full" />
-              硬件选型
-            </h3>
-            {workstationLayout && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2 text-xs"
-                onClick={() => {
-                  const selectedCameras = (workstationLayout as any)?.selected_cameras || [];
-                  const selectedLenses = (workstationLayout as any)?.selected_lenses || [];
-                  const selectedLights = (workstationLayout as any)?.selected_lights || [];
-                  const selectedController = (workstationLayout as any)?.selected_controller;
-                  
-                  setForm(p => ({
-                    ...p,
-                    selectedCamera: selectedCameras.length > 0 ? selectedCameras[0].id : '',
-                    selectedLens: selectedLenses.length > 0 ? selectedLenses[0].id : '',
-                    selectedLight: selectedLights.length > 0 ? selectedLights[0].id : '',
-                    selectedController: selectedController ? selectedController.id : '',
-                  }));
-                  toast.success('已套用工位硬件配置');
-                }}
-              >
-                <Copy className="h-3 w-3" />
-                一键套用工位硬件
-              </Button>
-            )}
-          </div>
-          {workstationLayout && (
-            <div className="mb-3 p-2 bg-muted/50 rounded text-xs text-muted-foreground">
-              提示：通常模块硬件继承工位配置，只有特殊模块才需要覆盖
-            </div>
-          )}
-          <div className="space-y-4">
-            <HardwareSelector
-              type="camera"
-              items={cameras}
-              selectedId={form.selectedCamera}
-              onSelect={(id) => setForm(p => ({ ...p, selectedCamera: id }))}
-            />
-            <HardwareSelector
-              type="lens"
-              items={lenses}
-              selectedId={form.selectedLens}
-              onSelect={(id) => setForm(p => ({ ...p, selectedLens: id }))}
-            />
-            <HardwareSelector
-              type="light"
-              items={lights}
-              selectedId={form.selectedLight}
-              onSelect={(id) => setForm(p => ({ ...p, selectedLight: id }))}
-              recommendation={
-                form.type === 'ocr' && form.charType === 'laser' ? '同轴/条形光' : undefined
-              }
-            />
-            <HardwareSelector
-              type="controller"
-              items={controllers}
-              selectedId={form.selectedController}
-              onSelect={(id) => setForm(p => ({ ...p, selectedController: id }))}
-              recommendation={
-                form.type === 'deeplearning' && form.deployTarget === 'gpu' ? '带GPU配置' : undefined
-              }
-            />
-          </div>
-        </div>
-
-        {/* 第六部分：产品局部标注 */}
-        <div className="form-section">
-          <h3 className="form-section-title">
-            <span className="w-1 h-4 bg-purple-500 rounded-full" />
-            产品局部标注
-          </h3>
-          <ModuleAnnotationPanel 
-            moduleId={module.id} 
-            workstationId={module.workstation_id} 
-          />
-        </div>
-      </div>
-    </div>
+    <FormStepWizard
+      title="模块配置"
+      badge={
+        <Badge variant="outline" className="text-xs">
+          {moduleTypeLabels[form.type]}
+        </Badge>
+      }
+      steps={steps}
+      currentStep={currentStep}
+      onStepChange={setCurrentStep}
+      onSave={handleSave}
+      saving={saving}
+    />
   );
 }
