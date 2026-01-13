@@ -109,22 +109,10 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
 
   return (
     <>
-      <header className="h-16 border-b border-border/50 bg-card/98 backdrop-blur-xl px-5 flex items-center justify-between gap-4 shrink-0 relative overflow-hidden">
-        {/* Enhanced gradient overlay with tech glow */}
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.03] via-transparent to-accent/[0.02] pointer-events-none" />
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
-        
-        {/* Scan line effect */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-30">
-          <div 
-            className="absolute top-0 left-0 w-full h-full"
-            style={{
-              background: 'linear-gradient(90deg, transparent 0%, hsl(var(--primary) / 0.1) 50%, transparent 100%)',
-              animation: 'scan-line-move 8s ease-in-out infinite',
-            }}
-          />
-        </div>
+      <header className="h-16 border-b border-border/60 bg-card/95 backdrop-blur-md px-5 flex items-center justify-between gap-4 shrink-0 relative overflow-hidden">
+        {/* Subtle gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.02] via-transparent to-accent/[0.02] pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
         
         <div className="flex items-center gap-4 relative z-10">
           {showBackButton ? (
@@ -139,7 +127,7 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
             </Button>
           ) : (
             <>
-              {/* Logo Section - Enhanced with tech glow */}
+              {/* Logo Section - Clickable to go back to dashboard */}
               <button 
                 onClick={() => {
                   selectProject(null);
@@ -147,12 +135,10 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
                 className="flex items-center gap-3 group cursor-pointer hover:opacity-90 transition-opacity"
               >
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg group-hover:shadow-primary/40 transition-all duration-300 group-active:scale-95">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg group-hover:shadow-primary/25 transition-all duration-300 group-active:scale-95">
                     <Zap className="h-5 w-5 text-primary-foreground" />
                   </div>
-                  {/* Enhanced glow effect */}
-                  <div className="absolute inset-0 rounded-xl bg-primary/40 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="absolute -inset-1 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 blur-lg opacity-0 group-hover:opacity-60 transition-opacity duration-300" />
+                  <div className="absolute inset-0 rounded-xl bg-primary/30 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </div>
                 <div className="flex flex-col text-left">
                   <span className="font-bold text-foreground tracking-tight">视觉方案配置系统</span>
@@ -160,21 +146,16 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
                 </div>
               </button>
               
-              {/* Tech divider */}
-              <div className="tech-divider h-8 w-16">
-                <div className="line" />
-                <div className="dot" />
-                <div className="line" />
-              </div>
+              <div className="h-8 w-px bg-gradient-to-b from-transparent via-border to-transparent mx-2" />
               
-              {/* New Project Button - Enhanced */}
+              {/* New Project Button */}
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/10 hover:text-primary hover:shadow-glow transition-all duration-300 group"
+                className="gap-2 border-dashed hover:border-primary hover:bg-primary/5 hover:text-primary transition-all duration-200 group"
                 onClick={() => setShowNewProjectDialog(true)}
               >
-                <Plus className="h-4 w-4 group-hover:rotate-90 transition-transform duration-300" />
+                <Plus className="h-4 w-4 group-hover:rotate-90 transition-transform duration-200" />
                 新建项目
               </Button>
             </>
@@ -182,14 +163,14 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
         </div>
         
         <div className="flex items-center gap-3 relative z-10">
-          {/* Search - Enhanced */}
+          {/* Search */}
           {!showBackButton && (
             <div className={cn(
               "relative transition-all duration-300",
               searchFocused ? "w-80" : "w-64"
             )}>
               <Search className={cn(
-                "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 transition-all duration-200",
+                "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 transition-colors duration-200",
                 searchFocused ? "text-primary" : "text-muted-foreground"
               )} />
               <Input
@@ -199,26 +180,24 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
                 className={cn(
-                  "pl-9 h-10 bg-secondary/50 border-secondary transition-all duration-300",
-                  searchFocused 
-                    ? "bg-card shadow-lg border-primary/50 ring-2 ring-primary/20" 
-                    : "hover:border-primary/30 hover:bg-secondary/70"
+                  "pl-9 h-10 bg-secondary/50 border-secondary hover:border-primary/30 focus:border-primary transition-all duration-200",
+                  searchFocused && "bg-card shadow-sm"
                 )}
               />
               {searchFocused && (
-                <div className="absolute inset-0 -z-10 rounded-lg bg-primary/10 blur-md animate-pulse" />
+                <div className="absolute inset-0 -z-10 rounded-md bg-primary/5 blur-sm" />
               )}
             </div>
           )}
           
-          {/* Status indicator - Enhanced */}
+          {/* Status indicator */}
           {!showBackButton && selectedProject && (
             <div className={cn(
-              "flex items-center gap-2.5 px-4 py-2 rounded-lg border transition-all duration-300",
+              "flex items-center gap-2.5 px-4 py-2 rounded-lg border transition-all duration-200",
               finalReady 
-                ? "bg-success/8 border-success/30 shadow-[0_0_15px_hsl(var(--success)/0.15)]" 
+                ? "bg-success/5 border-success/20" 
                 : draftReady
-                  ? "bg-warning/8 border-warning/30 shadow-[0_0_15px_hsl(var(--warning)/0.15)]"
+                  ? "bg-warning/5 border-warning/20"
                   : "bg-secondary/50 border-border"
             )}>
               <span className="text-xs text-muted-foreground font-medium">当前项目</span>
@@ -312,54 +291,24 @@ export function TopToolbar({ onAdminClick, showBackButton }: TopToolbarProps) {
             </Tooltip>
           )}
           
-          {/* Tech divider */}
-          <div className="tech-divider h-8 w-12">
-            <div className="line" />
-            <div className="dot" />
-            <div className="line" />
-          </div>
+          <div className="h-8 w-px bg-gradient-to-b from-transparent via-border to-transparent" />
           
-          {/* Theme Toggle - Enhanced */}
+          {/* Theme Toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button 
                 variant="ghost" 
                 size="icon"
                 onClick={toggleTheme}
-                className="relative overflow-hidden hover:bg-primary/10 hover:text-primary transition-all duration-300 hover:shadow-glow"
+                className="relative overflow-hidden hover:bg-primary/10 hover:text-primary transition-all duration-200"
               >
-                <Sun className="h-5 w-5 rotate-0 scale-100 transition-all duration-500 dark:-rotate-90 dark:scale-0" />
-                <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all duration-500 dark:rotate-0 dark:scale-100" />
+                <Sun className="h-5 w-5 rotate-0 scale-100 transition-all duration-300 dark:-rotate-90 dark:scale-0" />
+                <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all duration-300 dark:rotate-0 dark:scale-100" />
                 <span className="sr-only">切换主题</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               <p>{theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}</p>
-            </TooltipContent>
-          </Tooltip>
-          
-          {/* Admin Center - Enhanced */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={handleAdminAccess}
-                className={cn(
-                  "relative overflow-hidden transition-all duration-300",
-                  currentRole === 'admin' 
-                    ? "text-primary bg-primary/15 shadow-glow" 
-                    : "hover:bg-primary/10 hover:text-primary hover:shadow-glow"
-                )}
-              >
-                <Settings className={cn(
-                  "h-5 w-5 transition-transform duration-500",
-                  currentRole === 'admin' && "animate-spin"
-                )} style={{ animationDuration: '3s' }} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>管理中心</p>
             </TooltipContent>
           </Tooltip>
           

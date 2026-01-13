@@ -171,32 +171,6 @@ export default {
         'pulse-border': {
           '0%, 100%': { borderColor: 'hsl(var(--primary) / 0.3)' },
           '50%': { borderColor: 'hsl(var(--primary))' }
-        },
-        'neon-pulse': {
-          '0%, 100%': { 
-            boxShadow: '0 0 5px hsl(var(--primary) / 0.3), 0 0 10px hsl(var(--primary) / 0.2)' 
-          },
-          '50%': { 
-            boxShadow: '0 0 15px hsl(var(--primary) / 0.5), 0 0 30px hsl(var(--primary) / 0.3)' 
-          }
-        },
-        'scan-line': {
-          '0%': { transform: 'translateX(-100%)' },
-          '100%': { transform: 'translateX(100%)' }
-        },
-        'float': {
-          '0%, 100%': { transform: 'translateY(0)' },
-          '50%': { transform: 'translateY(-6px)' }
-        },
-        'border-glow': {
-          '0%, 100%': { 
-            borderColor: 'hsl(var(--primary) / 0.3)',
-            boxShadow: '0 0 0 0 hsl(var(--primary) / 0)'
-          },
-          '50%': { 
-            borderColor: 'hsl(var(--primary) / 0.6)',
-            boxShadow: '0 0 10px 0 hsl(var(--primary) / 0.2)'
-          }
         }
       },
       animation: {
@@ -208,11 +182,7 @@ export default {
         'slide-in-up': 'slide-in-up 0.25s ease-out',
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
         'click-shake': 'click-shake 0.15s ease-out',
-        'pulse-border': 'pulse-border 1.5s ease-in-out infinite',
-        'neon-pulse': 'neon-pulse 2s ease-in-out infinite',
-        'scan-line': 'scan-line 3s ease-in-out infinite',
-        'float': 'float 3s ease-in-out infinite',
-        'border-glow': 'border-glow 2s ease-in-out infinite'
+        'pulse-border': 'pulse-border 1.5s ease-in-out infinite'
       },
       boxShadow: {
         '2xs': 'var(--shadow-2xs)',
@@ -223,7 +193,6 @@ export default {
         xl: 'var(--shadow-xl)',
         '2xl': 'var(--shadow-2xl)',
         glow: 'var(--shadow-glow)',
-        neon: 'var(--shadow-neon)',
         inset: 'var(--shadow-inset)'
       }
     }

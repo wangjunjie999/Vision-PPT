@@ -23,27 +23,19 @@ export function MainLayout() {
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden relative">
-      {/* Ambient Background Effects - Enhanced tech style */}
+      {/* Ambient Background Effects - Static decorations only */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Gradient orbs with enhanced glow */}
-        <div className="absolute -top-48 -left-48 w-96 h-96 bg-primary/8 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '8s' }} />
-        <div className="absolute top-1/3 -right-24 w-72 h-72 bg-accent/6 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '10s', animationDelay: '2s' }} />
-        <div className="absolute -bottom-32 left-1/3 w-80 h-80 bg-primary/5 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '12s', animationDelay: '4s' }} />
+        {/* Gradient orbs - static, no animation for better performance */}
+        <div className="absolute -top-48 -left-48 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 -right-24 w-72 h-72 bg-accent/4 rounded-full blur-3xl" />
+        <div className="absolute -bottom-32 left-1/3 w-80 h-80 bg-primary/3 rounded-full blur-3xl" />
         
-        {/* Enhanced grid overlay */}
-        <div 
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: 'linear-gradient(hsl(var(--primary)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--primary)) 1px, transparent 1px)',
-            backgroundSize: '64px 64px'
-          }}
-        />
-        
-        {/* Scan line effect */}
+        {/* Grid overlay */}
         <div 
           className="absolute inset-0 opacity-[0.015]"
           style={{
-            background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, hsl(var(--primary) / 0.03) 2px, hsl(var(--primary) / 0.03) 4px)',
+            backgroundImage: 'linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)',
+            backgroundSize: '64px 64px'
           }}
         />
       </div>
@@ -91,13 +83,9 @@ export function MainLayout() {
                     initial={{ opacity: 0, x: -30 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.35, delay: 0.1, ease: 'easeOut' }}
-                    className="h-full bg-card/95 backdrop-blur-xl flex flex-col overflow-hidden shadow-xl relative border-r border-border/50"
+                    className="h-full bg-card/90 backdrop-blur-md flex flex-col overflow-hidden shadow-xl relative"
                   >
-                    {/* Enhanced glowing border */}
-                    <div className="panel-glow-left" />
-                    {/* Tech corner decorations */}
-                    <div className="tech-corner tech-corner-tr" style={{ borderColor: 'hsl(var(--primary) / 0.3)' }} />
-                    <div className="tech-corner tech-corner-br" style={{ borderColor: 'hsl(var(--primary) / 0.3)' }} />
+                    <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent" />
                     <ProjectTree />
                   </motion.aside>
                 </ResizablePanel>
@@ -123,9 +111,8 @@ export function MainLayout() {
                     transition={{ duration: 0.35, delay: 0.15, ease: 'easeOut' }}
                     className="h-full flex flex-col overflow-hidden relative"
                   >
-                    {/* Enhanced vignette effect */}
-                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-background/30 via-transparent to-background/30" />
-                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-primary/[0.02] via-transparent to-transparent" />
+                    {/* Subtle vignette effect */}
+                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-background/20 via-transparent to-background/20" />
                     <CanvasArea />
                   </motion.main>
                 </ResizablePanel>
@@ -150,13 +137,9 @@ export function MainLayout() {
                     initial={{ opacity: 0, x: 30 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.35, delay: 0.1, ease: 'easeOut' }}
-                    className="h-full bg-card/95 backdrop-blur-xl flex flex-col overflow-hidden shadow-xl relative border-l border-border/50"
+                    className="h-full bg-card/90 backdrop-blur-md flex flex-col overflow-hidden shadow-xl relative"
                   >
-                    {/* Enhanced glowing border */}
-                    <div className="panel-glow-right" />
-                    {/* Tech corner decorations */}
-                    <div className="tech-corner tech-corner-tl" style={{ borderColor: 'hsl(var(--primary) / 0.3)' }} />
-                    <div className="tech-corner tech-corner-bl" style={{ borderColor: 'hsl(var(--primary) / 0.3)' }} />
+                    <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent" />
                     <FormPanel />
                   </motion.aside>
                 </ResizablePanel>

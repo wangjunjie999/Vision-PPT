@@ -78,47 +78,28 @@ export function FormStepWizard({
         </div>
       </div>
 
-      {/* Step indicator - Enhanced with tech style */}
-      <div className="px-4 py-3 border-b bg-gradient-to-r from-muted/30 via-muted/50 to-muted/30 relative overflow-hidden">
-        {/* Scan line effect */}
-        <div className="absolute inset-0 overflow-hidden opacity-20">
-          <div 
-            className="absolute top-0 left-0 w-1/3 h-full bg-gradient-to-r from-transparent via-primary/30 to-transparent"
-            style={{ animation: 'scan-line-move 6s ease-in-out infinite' }}
-          />
-        </div>
-        
-        {/* Progress bar - Enhanced with flow animation */}
-        <div className="mb-3 relative">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-            <span className="font-medium uppercase tracking-wider">配置进度</span>
+      {/* Step indicator */}
+      <div className="px-4 py-3 border-b bg-muted/30">
+        {/* Progress bar */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+            <span>配置进度</span>
             <span className={cn(
-              "font-bold tabular-nums",
+              "font-medium",
               progressPercent >= 70 ? "text-success" : 
               progressPercent >= 30 ? "text-warning" : "text-destructive"
             )}>
               {progressPercent}%
             </span>
           </div>
-          <div className="h-2 rounded-full bg-muted/50 overflow-hidden relative">
-            <div 
-              className={cn(
-                "h-full rounded-full transition-all duration-500 relative overflow-hidden",
-                progressPercent >= 70 ? "bg-success" : 
-                progressPercent >= 30 ? "bg-warning" : "bg-destructive"
-              )}
-              style={{ width: `${progressPercent}%` }}
-            >
-              {/* Flow animation overlay */}
-              <div 
-                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
-                style={{ 
-                  backgroundSize: '200% 100%',
-                  animation: 'progress-flow 1.5s linear infinite' 
-                }}
-              />
-            </div>
-          </div>
+          <Progress 
+            value={progressPercent} 
+            className={cn(
+              "h-1.5",
+              progressPercent >= 70 ? "[&>div]:bg-success" : 
+              progressPercent >= 30 ? "[&>div]:bg-warning" : "[&>div]:bg-destructive"
+            )}
+          />
         </div>
 
         {/* Step indicators */}
