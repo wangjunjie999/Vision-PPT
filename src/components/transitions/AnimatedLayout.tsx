@@ -1,5 +1,6 @@
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 import { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 
 interface AnimatedLayoutProps {
   children: ReactNode;
@@ -7,13 +8,20 @@ interface AnimatedLayoutProps {
   delay?: number;
 }
 
-// Main content fade in
+// Smooth spring config
+const springConfig = {
+  type: "spring" as const,
+  stiffness: 300,
+  damping: 25,
+};
+
+// Main content fade in with subtle scale
 export function FadeIn({ children, className = '', delay = 0 }: AnimatedLayoutProps) {
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3, delay }}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3, delay, ease: "easeOut" }}
       className={className}
     >
       {children}
@@ -28,9 +36,8 @@ export function SlideInLeft({ children, className = '', delay = 0 }: AnimatedLay
       initial={{ opacity: 0, x: -30 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ 
-        duration: 0.4, 
+        ...springConfig,
         delay,
-        ease: [0.25, 0.46, 0.45, 0.94]
       }}
       className={className}
     >
@@ -46,9 +53,8 @@ export function SlideInRight({ children, className = '', delay = 0 }: AnimatedLa
       initial={{ opacity: 0, x: 30 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ 
-        duration: 0.4, 
+        ...springConfig,
         delay,
-        ease: [0.25, 0.46, 0.45, 0.94]
       }}
       className={className}
     >
@@ -57,16 +63,17 @@ export function SlideInRight({ children, className = '', delay = 0 }: AnimatedLa
   );
 }
 
-// Scale in (for cards/items)
+// Scale in with bounce (for cards/items)
 export function ScaleIn({ children, className = '', delay = 0 }: AnimatedLayoutProps) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ 
-        duration: 0.25, 
+        type: "spring",
+        stiffness: 400,
+        damping: 20,
         delay,
-        ease: [0.25, 0.46, 0.45, 0.94]
       }}
       className={className}
     >
@@ -82,9 +89,27 @@ export function SlideUp({ children, className = '', delay = 0 }: AnimatedLayoutP
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ 
-        duration: 0.35, 
+        ...springConfig,
         delay,
-        ease: [0.25, 0.46, 0.45, 0.94]
+      }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// Pop in effect (for important elements)
+export function PopIn({ children, className = '', delay = 0 }: AnimatedLayoutProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ 
+        type: "spring",
+        stiffness: 500,
+        damping: 15,
+        delay,
       }}
       className={className}
     >
@@ -97,9 +122,10 @@ export function SlideUp({ children, className = '', delay = 0 }: AnimatedLayoutP
 interface StaggerListProps {
   children: ReactNode;
   className?: string;
+  staggerDelay?: number;
 }
 
-export function StaggerList({ children, className = '' }: StaggerListProps) {
+export function StaggerList({ children, className = '', staggerDelay = 0.05 }: StaggerListProps) {
   return (
     <motion.div
       initial="hidden"
@@ -107,7 +133,7 @@ export function StaggerList({ children, className = '' }: StaggerListProps) {
       variants={{
         visible: {
           transition: {
-            staggerChildren: 0.05,
+            staggerChildren: staggerDelay,
           },
         },
       }}
@@ -118,14 +144,30 @@ export function StaggerList({ children, className = '' }: StaggerListProps) {
   );
 }
 
-export function StaggerItem({ children, className = '' }: StaggerListProps) {
+interface StaggerItemProps {
+  children: ReactNode;
+  className?: string;
+  index?: number;
+}
+
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 8, scale: 0.98 },
+  visible: { 
+    opacity: 1, 
+    y: 0, 
+    scale: 1,
+    transition: {
+      type: "spring",
+      stiffness: 300,
+      damping: 24,
+    }
+  },
+};
+
+export function StaggerItem({ children, className = '' }: StaggerItemProps) {
   return (
     <motion.div
-      variants={{
-        hidden: { opacity: 0, y: 10 },
-        visible: { opacity: 1, y: 0 },
-      }}
-      transition={{ duration: 0.25 }}
+      variants={itemVariants}
       className={className}
     >
       {children}
@@ -134,13 +176,89 @@ export function StaggerItem({ children, className = '' }: StaggerListProps) {
 }
 
 // Hover animations for interactive elements
-export function HoverScale({ children, className = '' }: { children: ReactNode; className?: string }) {
+interface HoverScaleProps {
+  children: ReactNode;
+  className?: string;
+  scale?: number;
+  lift?: number;
+}
+
+export function HoverScale({ 
+  children, 
+  className = '', 
+  scale = 1.02,
+  lift = 2
+}: HoverScaleProps) {
   return (
     <motion.div
-      whileHover={{ scale: 1.02 }}
+      whileHover={{ scale, y: -lift }}
       whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.15 }}
+      transition={{ type: "spring", stiffness: 400, damping: 17 }}
       className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// Glow on hover
+export function HoverGlow({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <motion.div
+      className={cn("relative", className)}
+      whileHover="hover"
+      initial="rest"
+    >
+      <motion.div
+        className="absolute inset-0 rounded-lg bg-primary/20 blur-xl"
+        variants={{
+          rest: { opacity: 0, scale: 0.8 },
+          hover: { opacity: 1, scale: 1 },
+        }}
+        transition={{ duration: 0.3 }}
+      />
+      <div className="relative">{children}</div>
+    </motion.div>
+  );
+}
+
+// Page transition wrapper
+export function PageTransition({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3 }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// Expand animation for accordions/collapsibles
+export function Expand({ 
+  children, 
+  className = '',
+  isOpen = true 
+}: { 
+  children: ReactNode; 
+  className?: string;
+  isOpen?: boolean;
+}) {
+  return (
+    <motion.div
+      initial={false}
+      animate={{ 
+        height: isOpen ? 'auto' : 0,
+        opacity: isOpen ? 1 : 0 
+      }}
+      transition={{ 
+        height: { type: "spring", stiffness: 300, damping: 30 },
+        opacity: { duration: 0.2 }
+      }}
+      className={cn("overflow-hidden", className)}
     >
       {children}
     </motion.div>
