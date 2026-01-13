@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -19,17 +20,18 @@ import {
   Save, RotateCcw, Grid3X3, Magnet, Ruler, Plus, 
   Camera, Trash2, Lock, Unlock, Loader2, Copy, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
-  Move, Link, Unlink
+  Move, LayoutGrid, AlignHorizontalJustifyCenter, 
+  AlignVerticalJustifyCenter, AlignCenterHorizontal
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
+import { ObjectListPanel } from './ObjectListPanel';
 import { CanvasControls } from './CanvasControls';
 import { AlignmentGuides, calculateSnapPosition } from './AlignmentGuides';
 import { CameraViewRepresentation } from './EngineeringAnnotations';
 import { EngineeringAnnotations } from './EngineeringAnnotations';
 import { ResizeHandles } from './ResizeHandles';
 import { CoordinateSystem } from './CoordinateSystem';
-import { DimensionTable } from './DimensionTable';
 import { MechanismSVG, getMechanismMountPoints, type CameraMountPoint } from './MechanismSVG';
 import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } from './CameraMountPoints';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
@@ -39,6 +41,15 @@ type ViewType = 'front' | 'side' | 'top';
 interface DraggableLayoutCanvasProps {
   workstationId: string;
 }
+
+// Auto-arrangement configuration
+const AUTO_ARRANGE_CONFIG = {
+  cameraSpacing: 200, // mm between cameras horizontally
+  mechanismSpacing: 150, // mm between mechanisms
+  cameraDefaultZ: 350, // default height for cameras
+  mechanismDefaultZ: 0, // default height for mechanisms (on product level)
+  startOffsetX: -150, // start offset from center for first object
+};
 
 export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasProps) {
   const { 
@@ -56,8 +67,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   
   const [currentView, setCurrentView] = useState<ViewType>('front');
   const [objects, setObjects] = useState<LayoutObject[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [secondSelectedId, setSecondSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [showDistances, setShowDistances] = useState(false);
@@ -65,6 +75,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
   const [mechanismCounts, setMechanismCounts] = useState<Record<string, number>>({});
+  
+  // Hidden objects (for visibility toggle)
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   
   // Zoom and pan state
   const [zoom, setZoom] = useState(1);
@@ -85,8 +98,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   // Dragging object for alignment guides
   const [draggingObject, setDraggingObject] = useState<LayoutObject | null>(null);
   
-  // Show dimension table
-  const [showDimensionTable, setShowDimensionTable] = useState(true);
+  // Show object list panel
+  const [showObjectList, setShowObjectList] = useState(true);
   
   // Show camera spacing and working distance
   const [showCameraSpacing, setShowCameraSpacing] = useState(true);
@@ -107,6 +120,10 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const productW = productDimensions.length * scale;
   const productH = productDimensions.height * scale;
   const productD = productDimensions.width * scale;
+  
+  // Derived: selected object(s)
+  const selectedId = selectedIds[0] || null;
+  const secondSelectedId = selectedIds[1] || null;
 
   // ========== 3D Coordinate System Functions ==========
   
@@ -171,14 +188,18 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   const deleteObject = useCallback((id: string) => {
     setObjects(prev => prev.filter(o => o.id !== id));
-    setSelectedId(prevSelectedId => {
-      if (prevSelectedId === id) {
+    setSelectedIds(prev => {
+      const newIds = prev.filter(i => i !== id);
+      if (newIds.length === 0) {
         setShowPropertyPanel(false);
-        return null;
       }
-      return prevSelectedId;
+      return newIds;
     });
-    setSecondSelectedId(prevSecondId => prevSecondId === id ? null : prevSecondId);
+    setHiddenIds(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(id);
+      return newSet;
+    });
   }, []);
 
   const duplicateObject = useCallback((id: string) => {
@@ -206,7 +227,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         newObj.name = `${obj.name?.split('#')[0] || 'Mechanism'}#${mechCount + 1}`;
       }
       
-      setSelectedId(newObj.id);
+      setSelectedIds([newObj.id]);
       return [...prev, newObj];
     });
   }, []);
@@ -337,8 +358,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           }
           break;
         case 'Escape':
-          setSelectedId(null);
-          setSecondSelectedId(null);
+          setSelectedIds([]);
           setShowPropertyPanel(false);
           break;
       }
@@ -384,12 +404,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     
     // Handle multi-selection with shift key
     if (e.shiftKey && selectedId && selectedId !== obj.id) {
-      setSecondSelectedId(obj.id);
+      setSelectedIds(prev => prev.includes(obj.id) ? prev : [...prev, obj.id]);
       return;
     }
     
-    setSelectedId(obj.id);
-    setSecondSelectedId(null);
+    setSelectedIds([obj.id]);
     setShowPropertyPanel(true);
     setIsDragging(true);
     
@@ -476,8 +495,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
     } else {
-      setSelectedId(null);
-      setSecondSelectedId(null);
+      setSelectedIds([]);
       setShowPropertyPanel(false);
     }
   };
@@ -495,14 +513,28 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     ));
   }, []);
 
-  const addCamera = () => {
-    const cameraCount = objects.filter(o => o.type === 'camera').length;
-    // Default 3D position for new camera: above product center
-    const defaultPosX = (cameraCount - 1) * 150; // Spread cameras horizontally
-    const defaultPosY = 0;
-    const defaultPosZ = 350; // 350mm above product
+  const addCamera = useCallback(() => {
+    const existingCameras = objects.filter(o => o.type === 'camera');
+    const cameraCount = existingCameras.length;
     
-    // Project to canvas for initial x,y
+    // Calculate position to spread cameras evenly without overlap
+    // Use symmetric distribution around center
+    let defaultPosX: number;
+    if (cameraCount === 0) {
+      defaultPosX = 0; // First camera at center
+    } else {
+      // Spread cameras with AUTO_ARRANGE_CONFIG.cameraSpacing
+      const totalAfterAdd = cameraCount + 1;
+      const positions = [];
+      for (let i = 0; i < totalAfterAdd; i++) {
+        positions.push(-((totalAfterAdd - 1) * AUTO_ARRANGE_CONFIG.cameraSpacing / 2) + i * AUTO_ARRANGE_CONFIG.cameraSpacing);
+      }
+      defaultPosX = positions[cameraCount]; // Position for new camera
+    }
+    
+    const defaultPosY = 0;
+    const defaultPosZ = AUTO_ARRANGE_CONFIG.cameraDefaultZ;
+    
     const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
     
     const newCamera: LayoutObject = {
@@ -521,18 +553,31 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       cameraIndex: cameraCount + 1,
     };
     setObjects(prev => [...prev, newCamera]);
-    setSelectedId(newCamera.id);
+    setSelectedIds([newCamera.id]);
     setShowPropertyPanel(true);
-  };
+    toast.success(`已添加 ${newCamera.name}`);
+  }, [objects, project3DTo2D, currentView]);
 
-  const addMechanism = (mechanism: Mechanism) => {
-    const count = mechanismCounts[mechanism.id] || 0;
-    // Default 3D position for mechanism: on the product surface
-    const defaultPosX = 120 + (count * 80);
-    const defaultPosY = 0;
-    const defaultPosZ = 0; // At product level
+  const addMechanism = useCallback((mechanism: Mechanism) => {
+    const existingMechs = objects.filter(o => o.type === 'mechanism');
+    const sameMechCount = existingMechs.filter(o => o.mechanismId === mechanism.id).length;
+    const totalMechCount = existingMechs.length;
     
-    // Project to canvas for initial x,y
+    // Calculate position to spread mechanisms evenly
+    // Mechanisms go in a row at the front of the product
+    let defaultPosX: number;
+    if (totalMechCount === 0) {
+      defaultPosX = 0; // First mechanism at center
+    } else {
+      // Alternate left/right placement
+      const side = totalMechCount % 2 === 0 ? 1 : -1;
+      const distance = Math.ceil(totalMechCount / 2) * AUTO_ARRANGE_CONFIG.mechanismSpacing;
+      defaultPosX = side * distance;
+    }
+    
+    const defaultPosY = productDimensions.width / 2 + 50; // In front of product
+    const defaultPosZ = AUTO_ARRANGE_CONFIG.mechanismDefaultZ;
+    
     const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
     
     const newMech: LayoutObject = {
@@ -540,7 +585,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       type: 'mechanism',
       mechanismId: mechanism.id,
       mechanismType: mechanism.type,
-      name: `${mechanism.name}#${count + 1}`,
+      name: `${mechanism.name}#${sameMechCount + 1}`,
       posX: defaultPosX,
       posY: defaultPosY,
       posZ: defaultPosZ,
@@ -552,9 +597,10 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       locked: false,
     };
     setObjects(prev => [...prev, newMech]);
-    setSelectedId(newMech.id);
+    setSelectedIds([newMech.id]);
     setShowPropertyPanel(true);
-  };
+    toast.success(`已添加 ${newMech.name}`);
+  }, [objects, project3DTo2D, currentView, productDimensions.width, scale]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -587,9 +633,134 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const resetLayout = () => {
     if (!confirm('确定要重置布局吗？所有对象将被清除。')) return;
     setObjects([]);
-    setSelectedId(null);
+    setSelectedIds([]);
     setShowPropertyPanel(false);
+    setHiddenIds(new Set());
   };
+
+  // Auto-arrange objects to prevent overlap
+  const autoArrangeObjects = useCallback(() => {
+    setObjects(prev => {
+      const cameras = prev.filter(o => o.type === 'camera');
+      const mechanisms = prev.filter(o => o.type === 'mechanism');
+      
+      // Arrange cameras in a row above product
+      const arrangedCameras = cameras.map((cam, i) => {
+        const totalCameras = cameras.length;
+        const startX = -(totalCameras - 1) * AUTO_ARRANGE_CONFIG.cameraSpacing / 2;
+        const posX = startX + i * AUTO_ARRANGE_CONFIG.cameraSpacing;
+        const canvasPos = project3DTo2D(posX, 0, AUTO_ARRANGE_CONFIG.cameraDefaultZ, currentView);
+        return {
+          ...cam,
+          posX,
+          posY: 0,
+          posZ: AUTO_ARRANGE_CONFIG.cameraDefaultZ,
+          x: canvasPos.x,
+          y: canvasPos.y,
+        };
+      });
+      
+      // Arrange mechanisms around product
+      const arrangedMechanisms = mechanisms.map((mech, i) => {
+        const totalMechs = mechanisms.length;
+        const startX = -(totalMechs - 1) * AUTO_ARRANGE_CONFIG.mechanismSpacing / 2;
+        const posX = startX + i * AUTO_ARRANGE_CONFIG.mechanismSpacing;
+        const canvasPos = project3DTo2D(posX, 100, AUTO_ARRANGE_CONFIG.mechanismDefaultZ, currentView);
+        return {
+          ...mech,
+          posX,
+          posY: 100,
+          posZ: AUTO_ARRANGE_CONFIG.mechanismDefaultZ,
+          x: canvasPos.x,
+          y: canvasPos.y,
+        };
+      });
+      
+      return [...arrangedCameras, ...arrangedMechanisms];
+    });
+    toast.success('已自动排布对象');
+  }, [project3DTo2D, currentView]);
+
+  // Toggle object visibility
+  const toggleObjectVisibility = useCallback((id: string) => {
+    setHiddenIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Toggle object lock
+  const toggleObjectLock = useCallback((id: string) => {
+    setObjects(prev => prev.map(obj =>
+      obj.id === id ? { ...obj, locked: !obj.locked } : obj
+    ));
+  }, []);
+
+  // Focus on object (center view and select)
+  const focusObject = useCallback((id: string) => {
+    const obj = objects.find(o => o.id === id);
+    if (!obj) return;
+    
+    // Center the pan on the object
+    setPan({
+      x: (centerX - obj.x) * zoom,
+      y: (centerY - obj.y) * zoom,
+    });
+    
+    // Select the object
+    setSelectedIds([id]);
+    setShowPropertyPanel(true);
+    
+    // Brief highlight effect (handled by selection state)
+  }, [objects, centerX, centerY, zoom]);
+
+  // Reorder object in the layer stack
+  const reorderObject = useCallback((id: string, direction: 'up' | 'down') => {
+    setObjects(prev => {
+      const index = prev.findIndex(o => o.id === id);
+      if (index === -1) return prev;
+      
+      const newIndex = direction === 'up' ? index - 1 : index + 1;
+      if (newIndex < 0 || newIndex >= prev.length) return prev;
+      
+      const newObjects = [...prev];
+      [newObjects[index], newObjects[newIndex]] = [newObjects[newIndex], newObjects[index]];
+      return newObjects;
+    });
+  }, []);
+
+  // Select all objects
+  const selectAllObjects = useCallback(() => {
+    setSelectedIds(objects.map(o => o.id));
+  }, [objects]);
+
+  // Deselect all objects
+  const deselectAllObjects = useCallback(() => {
+    setSelectedIds([]);
+    setShowPropertyPanel(false);
+  }, []);
+
+  // Handle object selection from list panel
+  const handleSelectObject = useCallback((id: string, multiSelect?: boolean) => {
+    if (multiSelect) {
+      setSelectedIds(prev => {
+        if (prev.includes(id)) {
+          const newIds = prev.filter(i => i !== id);
+          if (newIds.length === 0) setShowPropertyPanel(false);
+          return newIds;
+        }
+        return [...prev, id];
+      });
+    } else {
+      setSelectedIds([id]);
+      setShowPropertyPanel(true);
+    }
+  }, []);
 
   const fitToScreen = () => {
     setZoom(1);
@@ -769,11 +940,24 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             </Label>
           </div>
           <div className="flex items-center gap-1.5">
-            <Switch checked={showDimensionTable} onCheckedChange={setShowDimensionTable} id="table" />
+            <Switch checked={showObjectList} onCheckedChange={setShowObjectList} id="table" />
             <Label htmlFor="table" className="text-xs cursor-pointer">
-              位置表
+              对象清单
             </Label>
           </div>
+          
+          {/* Auto-arrange button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={autoArrangeObjects} className="gap-1">
+                  <LayoutGrid className="h-4 w-4" />
+                  自动排布
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>一键重新排列所有对象，防止重叠</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           
           <div className="h-5 w-px bg-border" />
           
@@ -1185,19 +1369,26 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           </ContextMenuContent>
         </ContextMenu>
         
-        {/* Dimension Table */}
-        {showDimensionTable && (
-          <DimensionTable
-            objects={objects}
+        {/* Object List Panel */}
+        {showObjectList && (
+          <ObjectListPanel
+            objects={objects.filter(o => !hiddenIds.has(o.id) || selectedIds.includes(o.id))}
+            selectedIds={selectedIds}
+            onSelectObject={handleSelectObject}
+            onToggleVisibility={toggleObjectVisibility}
+            onToggleLock={toggleObjectLock}
+            onFocusObject={focusObject}
+            onDeleteObject={deleteObject}
+            onDuplicateObject={duplicateObject}
+            onReorderObject={reorderObject}
+            onAutoArrange={autoArrangeObjects}
+            onSelectAll={selectAllObjects}
+            onDeselectAll={deselectAllObjects}
+            hiddenIds={hiddenIds}
             centerX={centerX}
             centerY={centerY}
             scale={scale}
             currentView={currentView}
-            selectedId={selectedId}
-            onSelectObject={(id) => {
-              setSelectedId(id);
-              setShowPropertyPanel(true);
-            }}
           />
         )}
         
@@ -1209,7 +1400,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             onDelete={deleteObject}
             onClose={() => {
               setShowPropertyPanel(false);
-              setSelectedId(null);
+              setSelectedIds([]);
             }}
             scale={scale}
             canvasCenter={{ x: centerX, y: centerY }}
