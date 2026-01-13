@@ -32,6 +32,9 @@ export interface LayoutObject {
   posX?: number;
   posY?: number;
   posZ?: number;
+  // Camera mounting to mechanism
+  mountedToMechanismId?: string;
+  mountPointId?: string;
 }
 
 interface ObjectPropertyPanelProps {
