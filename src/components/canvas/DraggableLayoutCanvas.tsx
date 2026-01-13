@@ -35,6 +35,7 @@ import { CoordinateSystem } from './CoordinateSystem';
 import { MechanismSVG, getMechanismMountPoints, type CameraMountPoint } from './MechanismSVG';
 import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } from './CameraMountPoints';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
+import { EngineeringFrame, ScaleBar, OrientationIndicator, GridInfo } from './EngineeringFrame';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -826,21 +827,37 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-card border-b border-border">
-        {/* Left: View tabs */}
-        <div className="flex gap-1">
-          {(['front', 'side', 'top'] as ViewType[]).map(view => (
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-card/95 backdrop-blur border-b border-border">
+        {/* Left: View tabs with animation */}
+        <div className="flex gap-1 p-1 bg-muted/50 rounded-lg">
+          {(['front', 'side', 'top'] as ViewType[]).map((view, index) => (
             <button
               key={view}
               onClick={() => setCurrentView(view)}
               className={cn(
-                'px-4 py-2 text-sm font-medium rounded-md transition-all',
+                'relative px-4 py-2 text-sm font-medium rounded-md transition-all duration-300',
                 currentView === view 
-                  ? 'bg-primary text-primary-foreground shadow-md' 
-                  : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                  ? 'text-primary-foreground' 
+                  : 'text-muted-foreground hover:text-foreground'
               )}
+              style={{ 
+                animationDelay: `${index * 50}ms` 
+              }}
             >
-              {view === 'front' ? '正视图 (X-Z)' : view === 'side' ? '左视图 (Y-Z)' : '俯视图 (X-Y)'}
+              {/* Active indicator background */}
+              {currentView === view && (
+                <span 
+                  className="absolute inset-0 bg-primary rounded-md shadow-lg shadow-primary/25 animate-scale-in"
+                  style={{ zIndex: -1 }}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-2">
+                <span className={cn(
+                  "w-2 h-2 rounded-full transition-colors duration-300",
+                  currentView === view ? "bg-primary-foreground" : "bg-muted-foreground/50"
+                )} />
+                {view === 'front' ? '正视图' : view === 'side' ? '左视图' : '俯视图'}
+              </span>
             </button>
           ))}
         </div>
@@ -1073,6 +1090,16 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                 </filter>
               </defs>
               
+              {/* Engineering Frame - Professional border with title block */}
+              <EngineeringFrame
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+                currentView={currentView}
+                projectName="视觉工位布局"
+                workstationName={workstation?.name || '工位'}
+                scale={scale}
+              />
+              
               {/* Grid */}
               {gridEnabled && (
                 <>
@@ -1082,50 +1109,32 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               )}
               
               {/* Axis lines */}
-              <line x1={0} y1={centerY} x2={canvasWidth} y2={centerY} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="8 4" />
-              <line x1={centerX} y1={0} x2={centerX} y2={canvasHeight} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="8 4" />
+              <line x1={40} y1={centerY} x2={canvasWidth - 40} y2={centerY} stroke="rgba(148, 163, 184, 0.25)" strokeWidth="1" strokeDasharray="8 4" />
+              <line x1={centerX} y1={40} x2={centerX} y2={canvasHeight - 80} stroke="rgba(148, 163, 184, 0.25)" strokeWidth="1" strokeDasharray="8 4" />
               
-              {/* View label with axis indicators */}
-              <g transform={`translate(${centerX}, 40)`}>
-                <rect x={-100} y={-16} width={200} height={32} rx={8} fill="rgba(30, 41, 59, 0.95)" />
-                <text x={0} y={6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="600">
-                  {currentView === 'front' 
-                    ? '🎯 正视图 | X↔ Z↕' 
-                    : currentView === 'side' 
-                      ? '📐 左视图 | Y↔ Z↕' 
-                      : '🔍 俯视图 | X↔ Y↕'}
-                </text>
-              </g>
+              {/* Scale Bar (bottom left) */}
+              <ScaleBar
+                x={60}
+                y={canvasHeight - 95}
+                scale={scale}
+                unit="mm"
+              />
               
-              {/* Axis legend in corner */}
-              <g transform="translate(80, 80)">
-                <rect x={-50} y={-30} width={100} height={60} rx={8} fill="rgba(30, 41, 59, 0.9)" stroke="rgba(148, 163, 184, 0.3)" strokeWidth="1" />
-                <text x={0} y={-10} textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="500">坐标系</text>
-                {currentView === 'front' && (
-                  <>
-                    <line x1={-20} y1={10} x2={30} y2={10} stroke="#ef4444" strokeWidth="2" markerEnd="url(#arrow-red)" />
-                    <text x={35} y={14} fill="#ef4444" fontSize="11" fontWeight="600">X</text>
-                    <line x1={0} y1={25} x2={0} y2={-5} stroke="#3b82f6" strokeWidth="2" markerEnd="url(#arrow-blue)" />
-                    <text x={0} y={-12} textAnchor="middle" fill="#3b82f6" fontSize="11" fontWeight="600">Z</text>
-                  </>
-                )}
-                {currentView === 'side' && (
-                  <>
-                    <line x1={-20} y1={10} x2={30} y2={10} stroke="#22c55e" strokeWidth="2" />
-                    <text x={35} y={14} fill="#22c55e" fontSize="11" fontWeight="600">Y</text>
-                    <line x1={0} y1={25} x2={0} y2={-5} stroke="#3b82f6" strokeWidth="2" />
-                    <text x={0} y={-12} textAnchor="middle" fill="#3b82f6" fontSize="11" fontWeight="600">Z</text>
-                  </>
-                )}
-                {currentView === 'top' && (
-                  <>
-                    <line x1={-20} y1={10} x2={30} y2={10} stroke="#ef4444" strokeWidth="2" />
-                    <text x={35} y={14} fill="#ef4444" fontSize="11" fontWeight="600">X</text>
-                    <line x1={0} y1={-5} x2={0} y2={25} stroke="#22c55e" strokeWidth="2" />
-                    <text x={0} y={32} textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="600">Y</text>
-                  </>
-                )}
-              </g>
+              {/* Orientation Indicator (bottom center-left) */}
+              <OrientationIndicator
+                x={250}
+                y={canvasHeight - 75}
+                currentView={currentView}
+              />
+              
+              {/* Grid Info (top right area) */}
+              <GridInfo
+                x={canvasWidth - 130}
+                y={100}
+                gridSize={gridSize}
+                gridEnabled={gridEnabled}
+                snapEnabled={snapEnabled}
+              />
               
               {/* Product (center reference) */}
               <g filter="url(#drop-shadow)">
