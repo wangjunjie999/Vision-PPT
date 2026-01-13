@@ -107,6 +107,60 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const productH = productDimensions.height * scale;
   const productD = productDimensions.width * scale;
 
+  // ========== 3D Coordinate System Functions ==========
+  
+  // Project 3D coordinates to 2D canvas coordinates based on current view
+  const project3DTo2D = useCallback((posX: number, posY: number, posZ: number, view: ViewType) => {
+    switch (view) {
+      case 'front': // 正视图: X-Z plane (looking from front, Y is depth)
+        return {
+          x: centerX + posX * scale,
+          y: centerY - posZ * scale // Z up is negative Y on canvas
+        };
+      case 'side': // 左视图: Y-Z plane (looking from left side, X is depth)
+        return {
+          x: centerX + posY * scale,
+          y: centerY - posZ * scale
+        };
+      case 'top': // 俯视图: X-Y plane (looking from top, Z is depth)
+        return {
+          x: centerX + posX * scale,
+          y: centerY + posY * scale // Y forward is positive Y on canvas
+        };
+      default:
+        return { x: centerX, y: centerY };
+    }
+  }, [centerX, centerY, scale]);
+
+  // Update 3D coordinates from 2D canvas drag based on current view
+  const update3DFromCanvas = useCallback((canvasX: number, canvasY: number, view: ViewType, currentObj: LayoutObject): Partial<LayoutObject> => {
+    const deltaXmm = (canvasX - centerX) / scale;
+    const deltaYmm = (centerY - canvasY) / scale; // Invert Y for natural coordinates
+    
+    switch (view) {
+      case 'front': // Dragging updates posX and posZ
+        return {
+          posX: Math.round(deltaXmm),
+          posZ: Math.round(deltaYmm),
+          // Keep posY unchanged
+        };
+      case 'side': // Dragging updates posY and posZ
+        return {
+          posY: Math.round(deltaXmm),
+          posZ: Math.round(deltaYmm),
+          // Keep posX unchanged
+        };
+      case 'top': // Dragging updates posX and posY
+        return {
+          posX: Math.round(deltaXmm),
+          posY: Math.round(-deltaYmm), // Invert for top view (forward = up on screen)
+          // Keep posZ unchanged
+        };
+      default:
+        return {};
+    }
+  }, [centerX, centerY, scale]);
+
   // Object manipulation functions (defined before useEffect that uses them)
   const updateObject = useCallback((id: string, updates: Partial<LayoutObject>) => {
     setObjects(prev => prev.map(obj => 
@@ -131,11 +185,14 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       const obj = prev.find(o => o.id === id);
       if (!obj) return prev;
       
+      // Offset in 3D space
       const newObj: LayoutObject = {
         ...obj,
         id: `${obj.type}-${Date.now()}`,
-        x: obj.x + 40,
-        y: obj.y + 40,
+        posX: (obj.posX ?? 0) + 50,
+        posY: (obj.posY ?? 0) + 50,
+        x: obj.x + 25, // Will be recalculated on view change
+        y: obj.y + 25,
         locked: false,
       };
       
@@ -153,7 +210,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     });
   }, []);
 
-  // Load layout objects when layout changes
+  // Load layout objects when layout changes - ensure 3D coordinates exist
   useEffect(() => {
     if (layout?.layout_objects) {
       try {
@@ -161,7 +218,14 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           ? JSON.parse(layout.layout_objects) 
           : layout.layout_objects;
         if (Array.isArray(loadedObjects)) {
-          setObjects(loadedObjects);
+          // Ensure all objects have 3D coordinates (migrate old data)
+          const migratedObjects = loadedObjects.map((obj: any) => ({
+            ...obj,
+            posX: obj.posX ?? 0,
+            posY: obj.posY ?? 0,
+            posZ: obj.posZ ?? (obj.type === 'camera' ? 300 : 0),
+          }));
+          setObjects(migratedObjects);
         }
       } catch (e) {
         console.error('Failed to parse layout objects:', e);
@@ -171,6 +235,14 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     if (layout?.snap_enabled !== undefined) setSnapEnabled(layout.snap_enabled);
     if (layout?.show_distances !== undefined) setShowDistances(layout.show_distances);
   }, [layout]);
+
+  // When view changes, re-project all objects from 3D to 2D
+  useEffect(() => {
+    setObjects(prev => prev.map(obj => {
+      const canvasPos = project3DTo2D(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
+      return { ...obj, x: canvasPos.x, y: canvasPos.y };
+    }));
+  }, [currentView, project3DTo2D]);
 
   // Count mechanisms in objects
   useEffect(() => {
@@ -196,7 +268,32 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       const selectedObj = objects.find(o => o.id === selectedId);
       if (!selectedObj || selectedObj.locked) return;
       
-      const nudgeAmount = e.shiftKey ? 10 : 1;
+      const nudgeAmount = e.shiftKey ? 10 : 1; // mm
+      
+      // Helper to calculate 3D update based on view and direction
+      const getNudge3D = (direction: 'up' | 'down' | 'left' | 'right') => {
+        switch (currentView) {
+          case 'front': // X-Z plane
+            if (direction === 'left') return { posX: (selectedObj.posX ?? 0) - nudgeAmount };
+            if (direction === 'right') return { posX: (selectedObj.posX ?? 0) + nudgeAmount };
+            if (direction === 'up') return { posZ: (selectedObj.posZ ?? 0) + nudgeAmount };
+            if (direction === 'down') return { posZ: (selectedObj.posZ ?? 0) - nudgeAmount };
+            break;
+          case 'side': // Y-Z plane
+            if (direction === 'left') return { posY: (selectedObj.posY ?? 0) - nudgeAmount };
+            if (direction === 'right') return { posY: (selectedObj.posY ?? 0) + nudgeAmount };
+            if (direction === 'up') return { posZ: (selectedObj.posZ ?? 0) + nudgeAmount };
+            if (direction === 'down') return { posZ: (selectedObj.posZ ?? 0) - nudgeAmount };
+            break;
+          case 'top': // X-Y plane
+            if (direction === 'left') return { posX: (selectedObj.posX ?? 0) - nudgeAmount };
+            if (direction === 'right') return { posX: (selectedObj.posX ?? 0) + nudgeAmount };
+            if (direction === 'up') return { posY: (selectedObj.posY ?? 0) - nudgeAmount };
+            if (direction === 'down') return { posY: (selectedObj.posY ?? 0) + nudgeAmount };
+            break;
+        }
+        return {};
+      };
       
       switch (e.key) {
         case 'Delete':
@@ -205,19 +302,31 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           break;
         case 'ArrowUp':
           e.preventDefault();
-          updateObject(selectedId, { y: selectedObj.y - nudgeAmount * scale });
+          updateObject(selectedId, { 
+            y: selectedObj.y - nudgeAmount * scale,
+            ...getNudge3D('up')
+          });
           break;
         case 'ArrowDown':
           e.preventDefault();
-          updateObject(selectedId, { y: selectedObj.y + nudgeAmount * scale });
+          updateObject(selectedId, { 
+            y: selectedObj.y + nudgeAmount * scale,
+            ...getNudge3D('down')
+          });
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          updateObject(selectedId, { x: selectedObj.x - nudgeAmount * scale });
+          updateObject(selectedId, { 
+            x: selectedObj.x - nudgeAmount * scale,
+            ...getNudge3D('left')
+          });
           break;
         case 'ArrowRight':
           e.preventDefault();
-          updateObject(selectedId, { x: selectedObj.x + nudgeAmount * scale });
+          updateObject(selectedId, { 
+            x: selectedObj.x + nudgeAmount * scale,
+            ...getNudge3D('right')
+          });
           break;
         case 'd':
         case 'D':
@@ -346,9 +455,13 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       }
     }
     
-    setObjects(prev => prev.map(obj => 
-      obj.id === selectedId ? { ...obj, x: newX, y: newY } : obj
-    ));
+    // Update 3D coordinates based on canvas position and current view
+    if (currentObj) {
+      const updates3D = update3DFromCanvas(newX, newY, currentView, currentObj);
+      setObjects(prev => prev.map(obj => 
+        obj.id === selectedId ? { ...obj, x: newX, y: newY, ...updates3D } : obj
+      ));
+    }
   };
 
   const handleMouseUp = () => {
@@ -383,12 +496,23 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   const addCamera = () => {
     const cameraCount = objects.filter(o => o.type === 'camera').length;
+    // Default 3D position for new camera: above product center
+    const defaultPosX = (cameraCount - 1) * 150; // Spread cameras horizontally
+    const defaultPosY = 0;
+    const defaultPosZ = 350; // 350mm above product
+    
+    // Project to canvas for initial x,y
+    const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
+    
     const newCamera: LayoutObject = {
       id: `camera-${Date.now()}`,
       type: 'camera',
       name: `CAM${cameraCount + 1}`,
-      x: centerX + (cameraCount * 80 - 80),
-      y: centerY - 180,
+      posX: defaultPosX,
+      posY: defaultPosY,
+      posZ: defaultPosZ,
+      x: canvasPos.x,
+      y: canvasPos.y,
       width: 50,
       height: 60,
       rotation: 0,
@@ -402,14 +526,25 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   const addMechanism = (mechanism: Mechanism) => {
     const count = mechanismCounts[mechanism.id] || 0;
+    // Default 3D position for mechanism: on the product surface
+    const defaultPosX = 120 + (count * 80);
+    const defaultPosY = 0;
+    const defaultPosZ = 0; // At product level
+    
+    // Project to canvas for initial x,y
+    const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
+    
     const newMech: LayoutObject = {
       id: `mech-${Date.now()}`,
       type: 'mechanism',
       mechanismId: mechanism.id,
       mechanismType: mechanism.type,
       name: `${mechanism.name}#${count + 1}`,
-      x: centerX + 120 + (count * 40),
-      y: centerY + 100,
+      posX: defaultPosX,
+      posY: defaultPosY,
+      posZ: defaultPosZ,
+      x: canvasPos.x,
+      y: canvasPos.y,
       width: (mechanism.default_width || 100) * scale,
       height: (mechanism.default_height || 80) * scale,
       rotation: 0,
@@ -533,7 +668,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                   : 'bg-muted hover:bg-muted/80 text-muted-foreground'
               )}
             >
-              {view === 'front' ? '正视图' : view === 'side' ? '侧视图' : '俯视图'}
+              {view === 'front' ? '正视图 (X-Z)' : view === 'side' ? '左视图 (Y-Z)' : '俯视图 (X-Y)'}
             </button>
           ))}
         </div>
@@ -765,12 +900,46 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               <line x1={0} y1={centerY} x2={canvasWidth} y2={centerY} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="8 4" />
               <line x1={centerX} y1={0} x2={centerX} y2={canvasHeight} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="8 4" />
               
-              {/* View label */}
+              {/* View label with axis indicators */}
               <g transform={`translate(${centerX}, 40)`}>
-                <rect x={-80} y={-16} width={160} height={32} rx={8} fill="rgba(30, 41, 59, 0.9)" />
+                <rect x={-100} y={-16} width={200} height={32} rx={8} fill="rgba(30, 41, 59, 0.95)" />
                 <text x={0} y={6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="600">
-                  {currentView === 'front' ? '🎯 正视图 (Front)' : currentView === 'side' ? '📐 侧视图 (Side)' : '🔍 俯视图 (Top)'}
+                  {currentView === 'front' 
+                    ? '🎯 正视图 | X↔ Z↕' 
+                    : currentView === 'side' 
+                      ? '📐 左视图 | Y↔ Z↕' 
+                      : '🔍 俯视图 | X↔ Y↕'}
                 </text>
+              </g>
+              
+              {/* Axis legend in corner */}
+              <g transform="translate(80, 80)">
+                <rect x={-50} y={-30} width={100} height={60} rx={8} fill="rgba(30, 41, 59, 0.9)" stroke="rgba(148, 163, 184, 0.3)" strokeWidth="1" />
+                <text x={0} y={-10} textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="500">坐标系</text>
+                {currentView === 'front' && (
+                  <>
+                    <line x1={-20} y1={10} x2={30} y2={10} stroke="#ef4444" strokeWidth="2" markerEnd="url(#arrow-red)" />
+                    <text x={35} y={14} fill="#ef4444" fontSize="11" fontWeight="600">X</text>
+                    <line x1={0} y1={25} x2={0} y2={-5} stroke="#3b82f6" strokeWidth="2" markerEnd="url(#arrow-blue)" />
+                    <text x={0} y={-12} textAnchor="middle" fill="#3b82f6" fontSize="11" fontWeight="600">Z</text>
+                  </>
+                )}
+                {currentView === 'side' && (
+                  <>
+                    <line x1={-20} y1={10} x2={30} y2={10} stroke="#22c55e" strokeWidth="2" />
+                    <text x={35} y={14} fill="#22c55e" fontSize="11" fontWeight="600">Y</text>
+                    <line x1={0} y1={25} x2={0} y2={-5} stroke="#3b82f6" strokeWidth="2" />
+                    <text x={0} y={-12} textAnchor="middle" fill="#3b82f6" fontSize="11" fontWeight="600">Z</text>
+                  </>
+                )}
+                {currentView === 'top' && (
+                  <>
+                    <line x1={-20} y1={10} x2={30} y2={10} stroke="#ef4444" strokeWidth="2" />
+                    <text x={35} y={14} fill="#ef4444" fontSize="11" fontWeight="600">X</text>
+                    <line x1={0} y1={-5} x2={0} y2={25} stroke="#22c55e" strokeWidth="2" />
+                    <text x={0} y={32} textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="600">Y</text>
+                  </>
+                )}
               </g>
               
               {/* Product (center reference) */}

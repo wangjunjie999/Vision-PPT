@@ -42,40 +42,17 @@ export const DimensionTable = memo(function DimensionTable({
   onSelectObject,
 }: DimensionTableProps) {
   
-  // Convert canvas coordinates to 3D coordinates based on current view
+  // Get 3D coordinates directly from objects (now stored as primary data)
   const deviceCoordinates = useMemo((): DeviceCoordinates[] => {
     return objects.map(obj => {
-      // Canvas coordinates to mm (relative to center)
+      // Use stored 3D coordinates directly
+      const posX = obj.posX ?? 0;
+      const posY = obj.posY ?? 0;
+      const posZ = obj.posZ ?? 0;
+      
+      // Canvas coordinates to mm (relative to center) for current view display
       const canvasXmm = (obj.x - centerX) / scale;
-      const canvasYmm = (centerY - obj.y) / scale; // Invert Y for intuitive display
-      
-      // Map to 3D based on view
-      // Front view: canvas X -> 3D X, canvas Y -> 3D Z
-      // Side view: canvas X -> 3D Y, canvas Y -> 3D Z
-      // Top view: canvas X -> 3D X, canvas Y -> 3D Y
-      
-      let posX = 0, posY = 0, posZ = 0;
-      
-      switch (currentView) {
-        case 'front':
-          posX = canvasXmm;
-          posZ = canvasYmm;
-          // Y would be depth, assume 0 for front view
-          posY = 0;
-          break;
-        case 'side':
-          posY = canvasXmm;
-          posZ = canvasYmm;
-          // X would be depth, assume 0 for side view
-          posX = 0;
-          break;
-        case 'top':
-          posX = canvasXmm;
-          posY = canvasYmm;
-          // Z would be height, assume typical camera height
-          posZ = obj.type === 'camera' ? 300 : 0;
-          break;
-      }
+      const canvasYmm = (centerY - obj.y) / scale;
       
       const distanceToCenter = Math.round(
         Math.sqrt(posX * posX + posY * posY + posZ * posZ)
@@ -93,7 +70,7 @@ export const DimensionTable = memo(function DimensionTable({
         viewY: Math.round(canvasYmm),
       };
     });
-  }, [objects, centerX, centerY, scale, currentView]);
+  }, [objects, centerX, centerY, scale]);
 
   // Calculate camera spacing
   const cameraSpacing = useMemo(() => {

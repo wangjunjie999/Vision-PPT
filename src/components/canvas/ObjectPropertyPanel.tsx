@@ -21,6 +21,12 @@ export interface LayoutObject {
   mechanismId?: string;
   mechanismType?: string;
   name: string;
+  // 3D coordinates in mm (relative to product center)
+  // These are the PRIMARY storage - canvas x,y are derived via projection
+  posX: number;  // Left/Right (正视图水平轴，俯视图水平轴)
+  posY: number;  // Front/Back depth (俯视图垂直轴，左视图水平轴)
+  posZ: number;  // Up/Down height (正视图垂直轴，左视图垂直轴)
+  // Canvas coordinates (derived from 3D based on view) - kept for compatibility
   x: number;
   y: number;
   width: number;
@@ -28,10 +34,6 @@ export interface LayoutObject {
   rotation: number;
   locked: boolean;
   cameraIndex?: number;
-  // 3D coordinates (optional, derived from view)
-  posX?: number;
-  posY?: number;
-  posZ?: number;
   // Camera mounting to mechanism
   mountedToMechanismId?: string;
   mountPointId?: string;
@@ -193,41 +195,23 @@ export function ObjectPropertyPanel({
     )
   );
 
-  // Calculate 3D coordinates based on current view
+  // Get 3D coordinates directly from object (now stored as primary data)
   const get3DCoordinates = useMemo(() => {
-    const canvasXmm = localValues.x;
-    const canvasYmm = localValues.y;
-    
-    let posX = 0, posY = 0, posZ = 0;
-    
-    switch (currentView) {
-      case 'front': // X-Z plane
-        posX = canvasXmm;
-        posZ = canvasYmm;
-        posY = 0;
-        break;
-      case 'side': // Y-Z plane
-        posY = canvasXmm;
-        posZ = canvasYmm;
-        posX = 0;
-        break;
-      case 'top': // X-Y plane
-        posX = canvasXmm;
-        posY = canvasYmm;
-        posZ = object?.type === 'camera' ? 300 : 0; // Default camera height
-        break;
-    }
-    
-    return { posX, posY, posZ };
-  }, [localValues.x, localValues.y, currentView, object?.type]);
+    if (!object) return { posX: 0, posY: 0, posZ: 0 };
+    return {
+      posX: object.posX ?? 0,
+      posY: object.posY ?? 0,
+      posZ: object.posZ ?? 0,
+    };
+  }, [object?.posX, object?.posY, object?.posZ]);
 
-  // Get axis labels based on view
+  // Get axis labels based on view (左视图 replaces 侧视图)
   const axisLabels = useMemo(() => {
     switch (currentView) {
-      case 'front': return { horizontal: 'X', vertical: 'Z' };
-      case 'side': return { horizontal: 'Y', vertical: 'Z' };
-      case 'top': return { horizontal: 'X', vertical: 'Y' };
-      default: return { horizontal: 'X', vertical: 'Z' };
+      case 'front': return { horizontal: 'X (左右)', vertical: 'Z (上下)', view: '正视图' };
+      case 'side': return { horizontal: 'Y (前后)', vertical: 'Z (上下)', view: '左视图' };
+      case 'top': return { horizontal: 'X (左右)', vertical: 'Y (前后)', view: '俯视图' };
+      default: return { horizontal: 'X', vertical: 'Z', view: '正视图' };
     }
   }, [currentView]);
 
