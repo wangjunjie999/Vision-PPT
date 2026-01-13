@@ -10,6 +10,7 @@ import { Plus, Pencil, Trash2, Upload, Loader2, Image as ImageIcon } from 'lucid
 import { useMechanisms, type MechanismInsert, type MechanismUpdate } from '@/hooks/useMechanisms';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { getMechanismImage } from '@/utils/mechanismImageUrls';
 
 const MECHANISM_TYPES = [
   { value: 'robot_arm', label: '机械臂' },
@@ -21,6 +22,14 @@ const MECHANISM_TYPES = [
   { value: 'turntable', label: '旋转台' },
   { value: 'camera_mount', label: '视觉支架' },
 ];
+
+// Get the display image for a mechanism - prefer database URL, fallback to local asset
+function getMechanismDisplayImage(mech: { type: string; front_view_image_url: string | null }): string | null {
+  // If there's a URL in the database, use it
+  if (mech.front_view_image_url) return mech.front_view_image_url;
+  // Otherwise try to get from local assets
+  return getMechanismImage(mech.type, 'front');
+}
 
 export function MechanismResourceManager() {
   const { mechanisms, loading, addMechanism, updateMechanism, deleteMechanism } = useMechanisms();
@@ -319,8 +328,8 @@ export function MechanismResourceManager() {
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
                 <div className="w-16 h-16 rounded bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {mech.front_view_image_url ? (
-                    <img src={mech.front_view_image_url} alt={mech.name} className="w-full h-full object-cover" />
+                  {getMechanismDisplayImage(mech) ? (
+                    <img src={getMechanismDisplayImage(mech)!} alt={mech.name} className="w-full h-full object-contain" />
                   ) : (
                     <ImageIcon className="h-6 w-6 text-muted-foreground" />
                   )}

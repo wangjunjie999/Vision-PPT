@@ -1,4 +1,5 @@
 import React from 'react';
+import { getMechanismImage } from '@/utils/mechanismImageUrls';
 
 export interface CameraMountPoint {
   id: string;
@@ -16,6 +17,8 @@ interface MechanismSVGProps {
   showMountPoints?: boolean;
   highlightMountPoint?: string | null;
   onMountPointClick?: (mountPoint: CameraMountPoint) => void;
+  useImage?: boolean; // Whether to use generated images instead of SVG
+  imageUrl?: string | null; // Optional override image URL from database
 }
 
 // Default camera mount points for each mechanism type
@@ -413,6 +416,8 @@ export function MechanismSVG({
   showMountPoints = true,
   highlightMountPoint,
   onMountPointClick,
+  useImage = true,
+  imageUrl,
 }: MechanismSVGProps) {
   const drawing = MechanismDrawings[type]?.[view];
   const mountPoints = getMechanismMountPoints(type, view);
@@ -421,6 +426,10 @@ export function MechanismSVG({
   const scaleX = width / 80;
   const scaleY = height / 80;
   const scale = Math.min(scaleX, scaleY);
+  
+  // Get image URL - prioritize: props imageUrl > local assets > fallback to SVG
+  const mechanismImageUrl = imageUrl || getMechanismImage(type, view);
+  const shouldUseImage = useImage && mechanismImageUrl;
 
   return (
     <g transform={`scale(${scale})`}>
@@ -432,8 +441,17 @@ export function MechanismSVG({
         </linearGradient>
       </defs>
       
-      {/* Mechanism drawing */}
-      {drawing || (
+      {/* Mechanism drawing - use image if available, otherwise SVG */}
+      {shouldUseImage ? (
+        <image
+          href={mechanismImageUrl}
+          x={-40}
+          y={-40}
+          width={80}
+          height={80}
+          preserveAspectRatio="xMidYMid meet"
+        />
+      ) : drawing || (
         <rect x={-35} y={-35} width={70} height={70} fill="#4b5563" rx={5} />
       )}
       
