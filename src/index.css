@@ -1053,3 +1053,182 @@
 .resizable-handle-styled[data-resize-handle-state=drag] > div:first-child {
   animation: handle-pulse 1s ease-in-out infinite;
 }
+
+/* ========== Brand Texture Decorations ========== */
+
+/* Dot pattern texture */
+.texture-dots {
+  background-image: radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.08) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.texture-dots-dense {
+  background-image: radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.06) 1px, transparent 0);
+  background-size: 16px 16px;
+}
+
+.texture-dots-sparse {
+  background-image: radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.05) 1px, transparent 0);
+  background-size: 32px 32px;
+}
+
+/* Grid pattern texture */
+.texture-grid {
+  background-image: 
+    linear-gradient(hsl(var(--primary) / 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--primary) / 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.texture-grid-fine {
+  background-image: 
+    linear-gradient(hsl(var(--primary) / 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--primary) / 0.04) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Diagonal lines texture */
+.texture-diagonal {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    hsl(var(--primary) / 0.03) 10px,
+    hsl(var(--primary) / 0.03) 11px
+  );
+}
+
+/* Cross pattern texture */
+.texture-cross {
+  background-image: 
+    linear-gradient(hsl(var(--primary) / 0.04) 2px, transparent 2px),
+    linear-gradient(90deg, hsl(var(--primary) / 0.04) 2px, transparent 2px);
+  background-size: 60px 60px;
+  background-position: center center;
+}
+
+/* Noise texture overlay */
+.texture-noise {
+  position: relative;
+}
+
+.texture-noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+/* Gradient mesh background */
+.texture-gradient-mesh {
+  background: 
+    radial-gradient(ellipse at 0% 0%, hsl(var(--primary) / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 0%, hsl(var(--accent) / 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 100%, hsl(var(--primary) / 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 0% 100%, hsl(var(--accent) / 0.07) 0%, transparent 50%);
+}
+
+/* Animated gradient mesh */
+.texture-gradient-mesh-animated {
+  background: 
+    radial-gradient(ellipse at 0% 0%, hsl(var(--primary) / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 0%, hsl(var(--accent) / 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 100%, hsl(var(--primary) / 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 0% 100%, hsl(var(--accent) / 0.07) 0%, transparent 50%);
+  animation: mesh-shift 20s ease-in-out infinite;
+}
+
+@keyframes mesh-shift {
+  0%, 100% { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%; }
+  25% { background-position: 10% 10%, 90% 10%, 90% 90%, 10% 90%; }
+  50% { background-position: 0% 20%, 100% 20%, 100% 80%, 0% 80%; }
+  75% { background-position: 10% 10%, 90% 10%, 90% 90%, 10% 90%; }
+}
+
+/* Corner accent decorations */
+.corner-accent {
+  position: relative;
+}
+
+.corner-accent::before,
+.corner-accent::after {
+  content: '';
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  pointer-events: none;
+}
+
+.corner-accent::before {
+  top: 0;
+  left: 0;
+  border-top: 2px solid hsl(var(--primary) / 0.15);
+  border-left: 2px solid hsl(var(--primary) / 0.15);
+  border-top-left-radius: var(--radius);
+}
+
+.corner-accent::after {
+  bottom: 0;
+  right: 0;
+  border-bottom: 2px solid hsl(var(--primary) / 0.15);
+  border-right: 2px solid hsl(var(--primary) / 0.15);
+  border-bottom-right-radius: var(--radius);
+}
+
+/* Glow orb decoration */
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  pointer-events: none;
+  animation: orb-float 8s ease-in-out infinite;
+}
+
+.glow-orb-primary {
+  background: hsl(var(--primary) / 0.15);
+}
+
+.glow-orb-accent {
+  background: hsl(var(--accent) / 0.12);
+}
+
+@keyframes orb-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(10px, -10px) scale(1.05); }
+  66% { transform: translate(-5px, 5px) scale(0.95); }
+}
+
+/* Scanline effect for tech aesthetic */
+.texture-scanlines {
+  position: relative;
+}
+
+.texture-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    hsl(var(--foreground) / 0.02) 2px,
+    hsl(var(--foreground) / 0.02) 4px
+  );
+  pointer-events: none;
+}
+
+/* Subtle vignette effect */
+.vignette {
+  position: relative;
+}
+
+.vignette::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 60%, hsl(var(--background) / 0.8) 100%);
+  pointer-events: none;
+}

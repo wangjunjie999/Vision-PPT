@@ -8,11 +8,12 @@ export function EmptyState() {
 
   return (
     <>
-      <div className="flex-1 flex items-center justify-center p-8 relative">
+      <div className="flex-1 flex items-center justify-center p-8 relative texture-dots">
         {/* Background decoration */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/5 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-accent/5 rounded-full blur-3xl" />
+        <div className="absolute inset-0 overflow-hidden pointer-events-none texture-gradient-mesh-animated">
+          <div className="glow-orb glow-orb-primary w-64 h-64 top-1/4 left-1/4" />
+          <div className="glow-orb glow-orb-accent w-48 h-48 bottom-1/4 right-1/4" style={{ animationDelay: '-3s' }} />
+          <div className="glow-orb glow-orb-primary w-32 h-32 top-1/2 right-1/3" style={{ animationDelay: '-5s' }} />
         </div>
         
         <div className="text-center max-w-lg relative z-10">
