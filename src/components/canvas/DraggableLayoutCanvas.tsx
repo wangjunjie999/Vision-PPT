@@ -19,7 +19,7 @@ import {
   Save, RotateCcw, Grid3X3, Magnet, Ruler, Plus, 
   Camera, Trash2, Lock, Unlock, Loader2, Copy, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
-  Move
+  Move, Link, Unlink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
@@ -29,6 +29,8 @@ import { EngineeringAnnotations } from './EngineeringAnnotations';
 import { ResizeHandles } from './ResizeHandles';
 import { CoordinateSystem } from './CoordinateSystem';
 import { DimensionTable } from './DimensionTable';
+import { MechanismSVG, getMechanismMountPoints, type CameraMountPoint } from './MechanismSVG';
+import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } from './CameraMountPoints';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -329,6 +331,18 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     // Update dragging object for alignment guides
     if (currentObj) {
       setDraggingObject({ ...currentObj, x: newX, y: newY });
+    }
+    
+    // Check for camera snap to mechanism mount points
+    if (currentObj?.type === 'camera') {
+      const nearestMount = findNearestMountPoint(newX, newY, objects, currentView, 25);
+      if (nearestMount) {
+        const mountPos = getMountPointWorldPosition(nearestMount.mechanism, nearestMount.mountPoint.id, currentView);
+        if (mountPos) {
+          newX = mountPos.x;
+          newY = mountPos.y;
+        }
+      }
     }
     
     setObjects(prev => prev.map(obj => 

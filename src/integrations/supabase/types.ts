@@ -470,6 +470,9 @@ export type Database = {
       }
       mechanisms: {
         Row: {
+          camera_mount_points: Json | null
+          camera_work_distance_range: Json | null
+          compatible_camera_mounts: string[] | null
           created_at: string
           default_depth: number | null
           default_height: number | null
@@ -486,6 +489,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          camera_mount_points?: Json | null
+          camera_work_distance_range?: Json | null
+          compatible_camera_mounts?: string[] | null
           created_at?: string
           default_depth?: number | null
           default_height?: number | null
@@ -502,6 +508,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          camera_mount_points?: Json | null
+          camera_work_distance_range?: Json | null
+          compatible_camera_mounts?: string[] | null
           created_at?: string
           default_depth?: number | null
           default_height?: number | null
