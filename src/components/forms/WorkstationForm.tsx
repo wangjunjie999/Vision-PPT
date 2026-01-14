@@ -111,7 +111,15 @@ export function WorkstationForm() {
     process_stage: '',
     observation_target: '',
     environment_description: '',
-    notes: ''
+    notes: '',
+    // New SOP fields (Step 1-6)
+    acceptance_accuracy: '',
+    acceptance_cycle_time: '',
+    acceptance_compatible_sizes: '',
+    motion_description: '',
+    shot_count: '',
+    action_script: '',
+    risk_notes: '',
   });
   const [layoutForm, setLayoutForm] = useState({ 
     conveyorType: '皮带输送线', 
@@ -132,6 +140,7 @@ export function WorkstationForm() {
     if (workstation) {
       const ws = workstation as any;
       const dims = ws.product_dimensions as { length: number; width: number; height: number } | null;
+      const acceptanceCriteria = ws.acceptance_criteria as { accuracy?: string; cycle_time?: string; compatible_sizes?: string } | null;
       setWsForm({ 
         code: ws.code || '', 
         name: ws.name || '', 
@@ -144,7 +153,14 @@ export function WorkstationForm() {
         process_stage: ws.process_stage || '',
         observation_target: ws.observation_target || '',
         environment_description: ws.environment_description || '',
-        notes: ws.notes || ''
+        notes: ws.notes || '',
+        acceptance_accuracy: acceptanceCriteria?.accuracy || '',
+        acceptance_cycle_time: acceptanceCriteria?.cycle_time || '',
+        acceptance_compatible_sizes: acceptanceCriteria?.compatible_sizes || '',
+        motion_description: ws.motion_description || '',
+        shot_count: ws.shot_count?.toString() || '',
+        action_script: ws.action_script || '',
+        risk_notes: ws.risk_notes || '',
       });
       setCurrentStep(0);
     }
@@ -305,6 +321,18 @@ export function WorkstationForm() {
           height: parseFloat(wsForm.height) || 0 
         },
         enclosed: wsForm.enclosed,
+        // New SOP fields
+        process_stage: wsForm.process_stage || null,
+        observation_target: wsForm.observation_target || null,
+        acceptance_criteria: {
+          accuracy: wsForm.acceptance_accuracy || null,
+          cycle_time: wsForm.acceptance_cycle_time || null,
+          compatible_sizes: wsForm.acceptance_compatible_sizes || null,
+        },
+        motion_description: wsForm.motion_description || null,
+        shot_count: wsForm.shot_count ? parseInt(wsForm.shot_count) : null,
+        action_script: wsForm.action_script || null,
+        risk_notes: wsForm.risk_notes || null,
         status: 'incomplete' 
       } as any);
       
