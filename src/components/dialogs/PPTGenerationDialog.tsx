@@ -23,6 +23,7 @@ import {
   Cpu,
   ChevronRight,
   Loader2,
+  FileStack,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
@@ -32,6 +33,7 @@ import { checkPPTReadiness } from '@/services/pptReadiness';
 import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePPTTemplates } from '@/hooks/usePPTTemplates';
 import {
   Collapsible,
   CollapsibleContent,
@@ -65,6 +67,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const { pptImageQuality, setPPTImageQuality } = useAppStore();
   const { user } = useAuth();
 
+  // Fetch PPT templates
+  const { templates, defaultTemplate, isLoading: templatesLoading } = usePPTTemplates();
+
   // Fetch hardware data
   const { cameras } = useCameras();
   const { lenses } = useLenses();
@@ -79,9 +84,17 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const [scope, setScope] = useState<GenerationScope>('full');
   const [selectedWorkstations, setSelectedWorkstations] = useState<string[]>([]);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [language, setLanguage] = useState<OutputLanguage>('zh');
   const [quality, setQuality] = useState<ImageQuality>(pptImageQuality);
   
+  // Initialize template selection when templates load
+  useEffect(() => {
+    if (defaultTemplate && !selectedTemplateId) {
+      setSelectedTemplateId(defaultTemplate.id);
+    }
+  }, [defaultTemplate, selectedTemplateId]);
+
   // Sync quality to store when changed
   useEffect(() => {
     setPPTImageQuality(quality);
@@ -477,6 +490,49 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   </div>
                 </Label>
               </RadioGroup>
+            </div>
+
+            {/* Template Selection */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <FileStack className="h-4 w-4" />
+                选择PPT母版
+              </Label>
+              <Select 
+                value={selectedTemplateId} 
+                onValueChange={setSelectedTemplateId}
+                disabled={templatesLoading}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={templatesLoading ? "加载中..." : "选择模板"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates.length === 0 ? (
+                    <div className="p-2 text-sm text-muted-foreground text-center">
+                      暂无模板，请在管理中心添加
+                    </div>
+                  ) : (
+                    templates.filter(t => t.enabled !== false).map(template => (
+                      <SelectItem key={template.id} value={template.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{template.name}</span>
+                          {template.is_default && (
+                            <Badge variant="secondary" className="text-xs">默认</Badge>
+                          )}
+                          {template.scope && (
+                            <Badge variant="outline" className="text-xs">{template.scope}</Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              {selectedTemplateId && templates.find(t => t.id === selectedTemplateId)?.description && (
+                <p className="text-xs text-muted-foreground">
+                  {templates.find(t => t.id === selectedTemplateId)?.description}
+                </p>
+              )}
             </div>
 
             {/* Delivery Check Panel */}
