@@ -1,4 +1,5 @@
 import pptxgen from 'pptxgenjs';
+import type PptxGenJS from 'pptxgenjs';
 // Type definitions for pptxgenjs
 type TableCell = { text: string; options?: Record<string, unknown> };
 type TableRow = TableCell[];
@@ -178,6 +179,11 @@ interface GenerationOptions {
   language: 'zh' | 'en';
   quality: 'standard' | 'high' | 'ultra';
   mode?: 'draft' | 'final';
+  template?: {
+    id: string;
+    name: string;
+    file_url?: string | null;
+  } | null;
 }
 
 type ProgressCallback = (progress: number, step: string, log: string) => void;
@@ -680,16 +686,43 @@ export async function generatePPTX(
   pptx.subject = isZh ? '机器视觉系统技术方案' : 'Machine Vision System Technical Proposal';
   pptx.company = isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN;
 
+  // Try to load template background if available
+  let templateBackground: string | null = null;
+  if (options.template?.file_url) {
+    try {
+      // For now, we use the template file URL as a reference
+      // pptxgenjs doesn't support loading external PPTX templates directly
+      // but we can apply the template's design through background images if uploaded
+      console.log('Using template:', options.template.name, options.template.file_url);
+      // Future: Extract first slide from PPTX as background image
+    } catch (e) {
+      console.warn('Failed to load template:', e);
+    }
+  }
+
   // Define master slide - Standard PPT size is 10" x 7.5"
+  type MasterObject = NonNullable<PptxGenJS.SlideMasterProps['objects']>[number];
+  const masterObjects: MasterObject[] = [
+    { rect: { x: 0, y: 0, w: '100%', h: 0.5, fill: { color: COLORS.primary } } },
+    { rect: { x: 0, y: 7.2, w: '100%', h: 0.3, fill: { color: COLORS.dark } } },
+    { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: 7.22, w: 5, h: 0.2, fontSize: 8, color: COLORS.white } } },
+    { text: { text: project.customer, options: { x: 7.5, y: 7.22, w: 2.2, h: 0.2, fontSize: 8, color: COLORS.white, align: 'right' } } },
+  ];
+
+  // Add template name indicator if template is selected
+  if (options.template?.name) {
+    masterObjects.push({ 
+      text: { 
+        text: `Template: ${options.template.name}`, 
+        options: { x: 3, y: 7.22, w: 4, h: 0.2, fontSize: 7, color: COLORS.white, align: 'center' } 
+      } 
+    });
+  }
+
   pptx.defineSlideMaster({
     title: 'MASTER_SLIDE',
-    background: { color: COLORS.background },
-    objects: [
-      { rect: { x: 0, y: 0, w: '100%', h: 0.5, fill: { color: COLORS.primary } } },
-      { rect: { x: 0, y: 7.2, w: '100%', h: 0.3, fill: { color: COLORS.dark } } },
-      { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: 7.22, w: 5, h: 0.2, fontSize: 8, color: COLORS.white } } },
-      { text: { text: project.customer, options: { x: 7.5, y: 7.22, w: 2.2, h: 0.2, fontSize: 8, color: COLORS.white, align: 'right' } } },
-    ],
+    background: templateBackground ? { data: templateBackground } : { color: COLORS.background },
+    objects: masterObjects,
   });
 
   let progress = 5;
@@ -1015,7 +1048,95 @@ export async function generatePPTX(
     progress = 20 + i * progressPerWs;
     onProgress(progress, `${isZh ? '处理工位' : 'Processing workstation'}: ${ws.name}...`, `${isZh ? '生成工位页' : 'Workstation slide'}: ${ws.name}`);
 
-    // ========== Page 1: Workstation Basic Info (Step 1) ==========
+    // ========== Page 1: Layout Three-View + Motion Method (FIRST PAGE per user request) ==========
+    const hasThreeViews = wsLayout && (wsLayout.front_view_image_url || wsLayout.side_view_image_url || wsLayout.top_view_image_url);
+    
+    // Always create three-view page as first page for each workstation
+    const layoutSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    
+    layoutSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '布局三视图 + 运动方式' : 'Layout & Motion Method'}`, {
+      x: 0.5, y: 0.6, w: 9, h: 0.4,
+      fontSize: 16, color: COLORS.dark, bold: true,
+    });
+
+    // Three views
+    const viewWidth = 2.9;
+    const viewHeight = 2.2;
+    const viewY = 1.1;
+    const views = [
+      { label: isZh ? '正视图' : 'Front View', url: wsLayout?.front_view_image_url, x: 0.5 },
+      { label: isZh ? '侧视图' : 'Side View', url: wsLayout?.side_view_image_url, x: 3.55 },
+      { label: isZh ? '俯视图' : 'Top View', url: wsLayout?.top_view_image_url, x: 6.6 },
+    ];
+
+    for (const view of views) {
+      layoutSlide.addText(view.label, {
+        x: view.x, y: viewY, w: viewWidth, h: 0.22,
+        fontSize: 9, color: COLORS.dark, bold: true, align: 'center',
+      });
+
+      if (view.url) {
+        try {
+          const dataUri = await fetchImageAsDataUri(view.url);
+          if (dataUri) {
+            layoutSlide.addImage({
+              data: dataUri,
+              x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
+              sizing: { type: 'contain', w: viewWidth, h: viewHeight - 0.25 },
+            });
+          } else {
+            throw new Error('Failed to fetch image');
+          }
+        } catch (e) {
+          layoutSlide.addShape('rect', {
+            x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
+            fill: { color: COLORS.border },
+          });
+        }
+      } else {
+        layoutSlide.addShape('rect', {
+          x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
+          fill: { color: COLORS.border },
+        });
+        layoutSlide.addText(isZh ? '未保存' : 'Not Saved', {
+          x: view.x, y: viewY + 1, w: viewWidth, h: 0.25,
+          fontSize: 9, color: COLORS.secondary, align: 'center',
+        });
+      }
+    }
+
+    // Motion method section
+    layoutSlide.addText(isZh ? '【运动方式】' : '[Motion Method]', {
+      x: 0.5, y: 3.5, w: 9, h: 0.28,
+      fontSize: 11, color: COLORS.primary, bold: true,
+    });
+
+    const motionRows: TableRow[] = [
+      row([isZh ? '相机固定/跟动' : 'Camera Mode', ws.motion_description || (isZh ? '固定安装' : 'Fixed Mount')]),
+      row([isZh ? '拍照次数' : 'Shot Count', ws.shot_count ? `${ws.shot_count} ${isZh ? '次' : ''}` : '-']),
+      row([isZh ? '执行机构' : 'Mechanisms', wsLayout?.mechanisms?.join('、') || '-']),
+      row([isZh ? '触发方式' : 'Trigger', wsModules.length > 0 ? (TRIGGER_LABELS[wsModules[0].trigger_type || 'io']?.[isZh ? 'zh' : 'en'] || '-') : '-']),
+    ];
+
+    layoutSlide.addTable(motionRows, {
+      x: 0.5, y: 3.85, w: 9, h: 1.3,
+      fontFace: 'Arial',
+      fontSize: 9,
+      colW: [2, 7],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+    });
+
+    // Layout info
+    if (wsLayout?.width || wsLayout?.height || wsLayout?.depth) {
+      layoutSlide.addText(`${isZh ? '布局尺寸' : 'Layout Size'}: ${wsLayout.width || '-'} × ${wsLayout.height || '-'} × ${wsLayout.depth || '-'} mm`, {
+        x: 0.5, y: 5.3, w: 9, h: 0.25,
+        fontSize: 9, color: COLORS.secondary,
+      });
+    }
+
+    // ========== Page 2: Workstation Basic Info ==========
     const wsBasicSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
     
     wsBasicSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '基本信息' : 'Basic Info'}`, {
@@ -1110,7 +1231,7 @@ export async function generatePPTX(
       });
     }
 
-    // ========== Page 2: Product Overview ==========
+    // ========== Page 3: Product Overview ==========
     if (wsProductAsset && wsProductAsset.preview_images && wsProductAsset.preview_images.length > 0) {
       const productSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
       
@@ -1190,7 +1311,7 @@ export async function generatePPTX(
       }
     }
 
-    // ========== Page 3: Technical Requirements ==========
+    // ========== Page 4: Technical Requirements ==========
     const techReqSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
     
     techReqSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '技术要求' : 'Technical Requirements'}`, {
@@ -1251,7 +1372,7 @@ export async function generatePPTX(
       fill: { color: COLORS.white },
     });
 
-    // Risk notes (Step 6)
+    // Risk notes
     techReqSlide.addText(isZh ? '【风险口径/备注】' : '[Risk Notes / Remarks]', {
       x: 0.5, y: 3.2, w: 9, h: 0.3,
       fontSize: 11, color: COLORS.warning, bold: true,
@@ -1268,95 +1389,6 @@ export async function generatePPTX(
       x: 0.7, y: 3.65, w: 8.6, h: 1,
       fontSize: 9, color: COLORS.dark,
     });
-
-    // ========== Page 4: Layout Three-View + Motion Method (Step 2) ==========
-    const hasThreeViews = wsLayout && (wsLayout.front_view_image_url || wsLayout.side_view_image_url || wsLayout.top_view_image_url);
-    
-    if (hasThreeViews) {
-      const layoutSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      
-      layoutSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '布局三视图 + 运动方式' : 'Layout & Motion Method'}`, {
-        x: 0.5, y: 0.6, w: 9, h: 0.4,
-        fontSize: 16, color: COLORS.dark, bold: true,
-      });
-
-      // Three views
-      const viewWidth = 2.9;
-      const viewHeight = 2.2;
-      const viewY = 1.1;
-      const views = [
-        { label: isZh ? '正视图' : 'Front View', url: wsLayout.front_view_image_url, x: 0.5 },
-        { label: isZh ? '侧视图' : 'Side View', url: wsLayout.side_view_image_url, x: 3.55 },
-        { label: isZh ? '俯视图' : 'Top View', url: wsLayout.top_view_image_url, x: 6.6 },
-      ];
-
-      for (const view of views) {
-        layoutSlide.addText(view.label, {
-          x: view.x, y: viewY, w: viewWidth, h: 0.22,
-          fontSize: 9, color: COLORS.dark, bold: true, align: 'center',
-        });
-
-        if (view.url) {
-          try {
-            const dataUri = await fetchImageAsDataUri(view.url);
-            if (dataUri) {
-              layoutSlide.addImage({
-                data: dataUri,
-                x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
-                sizing: { type: 'contain', w: viewWidth, h: viewHeight - 0.25 },
-              });
-            } else {
-              throw new Error('Failed to fetch image');
-            }
-          } catch (e) {
-            layoutSlide.addShape('rect', {
-              x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
-              fill: { color: COLORS.border },
-            });
-          }
-        } else {
-          layoutSlide.addShape('rect', {
-            x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
-            fill: { color: COLORS.border },
-          });
-          layoutSlide.addText(isZh ? '未保存' : 'Not Saved', {
-            x: view.x, y: viewY + 1, w: viewWidth, h: 0.25,
-            fontSize: 9, color: COLORS.secondary, align: 'center',
-          });
-        }
-      }
-
-      // Motion method section (Step 2)
-      layoutSlide.addText(isZh ? '【运动方式】' : '[Motion Method]', {
-        x: 0.5, y: 3.5, w: 9, h: 0.28,
-        fontSize: 11, color: COLORS.primary, bold: true,
-      });
-
-      const motionRows: TableRow[] = [
-        row([isZh ? '相机固定/跟动' : 'Camera Mode', ws.motion_description || (isZh ? '固定安装' : 'Fixed Mount')]),
-        row([isZh ? '拍照次数' : 'Shot Count', ws.shot_count ? `${ws.shot_count} ${isZh ? '次' : ''}` : '-']),
-        row([isZh ? '执行机构' : 'Mechanisms', wsLayout?.mechanisms?.join('、') || '-']),
-        row([isZh ? '触发方式' : 'Trigger', wsModules.length > 0 ? (TRIGGER_LABELS[wsModules[0].trigger_type || 'io']?.[isZh ? 'zh' : 'en'] || '-') : '-']),
-      ];
-
-      layoutSlide.addTable(motionRows, {
-        x: 0.5, y: 3.85, w: 9, h: 1.3,
-        fontFace: 'Arial',
-        fontSize: 9,
-        colW: [2, 7],
-        border: { pt: 0.5, color: COLORS.border },
-        fill: { color: COLORS.white },
-        valign: 'middle',
-      });
-
-      // Layout info
-      if (wsLayout.width || wsLayout.height || wsLayout.depth) {
-        layoutSlide.addText(`${isZh ? '布局尺寸' : 'Layout Size'}: ${wsLayout.width || '-'} × ${wsLayout.height || '-'} × ${wsLayout.depth || '-'} mm`, {
-          x: 0.5, y: 5.3, w: 9, h: 0.25,
-          fontSize: 9, color: COLORS.secondary,
-        });
-      }
-    }
 
     // ========== Page 5: Optical Solution (Step 3) ==========
     const opticalSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });

@@ -386,13 +386,25 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         })),
       };
 
-      // Generate PPTX with annotations
+      // Get selected template
+      const selectedTemplate = templates.find(t => t.id === selectedTemplateId) || null;
+
+      // Generate PPTX with annotations and template
       const blob = await generatePPTX(
         projectData,
         workstationData,
         layoutData,
         moduleData,
-        { language, quality, mode },
+        { 
+          language, 
+          quality, 
+          mode,
+          template: selectedTemplate ? {
+            id: selectedTemplate.id,
+            name: selectedTemplate.name,
+            file_url: selectedTemplate.file_url,
+          } : null,
+        },
         (prog, step, log) => {
           setProgress(prog);
           setCurrentStep(step);
