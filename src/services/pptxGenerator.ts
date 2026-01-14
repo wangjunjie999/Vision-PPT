@@ -38,6 +38,17 @@ interface LayoutData {
   selected_lenses: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_lights: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_controller: { id: string; brand: string; model: string; image_url?: string | null } | null;
+  // Three-view image URLs
+  front_view_image_url?: string | null;
+  side_view_image_url?: string | null;
+  top_view_image_url?: string | null;
+  front_view_saved?: boolean | null;
+  side_view_saved?: boolean | null;
+  top_view_saved?: boolean | null;
+  // Layout dimensions
+  width?: number | null;
+  height?: number | null;
+  depth?: number | null;
 }
 
 interface ModuleData {
@@ -127,6 +138,16 @@ interface AnnotationData {
   scope_type: 'workstation' | 'module';
   workstation_id?: string;
   module_id?: string;
+}
+
+// Product asset data for PPT generation
+interface ProductAssetData {
+  id: string;
+  workstation_id?: string | null;
+  module_id?: string | null;
+  scope_type: 'workstation' | 'module';
+  preview_images: Array<{ url: string; name?: string }> | null;
+  model_file_url?: string | null;
 }
 
 interface GenerationOptions {
@@ -243,6 +264,364 @@ async function fetchImageAsDataUri(url: string): Promise<string> {
   }
 }
 
+// ==================== MODULE PARAMETER HELPERS ====================
+
+// Get defect detection parameters
+function getDefectParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
+  const rows: TableRow[] = [];
+  
+  if (config.defectClasses && Array.isArray(config.defectClasses) && config.defectClasses.length > 0) {
+    rows.push(row([isZh ? '缺陷类别' : 'Defect Classes', (config.defectClasses as string[]).join('、')]));
+  }
+  if (config.minDefectSize) {
+    rows.push(row([isZh ? '最小缺陷尺寸' : 'Min Defect Size', `${config.minDefectSize} mm`]));
+  }
+  if (config.missTolerance) {
+    const toleranceLabels: Record<string, Record<string, string>> = {
+      zero: { zh: '零容忍', en: 'Zero Tolerance' },
+      low: { zh: '低容忍', en: 'Low' },
+      medium: { zh: '中容忍', en: 'Medium' },
+      high: { zh: '高容忍', en: 'High' },
+    };
+    rows.push(row([isZh ? '漏检容忍度' : 'Miss Tolerance', toleranceLabels[config.missTolerance as string]?.[isZh ? 'zh' : 'en'] || String(config.missTolerance)]));
+  }
+  if (config.detectionAreaLength || config.detectionAreaWidth) {
+    rows.push(row([isZh ? '检测区域' : 'Detection Area', `${config.detectionAreaLength || '-'} × ${config.detectionAreaWidth || '-'} mm`]));
+  }
+  if (config.conveyorType) {
+    const conveyorLabels: Record<string, Record<string, string>> = {
+      belt: { zh: '皮带线', en: 'Belt' },
+      roller: { zh: '滚筒线', en: 'Roller' },
+      chain: { zh: '链条线', en: 'Chain' },
+      static: { zh: '静态', en: 'Static' },
+    };
+    rows.push(row([isZh ? '输送方式' : 'Conveyor Type', conveyorLabels[config.conveyorType as string]?.[isZh ? 'zh' : 'en'] || String(config.conveyorType)]));
+  }
+  if (config.lineSpeed) {
+    rows.push(row([isZh ? '线速度' : 'Line Speed', `${config.lineSpeed} m/min`]));
+  }
+  if (config.cameraCount || config.defectCameraCount) {
+    rows.push(row([isZh ? '相机数量' : 'Camera Count', `${config.cameraCount || config.defectCameraCount} ${isZh ? '台' : ''}`]));
+  }
+  if (config.defectContrast) {
+    const contrastLabels: Record<string, Record<string, string>> = {
+      high: { zh: '高对比', en: 'High' },
+      medium: { zh: '中对比', en: 'Medium' },
+      low: { zh: '低对比', en: 'Low' },
+    };
+    rows.push(row([isZh ? '缺陷对比度' : 'Defect Contrast', contrastLabels[config.defectContrast as string]?.[isZh ? 'zh' : 'en'] || String(config.defectContrast)]));
+  }
+  if (config.materialReflectionLevel) {
+    const reflectionLabels: Record<string, Record<string, string>> = {
+      matte: { zh: '哑光', en: 'Matte' },
+      semi: { zh: '半光泽', en: 'Semi-gloss' },
+      glossy: { zh: '高光', en: 'Glossy' },
+      mirror: { zh: '镜面', en: 'Mirror' },
+    };
+    rows.push(row([isZh ? '材质反光等级' : 'Reflection Level', reflectionLabels[config.materialReflectionLevel as string]?.[isZh ? 'zh' : 'en'] || String(config.materialReflectionLevel)]));
+  }
+  if (config.allowedMissRate !== undefined) {
+    rows.push(row([isZh ? '允许漏检率' : 'Allowed Miss Rate', `${config.allowedMissRate}%`]));
+  }
+  if (config.allowedFalseRate !== undefined) {
+    rows.push(row([isZh ? '允许误检率' : 'Allowed False Rate', `${config.allowedFalseRate}%`]));
+  }
+  if (config.confidenceThreshold !== undefined) {
+    rows.push(row([isZh ? '置信度阈值' : 'Confidence Threshold', `${config.confidenceThreshold}%`]));
+  }
+  
+  return rows;
+}
+
+// Get measurement parameters
+function getMeasurementParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
+  const rows: TableRow[] = [];
+  
+  // Measurement items
+  if (config.measurementItems && Array.isArray(config.measurementItems) && config.measurementItems.length > 0) {
+    rows.push(row([isZh ? '【测量项目】' : '[Measurement Items]', '']));
+    (config.measurementItems as Array<{ name: string; dimType: string; nominal: number; upperTol: number; lowerTol: number; unit: string }>).forEach((item, idx) => {
+      const dimTypeLabels: Record<string, string> = {
+        length: isZh ? '长度' : 'Length',
+        diameter: isZh ? '直径' : 'Diameter',
+        radius: isZh ? '半径' : 'Radius',
+        angle: isZh ? '角度' : 'Angle',
+        distance: isZh ? '距离' : 'Distance',
+        gap: isZh ? '间隙' : 'Gap',
+      };
+      rows.push(row([
+        `${idx + 1}. ${item.name || (isZh ? '测量项' : 'Item')}`,
+        `${dimTypeLabels[item.dimType] || item.dimType}: ${item.nominal} (+${item.upperTol}/-${item.lowerTol}) ${item.unit || 'mm'}`
+      ]));
+    });
+  }
+  
+  if (config.measurementFieldOfView) {
+    rows.push(row([isZh ? '视野大小' : 'Field of View', `${config.measurementFieldOfView} mm`]));
+  }
+  if (config.measurementResolution) {
+    rows.push(row([isZh ? '分辨率' : 'Resolution', `${config.measurementResolution} mm/pixel`]));
+  }
+  if (config.targetAccuracy) {
+    rows.push(row([isZh ? '目标精度' : 'Target Accuracy', `±${config.targetAccuracy} mm`]));
+  }
+  if (config.systemAccuracy) {
+    rows.push(row([isZh ? '系统精度' : 'System Accuracy', `±${config.systemAccuracy} mm`]));
+  }
+  if (config.calibrationMethod) {
+    const calibrationLabels: Record<string, Record<string, string>> = {
+      plane: { zh: '平面标定', en: 'Plane' },
+      multipoint: { zh: '多点标定', en: 'Multi-point' },
+      ruler: { zh: '标尺标定', en: 'Ruler' },
+    };
+    rows.push(row([isZh ? '标定方式' : 'Calibration Method', calibrationLabels[config.calibrationMethod as string]?.[isZh ? 'zh' : 'en'] || String(config.calibrationMethod)]));
+  }
+  if (config.grr) {
+    rows.push(row(['GR&R', `${config.grr}%`]));
+  }
+  
+  return rows;
+}
+
+// Get OCR parameters
+function getOCRParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
+  const rows: TableRow[] = [];
+  
+  if (config.charTypes && Array.isArray(config.charTypes)) {
+    const typeLabels: Record<string, string> = {
+      printed: isZh ? '印刷字符' : 'Printed',
+      engraved: isZh ? '雕刻字符' : 'Engraved',
+      dotMatrix: isZh ? '点阵字符' : 'Dot Matrix',
+      handwritten: isZh ? '手写字符' : 'Handwritten',
+    };
+    rows.push(row([isZh ? '字符类型' : 'Char Types', (config.charTypes as string[]).map(t => typeLabels[t] || t).join('、')]));
+  }
+  if (config.charType) {
+    const typeLabels: Record<string, string> = {
+      printed: isZh ? '印刷字符' : 'Printed',
+      engraved: isZh ? '雕刻字符' : 'Engraved',
+      dotMatrix: isZh ? '点阵字符' : 'Dot Matrix',
+      handwritten: isZh ? '手写字符' : 'Handwritten',
+    };
+    rows.push(row([isZh ? '字符类型' : 'Char Type', typeLabels[config.charType as string] || String(config.charType)]));
+  }
+  if (config.minCharHeight) {
+    rows.push(row([isZh ? '最小字符高度' : 'Min Char Height', `${config.minCharHeight} mm`]));
+  }
+  if (config.charWidth) {
+    rows.push(row([isZh ? '字符宽度' : 'Char Width', `${config.charWidth} mm`]));
+  }
+  if (config.expectedCharCount || config.charCount) {
+    rows.push(row([isZh ? '预期字符数' : 'Expected Char Count', String(config.expectedCharCount || config.charCount)]));
+  }
+  if (config.charSet) {
+    const charSetLabels: Record<string, string> = {
+      numeric: isZh ? '纯数字' : 'Numeric',
+      alpha: isZh ? '纯字母' : 'Alpha',
+      alphanumeric: isZh ? '字母数字混合' : 'Alphanumeric',
+      custom: isZh ? '自定义' : 'Custom',
+    };
+    rows.push(row([isZh ? '字符集' : 'Char Set', charSetLabels[config.charSet as string] || String(config.charSet)]));
+  }
+  if (config.contentRule) {
+    rows.push(row([isZh ? '内容规则' : 'Content Rule', String(config.contentRule)]));
+  }
+  if (config.charContrast) {
+    rows.push(row([isZh ? '字符对比度' : 'Char Contrast', String(config.charContrast)]));
+  }
+  if (config.charFormat) {
+    rows.push(row([isZh ? '字符格式' : 'Char Format', String(config.charFormat)]));
+  }
+  if (config.validationRules) {
+    rows.push(row([isZh ? '校验规则' : 'Validation Rules', String(config.validationRules)]));
+  }
+  if (config.charAreaWidth || config.charAreaHeight) {
+    rows.push(row([isZh ? '字符区域' : 'Char Area', `${config.charAreaWidth || '-'} × ${config.charAreaHeight || '-'} mm`]));
+  }
+  if (config.minStrokeWidth) {
+    rows.push(row([isZh ? '最小笔画宽度' : 'Min Stroke Width', `${config.minStrokeWidth} mm`]));
+  }
+  if (config.allowedRotation) {
+    rows.push(row([isZh ? '允许旋转角度' : 'Allowed Rotation', `±${config.allowedRotation}°`]));
+  }
+  if (config.allowedDamage) {
+    const damageLabels: Record<string, string> = {
+      none: isZh ? '无损坏' : 'None',
+      slight: isZh ? '轻微' : 'Slight',
+      moderate: isZh ? '中等' : 'Moderate',
+      severe: isZh ? '严重' : 'Severe',
+    };
+    rows.push(row([isZh ? '允许损坏程度' : 'Allowed Damage', damageLabels[config.allowedDamage as string] || String(config.allowedDamage)]));
+  }
+  
+  return rows;
+}
+
+// Get positioning parameters
+function getPositioningParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
+  const rows: TableRow[] = [];
+  
+  if (config.guidingMode) {
+    const modeLabels: Record<string, string> = {
+      '2d': isZh ? '2D定位' : '2D',
+      '2.5d': isZh ? '2.5D定位' : '2.5D',
+      '3d': isZh ? '3D定位' : '3D',
+    };
+    rows.push(row([isZh ? '引导模式' : 'Guiding Mode', modeLabels[config.guidingMode as string] || String(config.guidingMode)]));
+  }
+  if (config.guidingMechanism) {
+    const mechLabels: Record<string, string> = {
+      robot: isZh ? '机器人' : 'Robot',
+      gantry: isZh ? '龙门架' : 'Gantry',
+      scara: isZh ? 'SCARA' : 'SCARA',
+      delta: isZh ? 'Delta' : 'Delta',
+    };
+    rows.push(row([isZh ? '引导机构' : 'Guiding Mechanism', mechLabels[config.guidingMechanism as string] || String(config.guidingMechanism)]));
+  }
+  if (config.targetType) {
+    const typeLabels: Record<string, string> = {
+      edge: isZh ? '边缘' : 'Edge',
+      corner: isZh ? '角点' : 'Corner',
+      center: isZh ? '中心' : 'Center',
+      hole: isZh ? '孔' : 'Hole',
+      pattern: isZh ? '图案' : 'Pattern',
+    };
+    rows.push(row([isZh ? '定位目标类型' : 'Target Type', typeLabels[config.targetType as string] || String(config.targetType)]));
+  }
+  if (config.accuracyRequirement) {
+    rows.push(row([isZh ? '定位精度要求' : 'Accuracy Requirement', `±${config.accuracyRequirement} mm`]));
+  }
+  if (config.repeatability) {
+    rows.push(row([isZh ? '重复精度' : 'Repeatability', `±${config.repeatability} mm`]));
+  }
+  if (config.errorToleranceX || config.errorToleranceY) {
+    rows.push(row([isZh ? '误差容忍(X/Y)' : 'Error Tolerance (X/Y)', `±${config.errorToleranceX || '-'} / ±${config.errorToleranceY || '-'} mm`]));
+  }
+  if (config.calibrationMethod) {
+    const calibLabels: Record<string, string> = {
+      '9point': isZh ? '九点标定' : '9-Point',
+      '4point': isZh ? '四点标定' : '4-Point',
+      handeye: isZh ? '手眼标定' : 'Hand-Eye',
+    };
+    rows.push(row([isZh ? '标定方式' : 'Calibration Method', calibLabels[config.calibrationMethod as string] || String(config.calibrationMethod)]));
+  }
+  if (config.outputCoordinate) {
+    rows.push(row([isZh ? '输出坐标系' : 'Output Coordinate', String(config.outputCoordinate)]));
+  }
+  if (config.calibrationCycle) {
+    rows.push(row([isZh ? '标定周期' : 'Calibration Cycle', String(config.calibrationCycle)]));
+  }
+  if (config.accuracyAcceptance) {
+    rows.push(row([isZh ? '精度验收标准' : 'Accuracy Acceptance', String(config.accuracyAcceptance)]));
+  }
+  if (config.targetFeatures) {
+    rows.push(row([isZh ? '目标特征' : 'Target Features', String(config.targetFeatures)]));
+  }
+  if (config.targetCount) {
+    rows.push(row([isZh ? '目标数量' : 'Target Count', String(config.targetCount)]));
+  }
+  if (config.occlusionTolerance) {
+    rows.push(row([isZh ? '遮挡容忍' : 'Occlusion Tolerance', `${config.occlusionTolerance}%`]));
+  }
+  
+  return rows;
+}
+
+// Get deep learning parameters
+function getDeepLearningParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
+  const rows: TableRow[] = [];
+  
+  if (config.taskType) {
+    const taskLabels: Record<string, string> = {
+      classification: isZh ? '分类' : 'Classification',
+      detection: isZh ? '目标检测' : 'Detection',
+      segmentation: isZh ? '语义分割' : 'Segmentation',
+      instance: isZh ? '实例分割' : 'Instance Segmentation',
+      anomaly: isZh ? '异常检测' : 'Anomaly Detection',
+    };
+    rows.push(row([isZh ? '任务类型' : 'Task Type', taskLabels[config.taskType as string] || String(config.taskType)]));
+  }
+  if (config.targetClasses && Array.isArray(config.targetClasses) && config.targetClasses.length > 0) {
+    rows.push(row([isZh ? '目标类别' : 'Target Classes', (config.targetClasses as string[]).join('、')]));
+  }
+  if (config.detectionClasses && Array.isArray(config.detectionClasses)) {
+    rows.push(row([isZh ? '检测类别' : 'Detection Classes', (config.detectionClasses as string[]).join('、')]));
+  }
+  if (config.modelType) {
+    rows.push(row([isZh ? '模型类型' : 'Model Type', String(config.modelType)]));
+  }
+  if (config.roiWidth || config.roiHeight) {
+    rows.push(row([isZh ? 'ROI尺寸' : 'ROI Size', `${config.roiWidth || '-'} × ${config.roiHeight || '-'} px`]));
+  }
+  if (config.deployTarget) {
+    const targetLabels: Record<string, string> = {
+      cpu: 'CPU',
+      gpu: 'GPU',
+      edge: isZh ? '边缘设备' : 'Edge Device',
+    };
+    rows.push(row([isZh ? '部署目标' : 'Deploy Target', targetLabels[config.deployTarget as string] || String(config.deployTarget)]));
+  }
+  if (config.inferenceTimeLimit) {
+    rows.push(row([isZh ? '推理时限' : 'Inference Time Limit', `${config.inferenceTimeLimit} ms`]));
+  }
+  if (config.confidenceThreshold !== undefined) {
+    rows.push(row([isZh ? '置信度阈值' : 'Confidence Threshold', `${config.confidenceThreshold}%`]));
+  }
+  if (config.trainingSampleCount || config.sampleEstimate) {
+    rows.push(row([isZh ? '训练样本量' : 'Training Samples', String(config.trainingSampleCount || config.sampleEstimate)]));
+  }
+  
+  return rows;
+}
+
+// Get imaging parameters (common to all module types)
+function getImagingParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
+  const rows: TableRow[] = [];
+  
+  if (config.workingDistance) {
+    rows.push(row([isZh ? '工作距离' : 'Working Distance', `${config.workingDistance} mm`]));
+  }
+  if (config.fieldOfView) {
+    rows.push(row([isZh ? '视场范围' : 'Field of View', `${config.fieldOfView} mm`]));
+  }
+  if (config.fieldOfViewWidth && config.fieldOfViewHeight) {
+    rows.push(row([isZh ? '视场范围(宽×高)' : 'FOV (W×H)', `${config.fieldOfViewWidth} × ${config.fieldOfViewHeight} mm`]));
+  }
+  if (config.resolutionPerPixel) {
+    rows.push(row([isZh ? '分辨率' : 'Resolution', `${config.resolutionPerPixel} mm/pixel`]));
+  }
+  if (config.depthOfField) {
+    rows.push(row([isZh ? '景深' : 'Depth of Field', `${config.depthOfField} mm`]));
+  }
+  if (config.exposure) {
+    rows.push(row([isZh ? '曝光时间' : 'Exposure', `${config.exposure} μs`]));
+  }
+  if (config.gain) {
+    rows.push(row([isZh ? '增益' : 'Gain', `${config.gain} dB`]));
+  }
+  if (config.triggerDelay) {
+    rows.push(row([isZh ? '触发延迟' : 'Trigger Delay', `${config.triggerDelay} ms`]));
+  }
+  if (config.lightAngle) {
+    rows.push(row([isZh ? '光源角度' : 'Light Angle', `${config.lightAngle}°`]));
+  }
+  if (config.lightDistance) {
+    rows.push(row([isZh ? '光源距离' : 'Light Distance', `${config.lightDistance} mm`]));
+  }
+  if (config.lightMode) {
+    const modeLabels: Record<string, string> = {
+      continuous: isZh ? '常亮' : 'Continuous',
+      strobe: isZh ? '频闪' : 'Strobe',
+    };
+    rows.push(row([isZh ? '光源模式' : 'Light Mode', modeLabels[config.lightMode as string] || String(config.lightMode)]));
+  }
+  if (config.lensAperture) {
+    rows.push(row([isZh ? '镜头光圈' : 'Lens Aperture', `F${config.lensAperture}`]));
+  }
+  
+  return rows;
+}
+
 export async function generatePPTX(
   project: ProjectData,
   workstations: WorkstationData[],
@@ -252,7 +631,8 @@ export async function generatePPTX(
   onProgress: ProgressCallback,
   hardware?: HardwareData,
   readinessResult?: { missing: Array<{ level: string; name: string; missing: string[] }>; warnings: Array<{ level: string; name: string; warning: string }> },
-  annotations?: AnnotationData[]
+  annotations?: AnnotationData[],
+  productAssets?: ProductAssetData[]
 ): Promise<Blob> {
   const pptx = new pptxgen();
   const isZh = options.language === 'zh';
@@ -481,6 +861,9 @@ export async function generatePPTX(
 
     // Find workstation-level annotation
     const wsAnnotation = annotations?.find(a => a.scope_type === 'workstation' && a.workstation_id === ws.id);
+    
+    // Find workstation-level product assets
+    const wsProductAsset = productAssets?.find(a => a.scope_type === 'workstation' && a.workstation_id === ws.id);
 
     progress = 25 + i * progressPerWs;
     onProgress(progress, `${isZh ? '处理工位' : 'Processing workstation'}: ${ws.name}...`, `${isZh ? '生成工位页' : 'Workstation slide'}: ${ws.name}`);
@@ -602,7 +985,211 @@ export async function generatePPTX(
       });
     }
 
-    // ========== 2. Workstation Product Annotation Slide (NEW) ==========
+    // ========== 2. Layout Three-View Slide (NEW) ==========
+    const hasThreeViews = wsLayout && (
+      wsLayout.front_view_image_url || 
+      wsLayout.side_view_image_url || 
+      wsLayout.top_view_image_url
+    );
+    
+    if (hasThreeViews) {
+      onProgress(progress, `${isZh ? '添加布局三视图页' : 'Adding layout three-view'}: ${ws.name}...`, `${isZh ? '布局三视图页' : 'Layout Three-View'}`);
+      
+      const threeViewSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+      
+      threeViewSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '布局三视图' : 'Layout Three-View'}`, {
+        x: 0.5, y: 0.6, w: 9, h: 0.5,
+        fontSize: 20, color: COLORS.dark, bold: true,
+      });
+
+      threeViewSlide.addText(`${isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN} | ${project.customer}`, {
+        x: 0.5, y: 1.05, w: 9, h: 0.25,
+        fontSize: 10, color: COLORS.secondary,
+      });
+
+      // Three views layout: Front | Side | Top
+      const viewWidth = 2.9;
+      const viewHeight = 2.2;
+      const viewY = 1.4;
+      const views = [
+        { label: isZh ? '正视图' : 'Front View', url: wsLayout.front_view_image_url, saved: wsLayout.front_view_saved, x: 0.5 },
+        { label: isZh ? '侧视图' : 'Side View', url: wsLayout.side_view_image_url, saved: wsLayout.side_view_saved, x: 3.55 },
+        { label: isZh ? '俯视图' : 'Top View', url: wsLayout.top_view_image_url, saved: wsLayout.top_view_saved, x: 6.6 },
+      ];
+
+      for (const view of views) {
+        // View label
+        threeViewSlide.addText(view.label, {
+          x: view.x, y: viewY, w: viewWidth, h: 0.25,
+          fontSize: 10, color: COLORS.dark, bold: true, align: 'center',
+        });
+
+        if (view.url) {
+          try {
+            const dataUri = await fetchImageAsDataUri(view.url);
+            if (dataUri) {
+              threeViewSlide.addImage({
+                data: dataUri,
+                x: view.x, y: viewY + 0.3, w: viewWidth, h: viewHeight - 0.3,
+                sizing: { type: 'contain', w: viewWidth, h: viewHeight - 0.3 },
+              });
+            } else {
+              throw new Error('Failed to fetch image');
+            }
+          } catch (e) {
+            threeViewSlide.addShape('rect', {
+              x: view.x, y: viewY + 0.3, w: viewWidth, h: viewHeight - 0.3,
+              fill: { color: COLORS.border },
+              line: { color: COLORS.secondary, width: 1 },
+            });
+            threeViewSlide.addText(isZh ? '加载失败' : 'Load Failed', {
+              x: view.x, y: viewY + 1.2, w: viewWidth, h: 0.3,
+              fontSize: 10, color: COLORS.secondary, align: 'center',
+            });
+          }
+        } else {
+          threeViewSlide.addShape('rect', {
+            x: view.x, y: viewY + 0.3, w: viewWidth, h: viewHeight - 0.3,
+            fill: { color: COLORS.border },
+            line: { color: COLORS.secondary, width: 1 },
+          });
+          threeViewSlide.addText(isZh ? '未保存' : 'Not Saved', {
+            x: view.x, y: viewY + 1.2, w: viewWidth, h: 0.3,
+            fontSize: 10, color: COLORS.secondary, align: 'center',
+          });
+        }
+      }
+
+      // Layout info section
+      threeViewSlide.addText(isZh ? '布局信息' : 'Layout Info', {
+        x: 0.5, y: 3.8, w: 9, h: 0.3,
+        fontSize: 12, color: COLORS.dark, bold: true,
+      });
+
+      const layoutInfoRows: TableRow[] = [];
+      if (wsLayout.width || wsLayout.height || wsLayout.depth) {
+        layoutInfoRows.push(row([isZh ? '布局尺寸(宽×高×深)' : 'Layout Size (W×H×D)', `${wsLayout.width || '-'} × ${wsLayout.height || '-'} × ${wsLayout.depth || '-'} mm`]));
+      }
+      if (wsLayout.mechanisms && wsLayout.mechanisms.length > 0) {
+        layoutInfoRows.push(row([isZh ? '执行机构' : 'Mechanisms', wsLayout.mechanisms.join('、')]));
+      }
+      if (wsLayout.camera_mounts && wsLayout.camera_mounts.length > 0) {
+        layoutInfoRows.push(row([isZh ? '相机安装点' : 'Camera Mounts', wsLayout.camera_mounts.join('、')]));
+      }
+      if (wsLayout.camera_count) {
+        layoutInfoRows.push(row([isZh ? '相机数量' : 'Camera Count', `${wsLayout.camera_count} ${isZh ? '台' : ''}`]));
+      }
+      if (wsLayout.conveyor_type) {
+        layoutInfoRows.push(row([isZh ? '输送类型' : 'Conveyor Type', wsLayout.conveyor_type]));
+      }
+
+      if (layoutInfoRows.length > 0) {
+        threeViewSlide.addTable(layoutInfoRows, {
+          x: 0.5, y: 4.15, w: 9, h: Math.min(layoutInfoRows.length * 0.28, 0.9),
+          fontFace: 'Arial',
+          fontSize: 9,
+          colW: [2.5, 6.5],
+          border: { pt: 0.5, color: COLORS.border },
+          fill: { color: COLORS.white },
+          valign: 'middle',
+        });
+      }
+    }
+
+    // ========== 3. Workstation Product Overview Slide (NEW) ==========
+    if (wsProductAsset && wsProductAsset.preview_images && wsProductAsset.preview_images.length > 0) {
+      onProgress(progress, `${isZh ? '添加产品特征概览页' : 'Adding product overview'}: ${ws.name}...`, `${isZh ? '产品特征概览页' : 'Product Overview'}`);
+      
+      const productSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+      
+      productSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '产品特征概览' : 'Product Feature Overview'}`, {
+        x: 0.5, y: 0.6, w: 9, h: 0.5,
+        fontSize: 20, color: COLORS.dark, bold: true,
+      });
+
+      productSlide.addText(`${isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN} | ${project.customer}`, {
+        x: 0.5, y: 1.05, w: 9, h: 0.25,
+        fontSize: 10, color: COLORS.secondary,
+      });
+
+      // Display preview images (up to 4)
+      const previewImages = wsProductAsset.preview_images.slice(0, 4);
+      const imgCount = previewImages.length;
+      
+      if (imgCount === 1) {
+        // Single large image
+        const imgUrl = previewImages[0].url;
+        if (imgUrl) {
+          try {
+            const dataUri = await fetchImageAsDataUri(imgUrl);
+            if (dataUri) {
+              productSlide.addImage({
+                data: dataUri,
+                x: 1.5, y: 1.4, w: 7, h: 3.6,
+                sizing: { type: 'contain', w: 7, h: 3.6 },
+              });
+            }
+          } catch (e) {
+            productSlide.addShape('rect', {
+              x: 1.5, y: 1.4, w: 7, h: 3.6,
+              fill: { color: COLORS.border },
+              line: { color: COLORS.secondary, width: 1 },
+            });
+          }
+        }
+      } else {
+        // Grid layout for multiple images
+        const cols = imgCount <= 2 ? 2 : 2;
+        const rows = Math.ceil(imgCount / cols);
+        const imgW = 4.2;
+        const imgH = imgCount <= 2 ? 3.4 : 1.65;
+        
+        previewImages.forEach(async (img, idx) => {
+          const col = idx % cols;
+          const row = Math.floor(idx / cols);
+          const x = 0.5 + col * 4.5;
+          const y = 1.4 + row * 1.8;
+          
+          if (img.url) {
+            try {
+              const dataUri = await fetchImageAsDataUri(img.url);
+              if (dataUri) {
+                productSlide.addImage({
+                  data: dataUri,
+                  x, y, w: imgW, h: imgH,
+                  sizing: { type: 'contain', w: imgW, h: imgH },
+                });
+              }
+            } catch (e) {
+              productSlide.addShape('rect', {
+                x, y, w: imgW, h: imgH,
+                fill: { color: COLORS.border },
+              });
+            }
+          }
+        });
+      }
+
+      // Module detection features summary
+      if (wsModules.length > 0) {
+        productSlide.addText(isZh ? '检测项目' : 'Detection Items', {
+          x: 0.5, y: 4.3, w: 9, h: 0.25,
+          fontSize: 10, color: COLORS.dark, bold: true,
+        });
+        
+        const featureItems = wsModules.map(mod => {
+          const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type;
+          return `• ${typeLabel}: ${mod.name}`;
+        }).join('   ');
+        
+        productSlide.addText(featureItems, {
+          x: 0.5, y: 4.55, w: 9, h: 0.4,
+          fontSize: 9, color: COLORS.secondary,
+        });
+      }
+    }
+
+    // ========== 4. Workstation Product Annotation Slide ==========
     if (wsAnnotation && wsAnnotation.snapshot_url) {
       onProgress(progress, `${isZh ? '添加工位产品标注页' : 'Adding workstation annotation'}: ${ws.name}...`, `${isZh ? '工位产品标注页' : 'Workstation Annotation'}`);
       
@@ -679,10 +1266,7 @@ export async function generatePPTX(
       }
     }
 
-    // Note: Static three-view layout slides have been removed.
-    // The draggable layout canvas is now used for all layout configuration.
-
-    // ========== 4. Module Detail Slides ==========
+    // ========== 5. Module Detail Slides ==========
     for (let j = 0; j < wsModules.length; j++) {
       const mod = wsModules[j];
       const moduleCode = getModuleDisplayName(wsCode, mod.type, isZh);
@@ -750,7 +1334,7 @@ export async function generatePPTX(
         });
       }
 
-      // Right: Module Configuration Parameters
+      // Right: Module Configuration Parameters (ENHANCED)
       modSlide.addText(isZh ? '模块配置参数' : 'Module Configuration', {
         x: 5.2, y: 1.35, w: 4.3, h: 0.3,
         fontSize: 12, color: COLORS.dark, bold: true,
@@ -767,21 +1351,27 @@ export async function generatePPTX(
         row([isZh ? '处理时限' : 'Time Limit', mod.processing_time_limit ? `${mod.processing_time_limit}ms` : '-']),
       ];
       
-      const cfg = (mod.defect_config || mod.positioning_config || mod.ocr_config || mod.deep_learning_config || mod.measurement_config) as Record<string, unknown> | null;
-      
-      if (cfg) {
-        if (cfg.detectionObject) paramRows.push(row([isZh ? '检测对象' : 'Detection Object', String(cfg.detectionObject)]));
-        if (cfg.judgmentStrategy) {
-          const strategyLabels: Record<string, Record<string, string>> = {
-            no_miss: { zh: '宁可误杀不可漏检', en: 'No Miss' },
-            balanced: { zh: '平衡', en: 'Balanced' },
-            allow_pass: { zh: '宁可放行', en: 'Allow Pass' },
-          };
-          paramRows.push(row([isZh ? '判定策略' : 'Judgment Strategy', strategyLabels[cfg.judgmentStrategy as string]?.[options.language] || String(cfg.judgmentStrategy)]));
-        }
-        if (cfg.outputAction && Array.isArray(cfg.outputAction) && cfg.outputAction.length > 0) {
-          paramRows.push(row([isZh ? '输出动作' : 'Output Actions', (cfg.outputAction as string[]).join('、')]));
-        }
+      // Add module-type specific parameters
+      if (mod.type === 'defect' && mod.defect_config) {
+        paramRows.push(row(['', '']));
+        paramRows.push(row([isZh ? '【缺陷检测配置】' : '[Defect Config]', '']));
+        paramRows.push(...getDefectParams(mod.defect_config as Record<string, unknown>, isZh));
+      } else if (mod.type === 'measurement' && mod.measurement_config) {
+        paramRows.push(row(['', '']));
+        paramRows.push(row([isZh ? '【尺寸测量配置】' : '[Measurement Config]', '']));
+        paramRows.push(...getMeasurementParams(mod.measurement_config as Record<string, unknown>, isZh));
+      } else if (mod.type === 'ocr' && mod.ocr_config) {
+        paramRows.push(row(['', '']));
+        paramRows.push(row([isZh ? '【OCR配置】' : '[OCR Config]', '']));
+        paramRows.push(...getOCRParams(mod.ocr_config as Record<string, unknown>, isZh));
+      } else if (mod.type === 'positioning' && mod.positioning_config) {
+        paramRows.push(row(['', '']));
+        paramRows.push(row([isZh ? '【定位配置】' : '[Positioning Config]', '']));
+        paramRows.push(...getPositioningParams(mod.positioning_config as Record<string, unknown>, isZh));
+      } else if (mod.type === 'deeplearning' && mod.deep_learning_config) {
+        paramRows.push(row(['', '']));
+        paramRows.push(row([isZh ? '【深度学习配置】' : '[Deep Learning Config]', '']));
+        paramRows.push(...getDeepLearningParams(mod.deep_learning_config as Record<string, unknown>, isZh));
       }
 
       // Hardware section
@@ -803,17 +1393,90 @@ export async function generatePPTX(
 
       const filteredRows = paramRows.filter(r => r[0].text || r[1].text);
       
-      modSlide.addTable(filteredRows, {
+      // Limit rows to fit on slide
+      const displayRows = filteredRows.slice(0, 18);
+      
+      modSlide.addTable(displayRows, {
         x: 5.2, y: 1.7, w: 4.3, h: 3.3,
         fontFace: 'Arial',
-        fontSize: 8,
+        fontSize: 7,
         colW: [1.5, 2.8],
         border: { pt: 0.5, color: COLORS.border },
         fill: { color: COLORS.white },
         valign: 'middle',
       });
 
-      // ========== 5. Module Local Annotation Slide (NEW) ==========
+      // ========== 6. Module Imaging Parameters Slide (If more parameters exist) ==========
+      const cfg = (mod.defect_config || mod.positioning_config || mod.ocr_config || mod.deep_learning_config || mod.measurement_config) as Record<string, unknown> | null;
+      const imagingParams = cfg ? getImagingParams(cfg, isZh) : [];
+      
+      if (imagingParams.length > 0) {
+        const imagingSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+        
+        imagingSlide.addText(`${moduleCode} - ${isZh ? '成像参数' : 'Imaging Parameters'}`, {
+          x: 0.5, y: 0.6, w: 9, h: 0.5,
+          fontSize: 20, color: COLORS.dark, bold: true,
+        });
+
+        imagingSlide.addText(`${isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN} | ${project.customer}`, {
+          x: 0.5, y: 1.05, w: 9, h: 0.25,
+          fontSize: 10, color: COLORS.secondary,
+        });
+
+        imagingSlide.addText(isZh ? '光学与成像配置' : 'Optical & Imaging Configuration', {
+          x: 0.5, y: 1.4, w: 4.5, h: 0.3,
+          fontSize: 12, color: COLORS.dark, bold: true,
+        });
+
+        imagingSlide.addTable(imagingParams, {
+          x: 0.5, y: 1.8, w: 4.5, h: Math.min(imagingParams.length * 0.35, 3.2),
+          fontFace: 'Arial',
+          fontSize: 9,
+          colW: [1.8, 2.7],
+          border: { pt: 0.5, color: COLORS.border },
+          fill: { color: COLORS.white },
+          valign: 'middle',
+        });
+
+        // Hardware specs on right side
+        imagingSlide.addText(isZh ? '硬件规格' : 'Hardware Specifications', {
+          x: 5.2, y: 1.4, w: 4.3, h: 0.3,
+          fontSize: 12, color: COLORS.dark, bold: true,
+        });
+
+        const hwSpecRows: TableRow[] = [];
+        if (selectedCamera) {
+          hwSpecRows.push(row([isZh ? '相机型号' : 'Camera Model', `${selectedCamera.brand} ${selectedCamera.model}`]));
+          hwSpecRows.push(row([isZh ? '分辨率' : 'Resolution', selectedCamera.resolution]));
+          hwSpecRows.push(row([isZh ? '帧率' : 'Frame Rate', `${selectedCamera.frame_rate} fps`]));
+          hwSpecRows.push(row([isZh ? '传感器尺寸' : 'Sensor Size', selectedCamera.sensor_size]));
+        }
+        if (selectedLens) {
+          hwSpecRows.push(row([isZh ? '镜头型号' : 'Lens Model', `${selectedLens.brand} ${selectedLens.model}`]));
+          hwSpecRows.push(row([isZh ? '焦距' : 'Focal Length', selectedLens.focal_length]));
+          hwSpecRows.push(row([isZh ? '光圈' : 'Aperture', selectedLens.aperture]));
+        }
+        if (selectedLight) {
+          hwSpecRows.push(row([isZh ? '光源型号' : 'Light Model', `${selectedLight.brand} ${selectedLight.model}`]));
+          hwSpecRows.push(row([isZh ? '光源类型' : 'Light Type', selectedLight.type]));
+          hwSpecRows.push(row([isZh ? '颜色' : 'Color', selectedLight.color]));
+          hwSpecRows.push(row([isZh ? '功率' : 'Power', selectedLight.power]));
+        }
+
+        if (hwSpecRows.length > 0) {
+          imagingSlide.addTable(hwSpecRows, {
+            x: 5.2, y: 1.8, w: 4.3, h: Math.min(hwSpecRows.length * 0.3, 3.2),
+            fontFace: 'Arial',
+            fontSize: 9,
+            colW: [1.5, 2.8],
+            border: { pt: 0.5, color: COLORS.border },
+            fill: { color: COLORS.white },
+            valign: 'middle',
+          });
+        }
+      }
+
+      // ========== 7. Module Local Annotation Slide ==========
       if (modAnnotation && modAnnotation.snapshot_url) {
         onProgress(progress, `${isZh ? '添加模块局部标注页' : 'Adding module annotation'}: ${moduleCode}...`, `${isZh ? '模块局部标注页' : 'Module Annotation'}`);
         
