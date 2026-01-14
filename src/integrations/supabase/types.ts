@@ -688,6 +688,7 @@ export type Database = {
           production_line: string | null
           quality_strategy: string | null
           responsible: string | null
+          revision_history: Json | null
           sales_responsible: string | null
           spec_version: string | null
           status: string | null
@@ -714,6 +715,7 @@ export type Database = {
           production_line?: string | null
           quality_strategy?: string | null
           responsible?: string | null
+          revision_history?: Json | null
           sales_responsible?: string | null
           spec_version?: string | null
           status?: string | null
@@ -740,6 +742,7 @@ export type Database = {
           production_line?: string | null
           quality_strategy?: string | null
           responsible?: string | null
+          revision_history?: Json | null
           sales_responsible?: string | null
           spec_version?: string | null
           status?: string | null
@@ -775,6 +778,8 @@ export type Database = {
       }
       workstations: {
         Row: {
+          acceptance_criteria: Json | null
+          action_script: string | null
           code: string | null
           created_at: string
           cycle_time: number | null
@@ -782,15 +787,22 @@ export type Database = {
           enclosed: boolean | null
           id: string
           install_space: Json | null
+          motion_description: string | null
           name: string
+          observation_target: string | null
+          process_stage: string | null
           product_dimensions: Json | null
           project_id: string
+          risk_notes: string | null
+          shot_count: number | null
           status: string | null
           type: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          acceptance_criteria?: Json | null
+          action_script?: string | null
           code?: string | null
           created_at?: string
           cycle_time?: number | null
@@ -798,15 +810,22 @@ export type Database = {
           enclosed?: boolean | null
           id?: string
           install_space?: Json | null
+          motion_description?: string | null
           name: string
+          observation_target?: string | null
+          process_stage?: string | null
           product_dimensions?: Json | null
           project_id: string
+          risk_notes?: string | null
+          shot_count?: number | null
           status?: string | null
           type?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          acceptance_criteria?: Json | null
+          action_script?: string | null
           code?: string | null
           created_at?: string
           cycle_time?: number | null
@@ -814,9 +833,14 @@ export type Database = {
           enclosed?: boolean | null
           id?: string
           install_space?: Json | null
+          motion_description?: string | null
           name?: string
+          observation_target?: string | null
+          process_stage?: string | null
           product_dimensions?: Json | null
           project_id?: string
+          risk_notes?: string | null
+          shot_count?: number | null
           status?: string | null
           type?: string | null
           updated_at?: string
