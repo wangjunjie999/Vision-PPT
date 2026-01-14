@@ -4,6 +4,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { useTheme } from 'next-themes';
+import { useAdminRole } from '@/hooks/useAdminRole';
 import { 
   FileText, 
   Plus, 
@@ -18,25 +19,19 @@ import {
   Sun,
   Moon,
   Sparkles,
-  Zap
+  Zap,
+  ShieldAlert
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { PPTGenerationDialog } from '../dialogs/PPTGenerationDialog';
 import { NewProjectDialog } from '../dialogs/NewProjectDialog';
 import { checkPPTReadiness } from '@/services/pptReadiness';
+import { toast } from 'sonner';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,12 +54,11 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
   const { theme, setTheme } = useTheme();
   const { currentRole, setCurrentRole, isGeneratingPPT } = useAppStore();
   const { selectedProjectId, projects, workstations, layouts, modules, getProjectWorkstations, selectProject } = useData();
+  const { isAdmin, isLoading: isCheckingAdmin, checkAdminRole } = useAdminRole();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [showPPTDialog, setShowPPTDialog] = useState(false);
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
-  const [showAdminAuth, setShowAdminAuth] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   
   const selectedProject = projects.find(p => p.id === selectedProjectId);
@@ -93,20 +87,23 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
     setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
-  const handleAdminAccess = () => {
+  const handleAdminAccess = async () => {
     if (currentRole === 'admin') {
       onAdminClick();
-    } else {
-      setShowAdminAuth(true);
+      return;
     }
-  };
 
-  const handleAdminAuth = () => {
-    if (adminPassword === 'admin123') {
+    // Check admin role from database
+    const hasAdminRole = await checkAdminRole();
+    
+    if (hasAdminRole) {
       setCurrentRole('admin');
-      setShowAdminAuth(false);
-      setAdminPassword('');
       onAdminClick();
+    } else {
+      toast.error('需要管理员权限', {
+        description: '您的账户没有管理员权限，请联系系统管理员',
+        icon: <ShieldAlert className="h-4 w-4" />,
+      });
     }
   };
 
@@ -399,37 +396,6 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
         open={showNewProjectDialog} 
         onOpenChange={setShowNewProjectDialog} 
       />
-
-      {/* Admin Auth Dialog */}
-      <Dialog open={showAdminAuth} onOpenChange={setShowAdminAuth}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-primary" />
-              管理员认证
-            </DialogTitle>
-            <DialogDescription>
-              请输入管理员口令以进入管理中心
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            type="password"
-            placeholder="请输入口令"
-            value={adminPassword}
-            onChange={(e) => setAdminPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdminAuth()}
-            className="mt-2"
-          />
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setShowAdminAuth(false)}>
-              取消
-            </Button>
-            <Button onClick={handleAdminAuth}>
-              确认
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

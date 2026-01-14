@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, Loader2, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { validateImageFile } from '@/utils/fileValidation';
 
 interface ImageUploadProps {
   currentUrl: string | null;
@@ -27,15 +28,15 @@ export function HardwareImageUpload({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error('请选择图片文件');
-      return;
-    }
+    // Validate file using comprehensive validation
+    const isValid = await validateImageFile(file, {
+      maxSizeMB: 5,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+      checkMagicBytes: true,
+    });
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('图片大小不能超过5MB');
+    if (!isValid) {
       return;
     }
 
