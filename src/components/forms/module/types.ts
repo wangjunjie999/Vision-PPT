@@ -218,8 +218,13 @@ export interface ModuleFormState {
   lightMode: string; // 光源模式：常亮/频闪/PWM
   lightAngle: string; // 光源角度
   lightDistance: string; // 光源距离
+  lightDistanceHorizontal: string; // 光源水平距离 (mm)
+  lightDistanceVertical: string; // 光源垂直距离 (mm)
   lensAperture: string; // 镜头光圈 (F值)
   depthOfField: string; // 景深要求
+  workingDistanceTolerance: string; // 工作距离公差 (±mm)
+  cameraInstallNote: string; // 相机安装说明
+  lightNote: string; // 光源备注
   
   // Defect config
   defectClasses: string[];
@@ -402,8 +407,13 @@ export const getDefaultFormState = (): ModuleFormState => ({
   lightMode: '',
   lightAngle: '',
   lightDistance: '',
+  lightDistanceHorizontal: '',
+  lightDistanceVertical: '',
   lensAperture: '',
   depthOfField: '',
+  workingDistanceTolerance: '',
+  cameraInstallNote: '',
+  lightNote: '',
   
   defectClasses: [],
   minDefectSize: '0.5',

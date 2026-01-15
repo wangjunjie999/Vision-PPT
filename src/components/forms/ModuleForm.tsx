@@ -67,8 +67,13 @@ export function ModuleForm() {
         lightMode: cfg.imaging.lightMode || '',
         lightAngle: cfg.imaging.lightAngle || '',
         lightDistance: cfg.imaging.lightDistance || '',
+        lightDistanceHorizontal: cfg.imaging.lightDistanceHorizontal || '',
+        lightDistanceVertical: cfg.imaging.lightDistanceVertical || '',
         lensAperture: cfg.imaging.lensAperture || '',
         depthOfField: cfg.imaging.depthOfField?.toString() || '',
+        workingDistanceTolerance: cfg.imaging.workingDistanceTolerance || '',
+        cameraInstallNote: cfg.imaging.cameraInstallNote || '',
+        lightNote: cfg.imaging.lightNote || '',
       } : {};
       
       setForm({
@@ -287,8 +292,13 @@ export function ModuleForm() {
         lightMode: form.lightMode || null,
         lightAngle: form.lightAngle || null,
         lightDistance: form.lightDistance || null,
+        lightDistanceHorizontal: form.lightDistanceHorizontal || null,
+        lightDistanceVertical: form.lightDistanceVertical || null,
         lensAperture: form.lensAperture || null,
         depthOfField: form.depthOfField ? parseFloat(form.depthOfField) : null,
+        workingDistanceTolerance: form.workingDistanceTolerance || null,
+        cameraInstallNote: form.cameraInstallNote || null,
+        lightNote: form.lightNote || null,
       };
       
       if (form.type === 'defect') {

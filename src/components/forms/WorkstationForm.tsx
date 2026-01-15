@@ -583,6 +583,51 @@ export function WorkstationForm() {
         />
       </div>
       
+      {/* New SOP fields: motion, shot count, action script, risk */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">运动方式</Label>
+          <Input 
+            value={wsForm.motion_description} 
+            onChange={e => setWsForm(p => ({ ...p, motion_description: e.target.value }))} 
+            placeholder="例如: 2D×2固定在伺服上"
+            className="h-9"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">拍照次数 (次/节拍)</Label>
+          <Input 
+            type="number" 
+            value={wsForm.shot_count} 
+            onChange={e => setWsForm(p => ({ ...p, shot_count: e.target.value }))} 
+            placeholder="1"
+            className="h-9"
+          />
+        </div>
+      </div>
+      
+      <div className="space-y-1">
+        <Label className="text-xs">测量方法/动作分解</Label>
+        <textarea 
+          value={wsForm.action_script} 
+          onChange={e => setWsForm(p => ({ ...p, action_script: e.target.value }))} 
+          placeholder={"1. 两个相机分别固定在伺服上，从上往下拍摄产品...\n2. 对离型纸有无进行检测"}
+          className="w-full min-h-[80px] p-2 text-sm border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+          maxLength={1000}
+        />
+      </div>
+      
+      <div className="space-y-1">
+        <Label className="text-xs">风险/待确认事项</Label>
+        <textarea 
+          value={wsForm.risk_notes} 
+          onChange={e => setWsForm(p => ({ ...p, risk_notes: e.target.value }))} 
+          placeholder="例如: 缺陷检测能力需以实际样品测试为准"
+          className="w-full min-h-[60px] p-2 text-sm border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+          maxLength={500}
+        />
+      </div>
+      
       <div className="space-y-1">
         <Label className="text-xs">备注</Label>
         <textarea 
