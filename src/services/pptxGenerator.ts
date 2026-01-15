@@ -173,6 +173,22 @@ interface ProductAssetData {
   scope_type: 'workstation' | 'module';
   preview_images: Array<{ url: string; name?: string }> | null;
   model_file_url?: string | null;
+  // New fields for product technical requirements
+  detection_method?: string | null;
+  product_models?: Array<{ name: string; spec: string }> | null;
+  detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
+}
+
+// Product model item for display
+interface ProductModelItem {
+  name: string;
+  spec: string;
+}
+
+// Detection requirement item
+interface DetectionRequirementItem {
+  content: string;
+  highlight?: string | null;
 }
 
 interface GenerationOptions {
@@ -1229,83 +1245,162 @@ export async function generatePPTX(
       });
     }
 
-    // ========== Page 3: Product Overview ==========
-    if (wsProductAsset && wsProductAsset.preview_images && wsProductAsset.preview_images.length > 0) {
-      const productSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    // ========== Page 3: Product Technical Requirements (Left-Right Layout) ==========
+    // This page shows: Left - Technical Requirements, Right - Product Schematic with Annotations
+    const hasTechInfo = wsProductAsset && (
+      wsProductAsset.detection_method || 
+      (wsProductAsset.product_models && wsProductAsset.product_models.length > 0) ||
+      (wsProductAsset.detection_requirements && wsProductAsset.detection_requirements.length > 0) ||
+      (wsProductAsset.preview_images && wsProductAsset.preview_images.length > 0)
+    );
+    
+    if (hasTechInfo) {
+      const techInfoSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
       
-      productSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '产品示意' : 'Product Overview'}`, {
+      techInfoSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '产品技术要求' : 'Product Technical Requirements'}`, {
         x: 0.5, y: 0.6, w: 9, h: 0.45,
         fontSize: 18, color: COLORS.dark, bold: true,
       });
 
-      const previewImages = wsProductAsset.preview_images.slice(0, 4);
-      const imgCount = previewImages.length;
-      
-      if (imgCount === 1) {
-        const imgUrl = previewImages[0].url;
-        if (imgUrl) {
-          try {
-            const dataUri = await fetchImageAsDataUri(imgUrl);
-            if (dataUri) {
-              productSlide.addImage({
-                data: dataUri,
-                x: 1.5, y: 1.2, w: 7, h: 4.5,
-                sizing: { type: 'contain', w: 7, h: 4.5 },
-              });
-            }
-          } catch (e) {
-            productSlide.addShape('rect', {
-              x: 1.5, y: 1.2, w: 7, h: 4.5,
-              fill: { color: COLORS.border },
-            });
-          }
-        }
-      } else {
-        const imgW = 4.2;
-        const imgH = imgCount <= 2 ? 4.2 : 2;
-        
-        for (let idx = 0; idx < previewImages.length; idx++) {
-          const img = previewImages[idx];
-          const col = idx % 2;
-          const rowIdx = Math.floor(idx / 2);
-          const x = 0.5 + col * 4.5;
-          const y = 1.2 + rowIdx * 2.2;
-          
-          if (img.url) {
-            try {
-              const dataUri = await fetchImageAsDataUri(img.url);
-              if (dataUri) {
-                productSlide.addImage({
-                  data: dataUri,
-                  x, y, w: imgW, h: imgH,
-                  sizing: { type: 'contain', w: imgW, h: imgH },
-                });
-              }
-            } catch (e) {
-              productSlide.addShape('rect', {
-                x, y, w: imgW, h: imgH,
-                fill: { color: COLORS.border },
-              });
-            }
-          }
-        }
+      // Left column header
+      techInfoSlide.addText(isZh ? '技术要求' : 'Technical Requirements', {
+        x: 0.5, y: 1.15, w: 4.5, h: 0.3,
+        fontSize: 12, color: COLORS.primary, bold: true,
+      });
+
+      // Right column header
+      techInfoSlide.addText(isZh ? '产品示意图' : 'Product Schematic', {
+        x: 5.2, y: 1.15, w: 4.3, h: 0.3,
+        fontSize: 12, color: COLORS.primary, bold: true,
+      });
+
+      // Left side: Technical Requirements
+      let leftY = 1.5;
+
+      // Basic info section
+      techInfoSlide.addText(isZh ? '基本信息:' : 'Basic Info:', {
+        x: 0.5, y: leftY, w: 4.5, h: 0.25,
+        fontSize: 10, color: COLORS.dark, bold: true,
+      });
+      leftY += 0.3;
+
+      // Detection method
+      const detectionMethod = wsProductAsset.detection_method || '-';
+      techInfoSlide.addText(`1. ${isZh ? '检测方式' : 'Method'}: ${detectionMethod}`, {
+        x: 0.5, y: leftY, w: 4.5, h: 0.4,
+        fontSize: 9, color: COLORS.dark,
+      });
+      leftY += 0.45;
+
+      // Product models
+      const productModels = wsProductAsset.product_models || [];
+      if (productModels.length > 0) {
+        techInfoSlide.addText(`2. ${isZh ? '蓝本型号' : 'Models'}:`, {
+          x: 0.5, y: leftY, w: 4.5, h: 0.22,
+          fontSize: 9, color: COLORS.dark,
+        });
+        leftY += 0.25;
+
+        productModels.slice(0, 5).forEach((model, idx) => {
+          techInfoSlide.addText(`   ${model.name}: ${model.spec}`, {
+            x: 0.5, y: leftY, w: 4.5, h: 0.2,
+            fontSize: 8, color: COLORS.secondary,
+          });
+          leftY += 0.22;
+        });
+        leftY += 0.1;
       }
 
-      if (wsModules.length > 0) {
-        productSlide.addText(isZh ? '检测项目' : 'Detection Items', {
-          x: 0.5, y: 5.9, w: 9, h: 0.25,
+      // Detection requirements section
+      const detectionReqs = wsProductAsset.detection_requirements || [];
+      if (detectionReqs.length > 0) {
+        techInfoSlide.addText(isZh ? '检测要求:' : 'Detection Requirements:', {
+          x: 0.5, y: leftY, w: 4.5, h: 0.25,
           fontSize: 10, color: COLORS.dark, bold: true,
         });
-        
-        const featureItems = wsModules.map(mod => {
-          const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type;
-          return `• ${typeLabel}: ${mod.name}`;
-        }).join('   ');
-        
-        productSlide.addText(featureItems, {
-          x: 0.5, y: 6.15, w: 9, h: 0.8,
-          fontSize: 8, color: COLORS.secondary,
+        leftY += 0.3;
+
+        detectionReqs.slice(0, 6).forEach((req, idx) => {
+          const reqText = `${idx + 1}. ${req.content}`;
+          const textHeight = Math.min(0.5, 0.2 + (req.content.length / 30) * 0.1);
+          
+          techInfoSlide.addText(reqText, {
+            x: 0.5, y: leftY, w: 4.5, h: textHeight,
+            fontSize: 8, color: COLORS.dark,
+          });
+          leftY += textHeight + 0.05;
+
+          // Add highlight/note if exists
+          if (req.highlight) {
+            techInfoSlide.addText(`   → ${req.highlight}`, {
+              x: 0.5, y: leftY, w: 4.5, h: 0.18,
+              fontSize: 7, color: COLORS.warning, italic: true,
+            });
+            leftY += 0.2;
+          }
         });
+      }
+
+      // Right side: Product image with annotations
+      const previewImages = wsProductAsset.preview_images || [];
+      const rightImgX = 5.2;
+      const rightImgY = 1.5;
+      const rightImgW = 4.3;
+      const rightImgH = 4;
+
+      if (previewImages.length > 0 && previewImages[0].url) {
+        try {
+          const dataUri = await fetchImageAsDataUri(previewImages[0].url);
+          if (dataUri) {
+            techInfoSlide.addImage({
+              data: dataUri,
+              x: rightImgX, y: rightImgY, w: rightImgW, h: rightImgH,
+              sizing: { type: 'contain', w: rightImgW, h: rightImgH },
+            });
+          } else {
+            throw new Error('Failed to fetch image');
+          }
+        } catch (e) {
+          techInfoSlide.addShape('rect', {
+            x: rightImgX, y: rightImgY, w: rightImgW, h: rightImgH,
+            fill: { color: COLORS.border },
+          });
+          techInfoSlide.addText(isZh ? '待上传产品图' : 'Product Image Pending', {
+            x: rightImgX, y: rightImgY + rightImgH / 2 - 0.15, w: rightImgW, h: 0.3,
+            fontSize: 10, color: COLORS.secondary, align: 'center',
+          });
+        }
+      } else {
+        techInfoSlide.addShape('rect', {
+          x: rightImgX, y: rightImgY, w: rightImgW, h: rightImgH,
+          fill: { color: COLORS.border },
+        });
+        techInfoSlide.addText(isZh ? '待上传产品图' : 'Product Image Pending', {
+          x: rightImgX, y: rightImgY + rightImgH / 2 - 0.15, w: rightImgW, h: 0.3,
+          fontSize: 10, color: COLORS.secondary, align: 'center',
+        });
+      }
+
+      // Add annotation labels from wsAnnotation if exists
+      if (wsAnnotation && wsAnnotation.annotations_json && wsAnnotation.annotations_json.length > 0) {
+        // Show annotation labels below the image
+        techInfoSlide.addText(isZh ? '标注说明:' : 'Annotations:', {
+          x: rightImgX, y: rightImgY + rightImgH + 0.15, w: rightImgW, h: 0.2,
+          fontSize: 8, color: COLORS.dark, bold: true,
+        });
+
+        const annotLabels = wsAnnotation.annotations_json
+          .filter(a => a.label || a.text)
+          .map((a, idx) => `${a.labelNumber || idx + 1}. ${a.label || a.text}`)
+          .slice(0, 6)
+          .join('  ');
+        
+        if (annotLabels) {
+          techInfoSlide.addText(annotLabels, {
+            x: rightImgX, y: rightImgY + rightImgH + 0.35, w: rightImgW, h: 0.6,
+            fontSize: 7, color: COLORS.secondary,
+          });
+        }
       }
     }
 

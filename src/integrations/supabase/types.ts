@@ -623,10 +623,13 @@ export type Database = {
       product_assets: {
         Row: {
           created_at: string
+          detection_method: string | null
+          detection_requirements: Json | null
           id: string
           model_file_url: string | null
           module_id: string | null
           preview_images: Json | null
+          product_models: Json | null
           scope_type: Database["public"]["Enums"]["product_scope_type"]
           source_type: string
           updated_at: string
@@ -635,10 +638,13 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          detection_method?: string | null
+          detection_requirements?: Json | null
           id?: string
           model_file_url?: string | null
           module_id?: string | null
           preview_images?: Json | null
+          product_models?: Json | null
           scope_type: Database["public"]["Enums"]["product_scope_type"]
           source_type?: string
           updated_at?: string
@@ -647,10 +653,13 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          detection_method?: string | null
+          detection_requirements?: Json | null
           id?: string
           model_file_url?: string | null
           module_id?: string | null
           preview_images?: Json | null
+          product_models?: Json | null
           scope_type?: Database["public"]["Enums"]["product_scope_type"]
           source_type?: string
           updated_at?: string

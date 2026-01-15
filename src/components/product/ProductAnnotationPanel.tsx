@@ -39,10 +39,23 @@ import {
   FileImage,
   Clock,
   CheckCircle2,
+  Plus,
+  Info,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Product3DViewer } from './Product3DViewer';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
+
+interface ProductModelItem {
+  name: string;
+  spec: string;
+}
+
+interface DetectionRequirementItem {
+  content: string;
+  highlight?: string | null;
+}
 
 interface ProductAsset {
   id: string;
@@ -54,6 +67,10 @@ interface ProductAsset {
   preview_images: string[];
   created_at: string;
   updated_at: string;
+  // New product info fields
+  detection_method?: string | null;
+  product_models?: ProductModelItem[] | null;
+  detection_requirements?: DetectionRequirementItem[] | null;
 }
 
 interface AnnotationRecord {
@@ -92,6 +109,21 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [selectedRecord, setSelectedRecord] = useState<AnnotationRecord | null>(null);
   const [defaultRecordId, setDefaultRecordId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('viewer');
+  
+  // Product info state
+  const [detectionMethod, setDetectionMethod] = useState('');
+  const [productModels, setProductModels] = useState<ProductModelItem[]>([]);
+  const [detectionRequirements, setDetectionRequirements] = useState<DetectionRequirementItem[]>([]);
+  const [savingInfo, setSavingInfo] = useState(false);
+
+  // Sync product info from asset
+  useEffect(() => {
+    if (asset) {
+      setDetectionMethod(asset.detection_method || '');
+      setProductModels(asset.product_models || []);
+      setDetectionRequirements(asset.detection_requirements || []);
+    }
+  }, [asset]);
 
   // Load asset and annotations
   const loadData = useCallback(async () => {
@@ -112,7 +144,18 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         const previewImages = Array.isArray(assetData.preview_images) 
           ? assetData.preview_images as string[]
           : [];
-        setAsset({ ...assetData, preview_images: previewImages } as ProductAsset);
+        const productModels = Array.isArray(assetData.product_models)
+          ? assetData.product_models as unknown as ProductModelItem[]
+          : [];
+        const detectionRequirements = Array.isArray(assetData.detection_requirements)
+          ? assetData.detection_requirements as unknown as DetectionRequirementItem[]
+          : [];
+        setAsset({ 
+          ...assetData, 
+          preview_images: previewImages,
+          product_models: productModels,
+          detection_requirements: detectionRequirements,
+        } as ProductAsset);
 
         // Load annotations for this asset
         const { data: annotData, error: annotError } = await supabase
@@ -345,10 +388,14 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       </CardHeader>
       <CardContent className="space-y-4">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 h-8">
+          <TabsList className="grid w-full grid-cols-4 h-8">
             <TabsTrigger value="viewer" className="text-xs">
               <Eye className="h-3 w-3 mr-1" />
               3D查看
+            </TabsTrigger>
+            <TabsTrigger value="info" className="text-xs">
+              <Info className="h-3 w-3 mr-1" />
+              产品信息
             </TabsTrigger>
             <TabsTrigger value="annotate" className="text-xs" disabled={!currentSnapshot}>
               <Edit3 className="h-3 w-3 mr-1" />
@@ -470,6 +517,203 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 <p className="text-xs">请先在3D查看中截图</p>
               </div>
             )}
+          </TabsContent>
+
+          {/* Product Info Tab */}
+          <TabsContent value="info" className="mt-3">
+            <ScrollArea className="h-[350px]">
+              <div className="space-y-4 pr-2">
+                {/* Detection Method */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">检测方式</Label>
+                  <Input
+                    value={detectionMethod}
+                    onChange={(e) => setDetectionMethod(e.target.value)}
+                    placeholder="例如: 2D×4（两台设备，各一拖二，两台工控机）"
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                {/* Product Models */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">蓝本型号</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setProductModels([...productModels, { name: '', spec: '' }])}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      添加
+                    </Button>
+                  </div>
+                  {productModels.length > 0 ? (
+                    <div className="space-y-2">
+                      {productModels.map((model, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <Input
+                            value={model.name}
+                            onChange={(e) => {
+                              const newModels = [...productModels];
+                              newModels[idx].name = e.target.value;
+                              setProductModels(newModels);
+                            }}
+                            placeholder="型号名称"
+                            className="h-8 text-xs flex-1"
+                          />
+                          <Input
+                            value={model.spec}
+                            onChange={(e) => {
+                              const newModels = [...productModels];
+                              newModels[idx].spec = e.target.value;
+                              setProductModels(newModels);
+                            }}
+                            placeholder="规格 (长*宽*高)"
+                            className="h-8 text-xs flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-destructive hover:text-destructive"
+                            onClick={() => {
+                              const newModels = productModels.filter((_, i) => i !== idx);
+                              setProductModels(newModels);
+                            }}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">点击"添加"按钮添加产品型号</p>
+                  )}
+                </div>
+
+                {/* Detection Requirements */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">检测要求</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setDetectionRequirements([...detectionRequirements, { content: '', highlight: null }])}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      添加
+                    </Button>
+                  </div>
+                  {detectionRequirements.length > 0 ? (
+                    <div className="space-y-3">
+                      {detectionRequirements.map((req, idx) => (
+                        <div key={idx} className="space-y-1 p-2 border rounded-md bg-secondary/20">
+                          <div className="flex gap-2 items-start">
+                            <span className="text-xs font-medium text-muted-foreground mt-1">{idx + 1}.</span>
+                            <Textarea
+                              value={req.content}
+                              onChange={(e) => {
+                                const newReqs = [...detectionRequirements];
+                                newReqs[idx].content = e.target.value;
+                                setDetectionRequirements(newReqs);
+                              }}
+                              placeholder="检测要求内容，如：电芯抓取引导定位，精度≤0.1mm，像素≥500W"
+                              className="min-h-[60px] text-xs flex-1"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive hover:text-destructive"
+                              onClick={() => {
+                                const newReqs = detectionRequirements.filter((_, i) => i !== idx);
+                                setDetectionRequirements(newReqs);
+                              }}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <Input
+                            value={req.highlight || ''}
+                            onChange={(e) => {
+                              const newReqs = [...detectionRequirements];
+                              newReqs[idx].highlight = e.target.value || null;
+                              setDetectionRequirements(newReqs);
+                            }}
+                            placeholder="备注/高亮内容（可选），如：换型时拍一次，区分型号"
+                            className="h-7 text-xs ml-4"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">点击"添加"按钮添加检测要求</p>
+                  )}
+                </div>
+
+                {/* Save Button */}
+                <div className="pt-2">
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    onClick={async () => {
+                      if (!asset || !user) {
+                        // Create new asset if not exists
+                        if (!user) return;
+                        setSavingInfo(true);
+                        try {
+                          const { error } = await supabase.from('product_assets').insert({
+                            workstation_id: workstationId,
+                            scope_type: 'workstation',
+                            source_type: 'image',
+                            detection_method: detectionMethod || null,
+                            product_models: productModels as unknown as any,
+                            detection_requirements: detectionRequirements as unknown as any,
+                            user_id: user.id,
+                          });
+                          if (error) throw error;
+                          await loadData();
+                          toast.success('产品信息已保存');
+                        } catch (error) {
+                          console.error('Save failed:', error);
+                          toast.error('保存失败');
+                        } finally {
+                          setSavingInfo(false);
+                        }
+                        return;
+                      }
+                      
+                      setSavingInfo(true);
+                      try {
+                        const { error } = await supabase
+                          .from('product_assets')
+                          .update({
+                            detection_method: detectionMethod || null,
+                            product_models: productModels as unknown as any,
+                            detection_requirements: detectionRequirements as unknown as any,
+                            updated_at: new Date().toISOString(),
+                          })
+                          .eq('id', asset.id);
+                        
+                        if (error) throw error;
+                        await loadData();
+                        toast.success('产品信息已保存');
+                      } catch (error) {
+                        console.error('Save failed:', error);
+                        toast.error('保存失败');
+                      } finally {
+                        setSavingInfo(false);
+                      }
+                    }}
+                    disabled={savingInfo}
+                  >
+                    {savingInfo && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                    <Save className="h-4 w-4 mr-1" />
+                    保存产品信息
+                  </Button>
+                </div>
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           {/* Records Tab */}

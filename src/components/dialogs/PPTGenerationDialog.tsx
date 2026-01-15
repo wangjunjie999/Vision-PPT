@@ -76,8 +76,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const { lights } = useLights();
   const { controllers } = useControllers();
   
-  // State for annotations
+  // State for annotations and product assets
   const [annotations, setAnnotations] = useState<any[]>([]);
+  const [productAssets, setProductAssets] = useState<any[]>([]);
 
   const [stage, setStage] = useState<'config' | 'generating' | 'complete' | 'error'>('config');
   const [mode, setMode] = useState<GenerationMode>('draft');
@@ -199,24 +200,42 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     }
   }, [selectedProjectId, open, projectWorkstations, getWorkstationModules]);
   
-  // Fetch annotations when dialog opens
+  // Fetch annotations and product assets when dialog opens
   useEffect(() => {
     if (open && user?.id && selectedProjectId) {
-      const fetchAnnotations = async () => {
+      const fetchAnnotationsAndAssets = async () => {
         const wsIds = projectWorkstations.map(ws => ws.id);
         const modIds: string[] = [];
         projectWorkstations.forEach(ws => {
           getWorkstationModules(ws.id).forEach(m => modIds.push(m.id));
         });
         
-        // Get product assets with annotations
+        if (wsIds.length === 0) return;
+        
+        // Get product assets with all fields including new detection info
         const { data: assets } = await supabase
           .from('product_assets')
-          .select('id, workstation_id, module_id, scope_type')
+          .select('id, workstation_id, module_id, scope_type, model_file_url, preview_images, detection_method, product_models, detection_requirements')
           .eq('user_id', user.id)
           .or(`workstation_id.in.(${wsIds.join(',')}),module_id.in.(${modIds.join(',')})`);
         
         if (assets && assets.length > 0) {
+          // Store product assets for PPT generation
+          const mappedAssets = assets.map(asset => ({
+            id: asset.id,
+            workstation_id: asset.workstation_id,
+            module_id: asset.module_id,
+            scope_type: asset.scope_type as 'workstation' | 'module',
+            model_file_url: asset.model_file_url,
+            preview_images: Array.isArray(asset.preview_images) 
+              ? (asset.preview_images as string[]).map(url => ({ url, name: '' }))
+              : [],
+            detection_method: asset.detection_method,
+            product_models: Array.isArray(asset.product_models) ? asset.product_models : [],
+            detection_requirements: Array.isArray(asset.detection_requirements) ? asset.detection_requirements : [],
+          }));
+          setProductAssets(mappedAssets);
+          
           const assetIds = assets.map(a => a.id);
           const { data: annotationsData } = await supabase
             .from('product_annotations')
@@ -237,9 +256,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             });
             setAnnotations(mappedAnnotations);
           }
+        } else {
+          setProductAssets([]);
+          setAnnotations([]);
         }
       };
-      fetchAnnotations();
+      fetchAnnotationsAndAssets();
     }
   }, [open, user?.id, selectedProjectId, projectWorkstations, getWorkstationModules]);
 
@@ -389,7 +411,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       // Get selected template
       const selectedTemplate = templates.find(t => t.id === selectedTemplateId) || null;
 
-      // Generate PPTX with annotations and template
+      // Generate PPTX with annotations, productAssets, and template
       const blob = await generatePPTX(
         projectData,
         workstationData,
@@ -413,7 +435,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         },
         hardwareData,
         readinessResult,
-        annotations
+        annotations,
+        productAssets
       );
 
       generatedBlobRef.current = blob;
