@@ -1,5 +1,5 @@
 import { useData } from '@/contexts/DataContext';
-import { useAppStore } from '@/store/useAppStore';
+import { usePPTTemplates } from '@/hooks/usePPTTemplates';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
@@ -13,7 +13,8 @@ import {
   CheckCircle2,
   Save,
   Loader2,
-  TrendingUp
+  TrendingUp,
+  FileText
 } from 'lucide-react';
 import { useState, useRef, useCallback } from 'react';
 import { NewWorkstationDialog } from '@/components/dialogs/NewWorkstationDialog';
@@ -44,7 +45,7 @@ export function ProjectDashboard() {
     updateProject,
   } = useData();
 
-  const { templates } = useAppStore();
+  const { templates, isLoading: templatesLoading } = usePPTTemplates();
   
   const [showNewWorkstation, setShowNewWorkstation] = useState(false);
   const [isBatchSaving, setIsBatchSaving] = useState(false);
@@ -80,7 +81,8 @@ export function ProjectDashboard() {
   if (layoutsComplete < workstationCount) missingItems.push(`完成工位布局配置 (${layoutsComplete}/${workstationCount})`);
   if (schematicsComplete < moduleCount) missingItems.push(`完成视觉系统示意图 (${schematicsComplete}/${moduleCount})`);
 
-  const template = templates.find(t => t.id === project.template_id);
+  // Find selected template from database templates
+  const selectedTemplate = templates.find(t => t.id === project.template_id);
 
   // Calculate overall progress
   const totalTasks = workstationCount + moduleCount;
@@ -217,7 +219,10 @@ export function ProjectDashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">PPT母版</p>
-                  <p className="font-medium">{template?.name || '未选择'}</p>
+                  <p className="font-medium">
+                    {selectedTemplate?.name || (project.template_id && templatesLoading ? '加载中...' : '未选择')}
+                    {selectedTemplate?.is_default && <span className="text-xs text-muted-foreground ml-1">(默认)</span>}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -429,6 +434,7 @@ export function ProjectDashboard() {
                 新建工位
               </Button>
               <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">PPT母版:</span>
                 <Select 
                   value={project.template_id || ''} 
@@ -436,16 +442,23 @@ export function ProjectDashboard() {
                     await updateProject(project.id, { template_id: value });
                     toast.success('PPT母版已更新');
                   }}
+                  disabled={templatesLoading}
                 >
                   <SelectTrigger className="w-48 h-9">
-                    <SelectValue placeholder="选择母版" />
+                    <SelectValue placeholder={templatesLoading ? '加载中...' : (templates.length === 0 ? '暂无模板' : '选择母版')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {templates.map(tpl => (
-                      <SelectItem key={tpl.id} value={tpl.id}>
-                        {tpl.name} {tpl.isDefault && '(默认)'}
+                    {templates.length === 0 ? (
+                      <SelectItem value="__none__" disabled>
+                        暂无模板，请先在管理中心创建
                       </SelectItem>
-                    ))}
+                    ) : (
+                      templates.map(tpl => (
+                        <SelectItem key={tpl.id} value={tpl.id}>
+                          {tpl.name} {tpl.is_default && '(默认)'}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

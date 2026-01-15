@@ -1,5 +1,5 @@
 import { useData } from '@/contexts/DataContext';
-import { useAppStore } from '@/store/useAppStore';
+import { usePPTTemplates } from '@/hooks/usePPTTemplates';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -56,7 +56,7 @@ const qualityStrategyOptions: { value: QualityStrategy; label: string }[] = [
 
 export function ProjectForm() {
   const { selectedProjectId, projects, updateProject } = useData();
-  const { templates } = useAppStore();
+  const { templates, isLoading: templatesLoading } = usePPTTemplates();
   
   const project = projects.find(p => p.id === selectedProjectId);
   
@@ -322,16 +322,23 @@ const [formData, setFormData] = useState({
               <Select 
                 value={formData.template_id}
                 onValueChange={value => setFormData(prev => ({ ...prev, template_id: value }))}
+                disabled={templatesLoading}
               >
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="请选择母版" />
+                  <SelectValue placeholder={templatesLoading ? '加载中...' : (templates.length === 0 ? '暂无模板' : '请选择母版')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {templates.map(tpl => (
-                    <SelectItem key={tpl.id} value={tpl.id}>
-                      {tpl.name} {tpl.isDefault && '(默认)'}
+                  {templates.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      暂无模板，请先在管理中心创建
                     </SelectItem>
-                  ))}
+                  ) : (
+                    templates.map(tpl => (
+                      <SelectItem key={tpl.id} value={tpl.id}>
+                        {tpl.name} {tpl.is_default && '(默认)'}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
