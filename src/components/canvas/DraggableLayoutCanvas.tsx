@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, memo } from 'react';
 import { toPng } from 'html-to-image';
 import { useData } from '@/contexts/DataContext';
 import { useMechanisms, type Mechanism } from '@/hooks/useMechanisms';
@@ -24,7 +24,7 @@ import {
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
   Move, LayoutGrid, AlignHorizontalJustifyCenter, 
   AlignVerticalJustifyCenter, AlignCenterHorizontal,
-  ImageIcon, Check, ChevronDown, ChevronUp, Settings2
+  ImageIcon, Check, ChevronDown, ChevronUp, Settings2, Zap
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
@@ -39,6 +39,7 @@ import { CoordinateSystem } from './CoordinateSystem';
 import { MechanismSVG, getMechanismMountPoints, type CameraMountPoint } from './MechanismSVG';
 import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } from './CameraMountPoints';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
+import { compressImage, dataUrlToBlob, QUALITY_PRESETS, type QualityPreset } from '@/utils/imageCompression';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -112,9 +113,13 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   // Toolbar settings row collapsed
   const [settingsCollapsed, setSettingsCollapsed] = useState(false);
   
+  // Quality preset for saving views
+  const [saveQuality, setSaveQuality] = useState<QualityPreset>('fast');
+  
   // Three-view screenshot saving
   const [isSavingView, setIsSavingView] = useState(false);
   const [isSavingAllViews, setIsSavingAllViews] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0); // 0-100
   const [viewSaveStatus, setViewSaveStatus] = useState<{ front: boolean; side: boolean; top: boolean }>({
     front: false,
     side: false,
@@ -662,6 +667,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   };
 
   // Save current view as screenshot
+  // Optimized single view save with compression
   const saveCurrentViewSnapshot = useCallback(async (viewToSave?: ViewType) => {
     const targetView = viewToSave || currentView;
     const svg = canvasRef.current;
@@ -672,22 +678,33 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     
     setIsSavingView(true);
     try {
-      // Generate PNG from SVG
+      const preset = QUALITY_PRESETS[saveQuality];
+      
+      // Generate PNG from SVG with selected quality
       const dataUrl = await toPng(svg as unknown as HTMLElement, { 
-        quality: 1, 
-        pixelRatio: 2,
+        quality: preset.quality, 
+        pixelRatio: preset.pixelRatio,
         backgroundColor: '#1e293b',
       });
       
-      // Convert to Blob
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      const fileName = `${workstationId}/${targetView}-${Date.now()}.png`;
+      // Convert and compress
+      const originalBlob = dataUrlToBlob(dataUrl);
+      const compressedBlob = await compressImage(originalBlob, {
+        quality: preset.quality,
+        maxWidth: preset.maxWidth,
+        maxHeight: preset.maxHeight,
+        format: 'image/jpeg', // JPEG is smaller for photos
+      });
       
-      // Upload to storage bucket
+      const fileName = `${workstationId}/${targetView}-${Date.now()}.jpg`;
+      
+      // Upload compressed blob
       const { error: uploadError } = await supabase.storage
         .from('workstation-views')
-        .upload(fileName, blob, { upsert: true });
+        .upload(fileName, compressedBlob, { 
+          upsert: true,
+          contentType: 'image/jpeg',
+        });
       
       if (uploadError) throw uploadError;
       
@@ -715,35 +732,99 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     } finally {
       setIsSavingView(false);
     }
-  }, [currentView, layout?.id, workstationId, updateLayout]);
+  }, [currentView, layout?.id, workstationId, updateLayout, saveQuality]);
 
-  // Save all three views
+  // Optimized parallel save for all three views
   const saveAllViewSnapshots = useCallback(async () => {
     if (!layout?.id) {
       toast.error('请先保存布局');
       return;
     }
     
+    const svg = canvasRef.current;
+    if (!svg) return;
+    
     setIsSavingAllViews(true);
+    setSaveProgress(0);
     const views: ViewType[] = ['front', 'side', 'top'];
+    const preset = QUALITY_PRESETS[saveQuality];
     
     try {
-      for (const view of views) {
-        // Switch to the view
+      // Generate all view images in sequence (need to switch views)
+      const viewImages: { view: ViewType; blob: Blob }[] = [];
+      
+      for (let i = 0; i < views.length; i++) {
+        const view = views[i];
+        
+        // Switch view and wait for render
         setCurrentView(view);
-        // Wait for re-render
-        await new Promise(r => setTimeout(r, 500));
-        // Save the view
-        await saveCurrentViewSnapshot(view);
+        await new Promise(r => setTimeout(r, 200)); // Reduced from 500ms
+        
+        // Generate and compress
+        const dataUrl = await toPng(svg as unknown as HTMLElement, { 
+          quality: preset.quality, 
+          pixelRatio: preset.pixelRatio,
+          backgroundColor: '#1e293b',
+        });
+        
+        const originalBlob = dataUrlToBlob(dataUrl);
+        const compressedBlob = await compressImage(originalBlob, {
+          quality: preset.quality,
+          maxWidth: preset.maxWidth,
+          maxHeight: preset.maxHeight,
+          format: 'image/jpeg',
+        });
+        
+        viewImages.push({ view, blob: compressedBlob });
+        setSaveProgress(Math.round(((i + 1) / views.length) * 50)); // First 50% for generation
       }
+      
+      // Upload all views in parallel
+      const uploadPromises = viewImages.map(async ({ view, blob }, index) => {
+        const fileName = `${workstationId}/${view}-${Date.now()}.jpg`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('workstation-views')
+          .upload(fileName, blob, { 
+            upsert: true,
+            contentType: 'image/jpeg',
+          });
+        
+        if (uploadError) throw uploadError;
+        
+        const { data: urlData } = supabase.storage
+          .from('workstation-views')
+          .getPublicUrl(fileName);
+        
+        setSaveProgress(50 + Math.round(((index + 1) / views.length) * 50)); // Last 50% for upload
+        
+        return { view, url: urlData.publicUrl };
+      });
+      
+      const uploadResults = await Promise.all(uploadPromises);
+      
+      // Batch update layout with all URLs
+      const updateData: Record<string, any> = {};
+      uploadResults.forEach(({ view, url }) => {
+        updateData[`${view}_view_image_url`] = url;
+        updateData[`${view}_view_saved`] = true;
+      });
+      
+      await updateLayout(layout.id, updateData as any);
+      
+      // Update local state
+      setViewSaveStatus({ front: true, side: true, top: true });
+      setSaveProgress(100);
+      
       toast.success('三视图已全部保存');
     } catch (error) {
       console.error('Save all views error:', error);
       toast.error('保存三视图失败');
     } finally {
       setIsSavingAllViews(false);
+      setSaveProgress(0);
     }
-  }, [layout?.id, saveCurrentViewSnapshot]);
+  }, [layout?.id, workstationId, updateLayout, saveQuality]);
 
   // Auto-arrange objects to prevent overlap
   const autoArrangeObjects = useCallback(() => {
@@ -955,8 +1036,50 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           ))}
         </div>
         
-        {/* Right: Save buttons and settings toggle */}
+        {/* Right: Quality selector, Save buttons and settings toggle */}
         <div className="flex items-center gap-2">
+          {/* Quality Preset Selector */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Select value={saveQuality} onValueChange={(v) => setSaveQuality(v as QualityPreset)}>
+                  <SelectTrigger className="w-20 h-8 text-xs">
+                    <Zap className={cn("h-3 w-3 mr-1", saveQuality === 'fast' ? "text-green-500" : saveQuality === 'high' ? "text-amber-500" : "text-blue-500")} />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fast">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                        快速
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="standard">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-blue-500" />
+                        标准
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="high">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        高清
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <div className="text-xs">
+                  <p className="font-medium mb-1">保存质量设置</p>
+                  <p>快速: 更快的保存速度，较小文件</p>
+                  <p>标准: 平衡质量和速度</p>
+                  <p>高清: 最佳质量，较大文件</p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           <Button size="sm" onClick={handleSave} disabled={isSaving} className="gap-1.5 h-8">
             {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             保存布局
@@ -970,13 +1093,21 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                   size="sm" 
                   onClick={saveAllViewSnapshots} 
                   disabled={isSavingView || isSavingAllViews}
-                  className="gap-1.5 h-8"
+                  className="gap-1.5 h-8 min-w-[110px] relative overflow-hidden"
                 >
-                  {isSavingAllViews ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5" />}
-                  保存三视图
-                  {viewSaveStatus.front && viewSaveStatus.side && viewSaveStatus.top && (
-                    <Check className="h-3 w-3 text-green-500" />
+                  {isSavingAllViews && saveProgress > 0 && (
+                    <div 
+                      className="absolute left-0 top-0 bottom-0 bg-primary/20 transition-all duration-300"
+                      style={{ width: `${saveProgress}%` }}
+                    />
                   )}
+                  <span className="relative flex items-center gap-1.5">
+                    {isSavingAllViews ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5" />}
+                    {isSavingAllViews ? `${saveProgress}%` : '保存三视图'}
+                    {!isSavingAllViews && viewSaveStatus.front && viewSaveStatus.side && viewSaveStatus.top && (
+                      <Check className="h-3 w-3 text-green-500" />
+                    )}
+                  </span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>一键保存三个视图截图，用于PPT生成</TooltipContent>

@@ -1,8 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { offlineCache } from '@/services/offlineCache';
+
+// Cache TTL in milliseconds (5 minutes)
+const CACHE_TTL = 5 * 60 * 1000;
 
 // Database types
 type DbProject = Database['public']['Tables']['projects']['Row'];
@@ -94,7 +98,37 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  // Fetch all data
+  // Track if initial cache load happened
+  const cacheLoadedRef = useRef(false);
+
+  // Load from cache first (instant display)
+  const loadFromCache = useCallback(async () => {
+    if (cacheLoadedRef.current) return;
+    
+    try {
+      const [cachedProjects, cachedWorkstations, cachedLayouts, cachedModules] = await Promise.all([
+        offlineCache.get<DbProject[]>('projects'),
+        offlineCache.get<DbWorkstation[]>('workstations'),
+        offlineCache.get<DbLayout[]>('layouts'),
+        offlineCache.get<DbModule[]>('modules'),
+      ]);
+
+      if (cachedProjects) setProjects(cachedProjects);
+      if (cachedWorkstations) setWorkstations(cachedWorkstations);
+      if (cachedLayouts) setLayouts(cachedLayouts);
+      if (cachedModules) setModules(cachedModules);
+      
+      // If we have cached data, don't show loading state
+      if (cachedProjects || cachedWorkstations) {
+        setLoading(false);
+        cacheLoadedRef.current = true;
+      }
+    } catch (err) {
+      console.error('Cache load error:', err);
+    }
+  }, []);
+
+  // Fetch all data from server
   const fetchAll = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -102,7 +136,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      setLoading(true);
+      // Only show loading if no cached data
+      if (!cacheLoadedRef.current) {
+        setLoading(true);
+      }
       
       // First claim any orphan projects
       await claimOrphanProjects();
@@ -119,17 +156,39 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (layoutsRes.error) throw layoutsRes.error;
       if (modulesRes.error) throw modulesRes.error;
 
-      setProjects(projectsRes.data || []);
-      setWorkstations(workstationsRes.data || []);
-      setLayouts(layoutsRes.data || []);
-      setModules(modulesRes.data || []);
+      const projectsData = projectsRes.data || [];
+      const workstationsData = workstationsRes.data || [];
+      const layoutsData = layoutsRes.data || [];
+      const modulesData = modulesRes.data || [];
+
+      setProjects(projectsData);
+      setWorkstations(workstationsData);
+      setLayouts(layoutsData);
+      setModules(modulesData);
+
+      // Update cache in background
+      Promise.all([
+        offlineCache.set('projects', projectsData, CACHE_TTL),
+        offlineCache.set('workstations', workstationsData, CACHE_TTL),
+        offlineCache.set('layouts', layoutsData, CACHE_TTL),
+        offlineCache.set('modules', modulesData, CACHE_TTL),
+      ]).catch(console.error);
+      
     } catch (err) {
       console.error('Failed to fetch data:', err);
-      toast.error('数据加载失败');
+      // Only show error if we don't have cached data
+      if (!cacheLoadedRef.current) {
+        toast.error('数据加载失败');
+      }
     } finally {
       setLoading(false);
     }
   }, [user, claimOrphanProjects]);
+
+  // Load from cache first, then fetch fresh data
+  useEffect(() => {
+    loadFromCache();
+  }, [loadFromCache]);
 
   useEffect(() => {
     fetchAll();
