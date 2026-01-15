@@ -224,6 +224,43 @@ const COLORS = {
   border: 'E2E8F0',
 };
 
+// ==================== 16:9 LAYOUT CONSTANTS ====================
+// Standard 16:9 slide dimensions (10" x 5.625")
+const SLIDE_LAYOUT = {
+  name: 'LAYOUT_16x9' as const,
+  width: 10,        // inches
+  height: 5.625,    // inches (16:9 ratio)
+  margin: {
+    top: 0.55,      // header area
+    bottom: 0.3,    // footer area
+    left: 0.4,
+    right: 0.4,
+  },
+  // Computed content area
+  get contentTop() { return this.margin.top; },
+  get contentBottom() { return this.height - this.margin.bottom; },
+  get contentHeight() { return this.contentBottom - this.contentTop; },
+  get contentWidth() { return this.width - this.margin.left - this.margin.right; },
+  get contentLeft() { return this.margin.left; },
+  get contentRight() { return this.width - this.margin.right; },
+};
+
+// Helper to create auto-page table options
+function createAutoPageTableOptions(
+  startY: number,
+  masterName: string = 'MASTER_SLIDE'
+): Record<string, unknown> {
+  return {
+    autoPage: true,
+    autoPageRepeatHeader: true,
+    autoPageHeaderRows: 1,
+    autoPageCharWeight: -0.1,
+    autoPageLineWeight: 0.1,
+    newSlideStartY: SLIDE_LAYOUT.contentTop + 0.3,
+    masterName,
+  };
+}
+
 // Module type translations
 const MODULE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   positioning: { zh: '定位检测', en: 'Positioning' },
@@ -703,6 +740,9 @@ export async function generatePPTX(
   pptx.subject = isZh ? '机器视觉系统技术方案' : 'Machine Vision System Technical Proposal';
   pptx.company = isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN;
 
+  // Explicitly set 16:9 layout
+  pptx.layout = SLIDE_LAYOUT.name;
+
   // Try to load template background if available
   let templateBackground: string | null = null;
   if (options.template?.background_image_url) {
@@ -714,13 +754,18 @@ export async function generatePPTX(
     }
   }
 
-  // Define master slide - Standard PPT size is 10" x 7.5"
+  // Define master slide for 16:9 layout (10" x 5.625")
   type MasterObject = NonNullable<PptxGenJS.SlideMasterProps['objects']>[number];
+  const footerY = SLIDE_LAYOUT.height - SLIDE_LAYOUT.margin.bottom;
   const masterObjects: MasterObject[] = [
-    { rect: { x: 0, y: 0, w: '100%', h: 0.5, fill: { color: COLORS.primary } } },
-    { rect: { x: 0, y: 7.2, w: '100%', h: 0.3, fill: { color: COLORS.dark } } },
-    { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: 7.22, w: 5, h: 0.2, fontSize: 8, color: COLORS.white } } },
-    { text: { text: project.customer, options: { x: 7.5, y: 7.22, w: 2.2, h: 0.2, fontSize: 8, color: COLORS.white, align: 'right' } } },
+    // Header bar
+    { rect: { x: 0, y: 0, w: '100%', h: 0.45, fill: { color: COLORS.primary } } },
+    // Footer bar
+    { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: COLORS.dark } } },
+    // Company name in footer
+    { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: footerY + 0.05, w: 4, h: 0.2, fontSize: 7, color: COLORS.white } } },
+    // Customer name in footer (right aligned)
+    { text: { text: project.customer, options: { x: SLIDE_LAYOUT.width - 2.5, y: footerY + 0.05, w: 2.2, h: 0.2, fontSize: 7, color: COLORS.white, align: 'right' } } },
   ];
 
   // Add template name indicator if template is selected
@@ -728,7 +773,7 @@ export async function generatePPTX(
     masterObjects.push({ 
       text: { 
         text: `Template: ${options.template.name}`, 
-        options: { x: 3, y: 7.22, w: 4, h: 0.2, fontSize: 7, color: COLORS.white, align: 'center' } 
+        options: { x: 3, y: footerY + 0.05, w: 4, h: 0.2, fontSize: 6, color: COLORS.white, align: 'center' } 
       } 
     });
   }
@@ -742,34 +787,35 @@ export async function generatePPTX(
   let progress = 5;
   onProgress(progress, isZh ? '初始化生成器...' : 'Initializing generator...', isZh ? '开始PPT生成' : 'Starting PPT generation');
 
-  // ========== SLIDE 1: Cover ==========
+  // ========== SLIDE 1: Cover (16:9 optimized) ==========
   progress = 8;
   onProgress(progress, isZh ? '生成封面页...' : 'Generating cover slide...', isZh ? '生成封面页' : 'Cover slide');
   
   const coverSlide = pptx.addSlide();
   
+  // Full slide background - blue top, dark bottom
   coverSlide.addShape('rect', {
     x: 0, y: 0, w: '100%', h: '100%',
     fill: { color: COLORS.primary },
   });
   coverSlide.addShape('rect', {
-    x: 0, y: 4.5, w: '100%', h: 3,
+    x: 0, y: 3.2, w: '100%', h: 2.425,
     fill: { color: COLORS.dark },
   });
 
   coverSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
-    x: 0.5, y: 1, w: 9, h: 0.4,
-    fontSize: 14, color: COLORS.white, align: 'center',
+    x: 0.5, y: 0.5, w: 9, h: 0.35,
+    fontSize: 12, color: COLORS.white, align: 'center',
   });
 
   coverSlide.addText(project.name, {
-    x: 0.5, y: 2, w: 9, h: 1,
-    fontSize: 36, color: COLORS.white, bold: true, align: 'center',
+    x: 0.5, y: 1.1, w: 9, h: 0.8,
+    fontSize: 32, color: COLORS.white, bold: true, align: 'center',
   });
 
   coverSlide.addText(isZh ? '机器视觉系统技术方案' : 'Machine Vision System Technical Proposal', {
-    x: 0.5, y: 3.2, w: 9, h: 0.5,
-    fontSize: 18, color: COLORS.white, align: 'center',
+    x: 0.5, y: 2.1, w: 9, h: 0.4,
+    fontSize: 16, color: COLORS.white, align: 'center',
   });
 
   const infoRows: TableRow[] = [
@@ -780,24 +826,24 @@ export async function generatePPTX(
   ];
 
   coverSlide.addTable(infoRows, {
-    x: 2.5, y: 4.8, w: 5, h: 1.5,
+    x: 2.5, y: 3.5, w: 5, h: 1.4,
     fontFace: 'Arial',
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.white,
     fill: { color: COLORS.dark },
     border: { type: 'none' },
     colW: [1.5, 3.5],
   });
 
-  // ========== SLIDE 2: Revision History (NEW) ==========
+  // ========== SLIDE 2: Revision History (16:9 with auto-page) ==========
   progress = 10;
   onProgress(progress, isZh ? '生成变更履历页...' : 'Generating revision history...', isZh ? '变更履历页' : 'Revision History');
   
   const revisionSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   
   revisionSlide.addText(isZh ? '变更履历' : 'Revision History', {
-    x: 0.5, y: 0.6, w: 9, h: 0.5,
-    fontSize: 22, color: COLORS.dark, bold: true,
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+    fontSize: 18, color: COLORS.dark, bold: true,
   });
 
   const revisionHeader: TableRow = row([
@@ -809,7 +855,7 @@ export async function generatePPTX(
 
   const revisionHistory = project.revision_history || [];
   const revisionRows: TableRow[] = revisionHistory.length > 0
-    ? revisionHistory.slice(0, 15).map(item => row([
+    ? revisionHistory.map(item => row([
         item.version,
         item.date,
         item.author,
@@ -818,51 +864,58 @@ export async function generatePPTX(
     : [row(['V1.0', project.date || '-', project.responsible || '-', isZh ? '初稿' : 'Initial draft'])];
 
   revisionSlide.addTable([revisionHeader, ...revisionRows], {
-    x: 0.5, y: 1.3, w: 9, h: Math.min(revisionRows.length * 0.4 + 0.5, 5.5),
+    x: SLIDE_LAYOUT.contentLeft, 
+    y: SLIDE_LAYOUT.contentTop + 0.5, 
+    w: SLIDE_LAYOUT.contentWidth,
     fontFace: 'Arial',
-    fontSize: 10,
-    colW: [1, 1.5, 1.5, 5],
+    fontSize: 9,
+    colW: [0.8, 1.2, 1.2, 6],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
+    ...createAutoPageTableOptions(SLIDE_LAYOUT.contentTop + 0.5),
   });
 
-  // ========== SLIDE 3: Camera Installation Direction Guide (NEW) ==========
+  // ========== SLIDE 3: Camera Installation Direction Guide (16:9) ==========
   progress = 12;
   onProgress(progress, isZh ? '生成相机安装说明页...' : 'Generating camera mount guide...', isZh ? '相机安装方向说明' : 'Camera Mount Guide');
   
   const mountGuideSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   
   mountGuideSlide.addText(isZh ? '相机安装方向说明' : 'Camera Installation Direction Guide', {
-    x: 0.5, y: 0.6, w: 9, h: 0.5,
-    fontSize: 22, color: COLORS.dark, bold: true,
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+    fontSize: 18, color: COLORS.dark, bold: true,
   });
 
-  // Draw three camera mount diagrams
+  // Draw three camera mount diagrams - optimized for 16:9
   const mountTypes = [
     { name: isZh ? '顶视 (Top)' : 'Top View', desc: isZh ? '相机垂直向下拍摄，适用于平面检测、尺寸测量' : 'Camera facing down, for surface inspection', icon: '⬇️', color: COLORS.primary },
     { name: isZh ? '侧视 (Side)' : 'Side View', desc: isZh ? '相机水平拍摄，适用于侧面检测、高度测量' : 'Camera horizontal, for side inspection', icon: '➡️', color: COLORS.accent },
     { name: isZh ? '斜视 (Angled)' : 'Angled View', desc: isZh ? '相机倾斜拍摄，适用于立体特征、反光表面' : 'Camera tilted, for 3D features', icon: '↘️', color: COLORS.warning },
   ];
 
+  const cardWidth = 2.9;
+  const cardHeight = 1.8;
+  const cardY = SLIDE_LAYOUT.contentTop + 0.5;
+
   mountTypes.forEach((mount, i) => {
-    const x = 0.5 + i * 3.1;
+    const x = SLIDE_LAYOUT.contentLeft + i * 3.1;
     mountGuideSlide.addShape('rect', {
-      x, y: 1.3, w: 2.9, h: 2.5,
+      x, y: cardY, w: cardWidth, h: cardHeight,
       fill: { color: COLORS.white },
       shadow: { type: 'outer', blur: 3, offset: 2, angle: 45, opacity: 0.15 },
     });
     mountGuideSlide.addText(mount.icon, {
-      x, y: 1.5, w: 2.9, h: 0.8,
-      fontSize: 32, align: 'center',
+      x, y: cardY + 0.1, w: cardWidth, h: 0.5,
+      fontSize: 24, align: 'center',
     });
     mountGuideSlide.addText(mount.name, {
-      x, y: 2.4, w: 2.9, h: 0.35,
-      fontSize: 12, bold: true, color: mount.color, align: 'center',
+      x, y: cardY + 0.65, w: cardWidth, h: 0.28,
+      fontSize: 11, bold: true, color: mount.color, align: 'center',
     });
     mountGuideSlide.addText(mount.desc, {
-      x: x + 0.1, y: 2.8, w: 2.7, h: 0.9,
-      fontSize: 8, color: COLORS.secondary, align: 'center',
+      x: x + 0.1, y: cardY + 0.95, w: cardWidth - 0.2, h: 0.7,
+      fontSize: 7, color: COLORS.secondary, align: 'center',
     });
   });
 
@@ -874,9 +927,10 @@ export async function generatePPTX(
     angled: allMounts.filter(m => m === 'angled').length,
   };
 
+  const summaryY = cardY + cardHeight + 0.3;
   mountGuideSlide.addText(isZh ? '本项目相机安装汇总' : 'Project Camera Mount Summary', {
-    x: 0.5, y: 4.1, w: 9, h: 0.35,
-    fontSize: 12, color: COLORS.dark, bold: true,
+    x: SLIDE_LAYOUT.contentLeft, y: summaryY, w: SLIDE_LAYOUT.contentWidth, h: 0.3,
+    fontSize: 11, color: COLORS.dark, bold: true,
   });
 
   const mountSummaryRows: TableRow[] = [
@@ -887,17 +941,17 @@ export async function generatePPTX(
   ];
 
   mountGuideSlide.addTable(mountSummaryRows, {
-    x: 0.5, y: 4.5, w: 4.5, h: 1.5,
+    x: SLIDE_LAYOUT.contentLeft, y: summaryY + 0.35, w: 4, h: 1.1,
     fontFace: 'Arial',
-    fontSize: 10,
-    colW: [1.5, 1.5, 1.5],
+    fontSize: 9,
+    colW: [1.3, 1.3, 1.4],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
   });
 
-  // ========== SLIDE 4: Missing Items (Draft Mode Only) ==========
+  // ========== SLIDE 4: Missing Items (Draft Mode Only, 16:9) ==========
   if (options.mode === 'draft' && readinessResult && (readinessResult.missing.length > 0 || readinessResult.warnings.length > 0)) {
     progress = 14;
     onProgress(progress, isZh ? '生成缺失项清单页...' : 'Generating missing items slide...', isZh ? '缺失项清单页' : 'Missing items');
@@ -905,27 +959,27 @@ export async function generatePPTX(
     const missingSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
     
     missingSlide.addText(isZh ? '缺失项与风险提示' : 'Missing Items & Risk Warnings', {
-      x: 0.5, y: 0.6, w: 9, h: 0.5,
-      fontSize: 22, color: COLORS.dark, bold: true,
+      x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+      fontSize: 18, color: COLORS.dark, bold: true,
     });
     
     missingSlide.addText(isZh ? '本PPT为草案版本，以下项目缺失或需要完善' : 'This is a draft version. The following items are missing or need improvement', {
-      x: 0.5, y: 1.15, w: 9, h: 0.35,
-      fontSize: 11, color: COLORS.secondary,
+      x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop + 0.45, w: SLIDE_LAYOUT.contentWidth, h: 0.25,
+      fontSize: 9, color: COLORS.secondary,
     });
     
-    let yPos = 1.6;
-    const maxY = 6.8;
+    let yPos = SLIDE_LAYOUT.contentTop + 0.8;
+    const maxY = SLIDE_LAYOUT.contentBottom - 0.1;
     
     if (readinessResult.missing.length > 0) {
       missingSlide.addText(isZh ? '缺失项（必须补齐）' : 'Missing Items (Must Complete)', {
-        x: 0.5, y: yPos, w: 9, h: 0.3,
-        fontSize: 12, color: COLORS.destructive, bold: true,
+        x: SLIDE_LAYOUT.contentLeft, y: yPos, w: SLIDE_LAYOUT.contentWidth, h: 0.25,
+        fontSize: 10, color: COLORS.destructive, bold: true,
       });
-      yPos += 0.35;
+      yPos += 0.3;
       
       const missingRows: TableRow[] = [];
-      readinessResult.missing.slice(0, 12).forEach((item) => {
+      readinessResult.missing.forEach((item) => {
         const levelLabel = item.level === 'project' ? (isZh ? '项目' : 'Project') :
                           item.level === 'workstation' ? (isZh ? '工位' : 'Workstation') :
                           (isZh ? '模块' : 'Module');
@@ -935,30 +989,29 @@ export async function generatePPTX(
         ]));
       });
       
-      const tableHeight = Math.min(2.2, missingRows.length * 0.28);
       missingSlide.addTable(missingRows, {
-        x: 0.5, y: yPos, w: 9, h: tableHeight,
+        x: SLIDE_LAYOUT.contentLeft, y: yPos, w: SLIDE_LAYOUT.contentWidth,
         fontFace: 'Arial',
-        fontSize: 9,
-        colW: [2.5, 6.5],
+        fontSize: 8,
+        colW: [2.2, 7],
         border: { pt: 0.5, color: COLORS.border },
         fill: { color: COLORS.white },
         valign: 'middle',
+        ...createAutoPageTableOptions(yPos),
       });
       
-      yPos += tableHeight + 0.25;
+      yPos += Math.min(1.8, missingRows.length * 0.24) + 0.2;
     }
     
-    if (readinessResult.warnings.length > 0 && yPos < maxY - 1) {
+    if (readinessResult.warnings.length > 0 && yPos < maxY - 0.8) {
       missingSlide.addText(isZh ? '警告项（建议补齐）' : 'Warnings (Recommended)', {
-        x: 0.5, y: yPos, w: 9, h: 0.3,
-        fontSize: 12, color: COLORS.warning, bold: true,
+        x: SLIDE_LAYOUT.contentLeft, y: yPos, w: SLIDE_LAYOUT.contentWidth, h: 0.25,
+        fontSize: 10, color: COLORS.warning, bold: true,
       });
-      yPos += 0.35;
+      yPos += 0.3;
       
-      const maxWarnings = Math.min(8, Math.floor((maxY - yPos - 0.3) / 0.28));
       const warningRows: TableRow[] = [];
-      readinessResult.warnings.slice(0, maxWarnings).forEach((item) => {
+      readinessResult.warnings.forEach((item) => {
         const levelLabel = item.level === 'project' ? (isZh ? '项目' : 'Project') :
                           item.level === 'workstation' ? (isZh ? '工位' : 'Workstation') :
                           (isZh ? '模块' : 'Module');
@@ -969,29 +1022,29 @@ export async function generatePPTX(
       });
       
       if (warningRows.length > 0) {
-        const tableHeight = Math.min(maxY - yPos - 0.2, warningRows.length * 0.28);
         missingSlide.addTable(warningRows, {
-          x: 0.5, y: yPos, w: 9, h: tableHeight,
+          x: SLIDE_LAYOUT.contentLeft, y: yPos, w: SLIDE_LAYOUT.contentWidth,
           fontFace: 'Arial',
-          fontSize: 9,
-          colW: [2.5, 6.5],
+          fontSize: 8,
+          colW: [2.2, 7],
           border: { pt: 0.5, color: COLORS.border },
           fill: { color: COLORS.white },
           valign: 'middle',
+          ...createAutoPageTableOptions(yPos),
         });
       }
     }
   }
 
-  // ========== SLIDE 5: Project Overview ==========
+  // ========== SLIDE 5: Project Overview (16:9) ==========
   progress = 16;
   onProgress(progress, isZh ? '生成项目概览页...' : 'Generating project overview...', isZh ? '生成项目概览页' : 'Project overview');
 
   const overviewSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   
   overviewSlide.addText(isZh ? '项目概览' : 'Project Overview', {
-    x: 0.5, y: 0.6, w: 9, h: 0.5,
-    fontSize: 22, color: COLORS.dark, bold: true,
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+    fontSize: 18, color: COLORS.dark, bold: true,
   });
 
   const stats = [
@@ -1001,21 +1054,26 @@ export async function generatePPTX(
     { label: isZh ? '质量策略' : 'Quality', value: project.quality_strategy || 'balanced', icon: '✅' },
   ];
 
+  const statCardWidth = 2.2;
+  const statCardHeight = 0.9;
+  const statY = SLIDE_LAYOUT.contentTop + 0.45;
+
   stats.forEach((stat, i) => {
-    const x = 0.5 + i * 2.3;
+    const x = SLIDE_LAYOUT.contentLeft + i * (statCardWidth + 0.15);
     overviewSlide.addShape('rect', {
-      x, y: 1.3, w: 2.1, h: 1.1,
+      x, y: statY, w: statCardWidth, h: statCardHeight,
       fill: { color: COLORS.white },
       shadow: { type: 'outer', blur: 3, offset: 2, angle: 45, opacity: 0.2 },
     });
-    overviewSlide.addText(stat.icon, { x, y: 1.35, w: 2.1, h: 0.35, fontSize: 18, align: 'center' });
-    overviewSlide.addText(stat.value, { x, y: 1.7, w: 2.1, h: 0.35, fontSize: 16, bold: true, color: COLORS.primary, align: 'center' });
-    overviewSlide.addText(stat.label, { x, y: 2.05, w: 2.1, h: 0.3, fontSize: 9, color: COLORS.secondary, align: 'center' });
+    overviewSlide.addText(stat.icon, { x, y: statY + 0.05, w: statCardWidth, h: 0.25, fontSize: 14, align: 'center' });
+    overviewSlide.addText(stat.value, { x, y: statY + 0.32, w: statCardWidth, h: 0.28, fontSize: 13, bold: true, color: COLORS.primary, align: 'center' });
+    overviewSlide.addText(stat.label, { x, y: statY + 0.6, w: statCardWidth, h: 0.22, fontSize: 8, color: COLORS.secondary, align: 'center' });
   });
 
+  const wsListY = statY + statCardHeight + 0.25;
   overviewSlide.addText(isZh ? '工位清单' : 'Workstation List', {
-    x: 0.5, y: 2.6, w: 9, h: 0.35,
-    fontSize: 12, color: COLORS.dark, bold: true,
+    x: SLIDE_LAYOUT.contentLeft, y: wsListY, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
+    fontSize: 11, color: COLORS.dark, bold: true,
   });
 
   const wsTableHeader: TableRow = row([
@@ -1026,7 +1084,7 @@ export async function generatePPTX(
     isZh ? '模块数' : 'Modules',
   ]);
 
-  const wsTableRows: TableRow[] = workstations.slice(0, 12).map((ws, index) => row([
+  const wsTableRows: TableRow[] = workstations.map((ws, index) => row([
     getWorkstationCode(project.code, index),
     ws.name,
     WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type,
@@ -1034,16 +1092,16 @@ export async function generatePPTX(
     modules.filter(m => m.workstation_id === ws.id).length.toString(),
   ]));
 
-  const tableHeight = Math.min(3.8, (wsTableRows.length + 1) * 0.35);
   overviewSlide.addTable([wsTableHeader, ...wsTableRows], {
-    x: 0.5, y: 3, w: 9, h: tableHeight,
+    x: SLIDE_LAYOUT.contentLeft, y: wsListY + 0.32, w: SLIDE_LAYOUT.contentWidth,
     fontFace: 'Arial',
-    fontSize: 9,
-    colW: [1.2, 3, 1.5, 1.2, 1.2],
+    fontSize: 8,
+    colW: [1.1, 3.2, 1.4, 1.1, 1.1],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
+    ...createAutoPageTableOptions(wsListY + 0.32),
   });
 
   // ========== WORKSTATION SLIDES (Per-Workstation 7-Page Fixed Output) ==========
@@ -2129,15 +2187,15 @@ export async function generatePPTX(
     }
   }
 
-  // ========== HARDWARE SUMMARY SLIDE ==========
+  // ========== HARDWARE SUMMARY SLIDE (16:9) ==========
   progress = 92;
   onProgress(progress, isZh ? '生成硬件清单...' : 'Generating hardware list...', isZh ? '硬件清单汇总' : 'Hardware summary');
 
   const hwSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   
   hwSlide.addText(isZh ? '硬件清单汇总' : 'Hardware Summary', {
-    x: 0.5, y: 0.6, w: 9, h: 0.6,
-    fontSize: 24, color: COLORS.dark, bold: true,
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+    fontSize: 18, color: COLORS.dark, bold: true,
   });
 
   const moduleCameraCount = modules.filter(m => m.selected_camera).length;
@@ -2164,17 +2222,17 @@ export async function generatePPTX(
   ];
 
   hwSlide.addTable(hwSummary, {
-    x: 0.5, y: 1.4, w: 9, h: 2,
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop + 0.5, w: SLIDE_LAYOUT.contentWidth, h: 1.6,
     fontFace: 'Arial',
-    fontSize: 11,
-    colW: [3, 2, 4],
+    fontSize: 10,
+    colW: [2.8, 1.8, 4.6],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
   });
 
-  // ========== END SLIDE ==========
+  // ========== END SLIDE (16:9 optimized) ==========
   progress = 98;
   onProgress(progress, isZh ? '生成结束页...' : 'Generating end slide...', isZh ? '生成结束页' : 'End slide');
 
@@ -2186,23 +2244,23 @@ export async function generatePPTX(
   });
 
   endSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
-    x: 0.5, y: 2, w: 9, h: 0.5,
-    fontSize: 16, color: COLORS.white, align: 'center',
+    x: 0.5, y: 1.2, w: 9, h: 0.4,
+    fontSize: 14, color: COLORS.white, align: 'center',
   });
 
   endSlide.addText(isZh ? '感谢您的关注' : 'Thank You', {
-    x: 0.5, y: 2.8, w: 9, h: 1,
-    fontSize: 36, color: COLORS.white, bold: true, align: 'center',
+    x: 0.5, y: 1.9, w: 9, h: 0.8,
+    fontSize: 32, color: COLORS.white, bold: true, align: 'center',
   });
 
   endSlide.addText(project.customer, {
-    x: 0.5, y: 4, w: 9, h: 0.5,
-    fontSize: 18, color: COLORS.white, align: 'center',
+    x: 0.5, y: 2.9, w: 9, h: 0.4,
+    fontSize: 16, color: COLORS.white, align: 'center',
   });
 
   endSlide.addText(`${project.responsible || ''} | ${project.date || ''}`, {
-    x: 0.5, y: 4.6, w: 9, h: 0.4,
-    fontSize: 12, color: COLORS.secondary, align: 'center',
+    x: 0.5, y: 3.5, w: 9, h: 0.35,
+    fontSize: 11, color: COLORS.secondary, align: 'center',
   });
 
   // Generate blob
