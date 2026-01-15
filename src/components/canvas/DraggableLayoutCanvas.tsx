@@ -137,7 +137,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   
   // Product dimensions from workstation
   const productDimensions = workstation?.product_dimensions as { length: number; width: number; height: number } || { length: 300, width: 200, height: 100 };
-  const scale = 0.5; // pixels per mm
+  
+  // Scale factor: pixels per mm - increased from 0.5 to 1.0 for better spacing
+  // This makes objects appear larger and further apart
+  const scale = 1.0; // pixels per mm (doubled for better visibility)
+  
   const productW = productDimensions.length * scale;
   const productH = productDimensions.height * scale;
   const productD = productDimensions.width * scale;
