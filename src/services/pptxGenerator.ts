@@ -183,6 +183,7 @@ interface GenerationOptions {
     id: string;
     name: string;
     file_url?: string | null;
+    background_image_url?: string | null;
   } | null;
 }
 
@@ -688,15 +689,12 @@ export async function generatePPTX(
 
   // Try to load template background if available
   let templateBackground: string | null = null;
-  if (options.template?.file_url) {
+  if (options.template?.background_image_url) {
     try {
-      // For now, we use the template file URL as a reference
-      // pptxgenjs doesn't support loading external PPTX templates directly
-      // but we can apply the template's design through background images if uploaded
-      console.log('Using template:', options.template.name, options.template.file_url);
-      // Future: Extract first slide from PPTX as background image
+      templateBackground = await fetchImageAsDataUri(options.template.background_image_url);
+      console.log('Loaded template background image:', options.template.name);
     } catch (e) {
-      console.warn('Failed to load template:', e);
+      console.warn('Failed to load template background:', e);
     }
   }
 

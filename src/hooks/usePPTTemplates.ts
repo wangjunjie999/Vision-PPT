@@ -16,6 +16,7 @@ export interface PPTTemplate {
   scope: string | null;
   is_default: boolean | null;
   enabled: boolean | null;
+  background_image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +29,7 @@ export interface PPTTemplateInsert {
   structure_meta?: { sections: string[] };
   scope?: string;
   is_default?: boolean;
+  background_image_url?: string;
 }
 
 export interface PPTTemplateUpdate {
@@ -39,6 +41,7 @@ export interface PPTTemplateUpdate {
   scope?: string;
   is_default?: boolean;
   enabled?: boolean;
+  background_image_url?: string;
 }
 
 export function usePPTTemplates() {
@@ -57,7 +60,11 @@ export function usePPTTemplates() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as PPTTemplate[];
+      // Cast structure_meta from Json to our expected type
+      return (data || []).map(item => ({
+        ...item,
+        structure_meta: item.structure_meta as { sections: string[] } | null,
+      })) as PPTTemplate[];
     },
     enabled: !!user?.id,
   });

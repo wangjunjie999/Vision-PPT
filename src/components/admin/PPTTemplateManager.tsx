@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye } from 'lucide-react';
+import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye, Image as ImageIcon } from 'lucide-react';
 import { usePPTTemplates, PPTTemplateInsert } from '@/hooks/usePPTTemplates';
 import { toast } from 'sonner';
 
@@ -53,10 +54,13 @@ export function PPTTemplateManager() {
     scope: 'all',
     is_default: false,
     structure_meta: { sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'] },
+    background_image_url: '',
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedBgFile, setSelectedBgFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bgFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenCreate = () => {
     setEditingId(null);
@@ -66,8 +70,10 @@ export function PPTTemplateManager() {
       scope: 'all',
       is_default: false,
       structure_meta: { sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'] },
+      background_image_url: '',
     });
     setSelectedFile(null);
+    setSelectedBgFile(null);
     setDialogOpen(true);
   };
 
@@ -79,8 +85,10 @@ export function PPTTemplateManager() {
       scope: template.scope || 'all',
       is_default: template.is_default || false,
       structure_meta: template.structure_meta || { sections: [] },
+      background_image_url: template.background_image_url || '',
     });
     setSelectedFile(null);
+    setSelectedBgFile(null);
     setDialogOpen(true);
   };
 
@@ -103,6 +111,34 @@ export function PPTTemplateManager() {
     setFormData({ ...formData, structure_meta: { sections: newSections } });
   };
 
+  const handleBgFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast.error('请选择图片文件');
+        return;
+      }
+      setSelectedBgFile(file);
+    }
+  };
+
+  const uploadBackgroundImage = async (file: File, templateId: string): Promise<string> => {
+    const ext = file.name.split('.').pop();
+    const path = `backgrounds/${templateId}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('ppt-templates')
+      .upload(path, file, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage
+      .from('ppt-templates')
+      .getPublicUrl(path);
+
+    return data.publicUrl;
+  };
+
   const handleSubmit = async () => {
     if (!formData.name.trim()) {
       toast.error('请输入模板名称');
@@ -114,25 +150,42 @@ export function PPTTemplateManager() {
       if (editingId) {
         // Update existing
         let file_url: string | undefined;
+        let background_image_url: string | undefined;
+        
         if (selectedFile) {
           file_url = await uploadTemplateFile(selectedFile, editingId);
         }
+        if (selectedBgFile) {
+          background_image_url = await uploadBackgroundImage(selectedBgFile, editingId);
+        }
+        
         await updateTemplate.mutateAsync({
           id: editingId,
           updates: {
             ...formData,
             ...(file_url && { file_url }),
+            ...(background_image_url && { background_image_url }),
           },
         });
       } else {
         // Create new
         const result = await addTemplate.mutateAsync(formData);
-        if (selectedFile && result?.id) {
-          const file_url = await uploadTemplateFile(selectedFile, result.id);
-          await updateTemplate.mutateAsync({
-            id: result.id,
-            updates: { file_url },
-          });
+        if (result?.id) {
+          const updates: Record<string, string> = {};
+          
+          if (selectedFile) {
+            updates.file_url = await uploadTemplateFile(selectedFile, result.id);
+          }
+          if (selectedBgFile) {
+            updates.background_image_url = await uploadBackgroundImage(selectedBgFile, result.id);
+          }
+          
+          if (Object.keys(updates).length > 0) {
+            await updateTemplate.mutateAsync({
+              id: result.id,
+              updates,
+            });
+          }
         }
       }
       setDialogOpen(false);
@@ -238,6 +291,13 @@ export function PPTTemplateManager() {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <FileText className="h-3 w-3" />
                     <span>已上传母版文件</span>
+                  </div>
+                )}
+
+                {tpl.background_image_url && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <ImageIcon className="h-3 w-3" />
+                    <span>已设置背景图</span>
                   </div>
                 )}
 
@@ -361,6 +421,48 @@ export function PPTTemplateManager() {
                   </Button>
                 </div>
               </div>
+            </div>
+
+            {/* Background Image Upload */}
+            <div className="space-y-2">
+              <Label>PPT背景图（可选，将应用到所有页面）</Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  ref={bgFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleBgFileSelect}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => bgFileInputRef.current?.click()}
+                >
+                  <ImageIcon className="h-4 w-4" />
+                  {selectedBgFile ? selectedBgFile.name : (formData.background_image_url ? '更换背景图' : '选择背景图')}
+                </Button>
+                {(formData.background_image_url || selectedBgFile) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedBgFile(null);
+                      setFormData({ ...formData, background_image_url: '' });
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {formData.background_image_url && !selectedBgFile && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <ImageIcon className="h-3 w-3" />
+                  <span>已有背景图</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
