@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { toPng } from 'html-to-image';
 import { useData } from '@/contexts/DataContext';
 import { useMechanisms, type Mechanism } from '@/hooks/useMechanisms';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -21,7 +23,8 @@ import {
   Camera, Trash2, Lock, Unlock, Loader2, Copy, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
   Move, LayoutGrid, AlignHorizontalJustifyCenter, 
-  AlignVerticalJustifyCenter, AlignCenterHorizontal
+  AlignVerticalJustifyCenter, AlignCenterHorizontal,
+  ImageIcon, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
@@ -104,6 +107,15 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   // Show camera spacing and working distance
   const [showCameraSpacing, setShowCameraSpacing] = useState(true);
   const [showWorkingDistance, setShowWorkingDistance] = useState(true);
+  
+  // Three-view screenshot saving
+  const [isSavingView, setIsSavingView] = useState(false);
+  const [isSavingAllViews, setIsSavingAllViews] = useState(false);
+  const [viewSaveStatus, setViewSaveStatus] = useState<{ front: boolean; side: boolean; top: boolean }>({
+    front: false,
+    side: false,
+    top: false,
+  });
   
   const canvasRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -256,6 +268,13 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     if (layout?.grid_enabled !== undefined) setGridEnabled(layout.grid_enabled);
     if (layout?.snap_enabled !== undefined) setSnapEnabled(layout.snap_enabled);
     if (layout?.show_distances !== undefined) setShowDistances(layout.show_distances);
+    
+    // Load view save status
+    setViewSaveStatus({
+      front: layout?.front_view_saved || false,
+      side: layout?.side_view_saved || false,
+      top: layout?.top_view_saved || false,
+    });
   }, [layout]);
 
   // When view changes, re-project all objects from 3D to 2D
@@ -638,6 +657,90 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     setHiddenIds(new Set());
   };
 
+  // Save current view as screenshot
+  const saveCurrentViewSnapshot = useCallback(async (viewToSave?: ViewType) => {
+    const targetView = viewToSave || currentView;
+    const svg = canvasRef.current;
+    if (!svg || !layout?.id) {
+      toast.error('请先保存布局');
+      return;
+    }
+    
+    setIsSavingView(true);
+    try {
+      // Generate PNG from SVG
+      const dataUrl = await toPng(svg as unknown as HTMLElement, { 
+        quality: 1, 
+        pixelRatio: 2,
+        backgroundColor: '#1e293b',
+      });
+      
+      // Convert to Blob
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const fileName = `${workstationId}/${targetView}-${Date.now()}.png`;
+      
+      // Upload to storage bucket
+      const { error: uploadError } = await supabase.storage
+        .from('workstation-views')
+        .upload(fileName, blob, { upsert: true });
+      
+      if (uploadError) throw uploadError;
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('workstation-views')
+        .getPublicUrl(fileName);
+      
+      // Update layout with the new image URL
+      const updateField = `${targetView}_view_image_url`;
+      const savedField = `${targetView}_view_saved`;
+      
+      await updateLayout(layout.id, {
+        [updateField]: urlData.publicUrl,
+        [savedField]: true,
+      } as any);
+      
+      // Update local state
+      setViewSaveStatus(prev => ({ ...prev, [targetView]: true }));
+      
+      toast.success(`${targetView === 'front' ? '正视图' : targetView === 'side' ? '侧视图' : '俯视图'}已保存`);
+    } catch (error) {
+      console.error('Save view error:', error);
+      toast.error('保存视图失败');
+    } finally {
+      setIsSavingView(false);
+    }
+  }, [currentView, layout?.id, workstationId, updateLayout]);
+
+  // Save all three views
+  const saveAllViewSnapshots = useCallback(async () => {
+    if (!layout?.id) {
+      toast.error('请先保存布局');
+      return;
+    }
+    
+    setIsSavingAllViews(true);
+    const views: ViewType[] = ['front', 'side', 'top'];
+    
+    try {
+      for (const view of views) {
+        // Switch to the view
+        setCurrentView(view);
+        // Wait for re-render
+        await new Promise(r => setTimeout(r, 500));
+        // Save the view
+        await saveCurrentViewSnapshot(view);
+      }
+      toast.success('三视图已全部保存');
+    } catch (error) {
+      console.error('Save all views error:', error);
+      toast.error('保存三视图失败');
+    } finally {
+      setIsSavingAllViews(false);
+    }
+  }, [layout?.id, saveCurrentViewSnapshot]);
+
   // Auto-arrange objects to prevent overlap
   const autoArrangeObjects = useCallback(() => {
     setObjects(prev => {
@@ -834,13 +937,16 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               key={view}
               onClick={() => setCurrentView(view)}
               className={cn(
-                'px-4 py-2 text-sm font-medium rounded-md transition-all',
+                'px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2',
                 currentView === view 
                   ? 'bg-primary text-primary-foreground shadow-md' 
                   : 'bg-muted hover:bg-muted/80 text-muted-foreground'
               )}
             >
               {view === 'front' ? '正视图 (X-Z)' : view === 'side' ? '左视图 (Y-Z)' : '俯视图 (X-Y)'}
+              {viewSaveStatus[view] && (
+                <Check className="h-3.5 w-3.5 text-green-500" />
+              )}
             </button>
           ))}
         </div>
@@ -968,6 +1074,49 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             保存布局
           </Button>
+          
+          <div className="h-5 w-px bg-border" />
+          
+          {/* Save view screenshots */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => saveCurrentViewSnapshot()} 
+                  disabled={isSavingView || isSavingAllViews}
+                  className="gap-2"
+                >
+                  {isSavingView ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+                  保存当前视图
+                  {viewSaveStatus[currentView] && <Check className="h-3.5 w-3.5 text-green-500" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>将当前视图保存为图片，用于PPT生成</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="secondary" 
+                  size="sm" 
+                  onClick={saveAllViewSnapshots} 
+                  disabled={isSavingView || isSavingAllViews}
+                  className="gap-2"
+                >
+                  {isSavingAllViews ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+                  保存三视图
+                  {viewSaveStatus.front && viewSaveStatus.side && viewSaveStatus.top && (
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>一键保存三个视图截图，用于PPT生成</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
       

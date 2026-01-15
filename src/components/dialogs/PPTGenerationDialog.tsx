@@ -403,6 +403,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             id: selectedTemplate.id,
             name: selectedTemplate.name,
             file_url: selectedTemplate.file_url,
+            background_image_url: selectedTemplate.background_image_url,
           } : null,
         },
         (prog, step, log) => {

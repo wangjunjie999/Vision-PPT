@@ -530,6 +530,7 @@ export type Database = {
       }
       ppt_templates: {
         Row: {
+          background_image_url: string | null
           created_at: string
           description: string | null
           enabled: boolean | null
@@ -544,6 +545,7 @@ export type Database = {
           version: number
         }
         Insert: {
+          background_image_url?: string | null
           created_at?: string
           description?: string | null
           enabled?: boolean | null
@@ -558,6 +560,7 @@ export type Database = {
           version?: number
         }
         Update: {
+          background_image_url?: string | null
           created_at?: string
           description?: string | null
           enabled?: boolean | null
