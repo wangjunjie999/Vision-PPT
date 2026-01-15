@@ -1,1 +1,4 @@
 project_id = "txmgourzjdbqxtdzwptn"
+
+[functions.generate-ppt-from-template]
+verify_jwt = false
