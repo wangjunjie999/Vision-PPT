@@ -53,6 +53,8 @@ const AUTO_ARRANGE_CONFIG = {
   mechanismSpacing: 150, // mm between mechanisms
   cameraDefaultZ: 350, // default height for cameras
   mechanismDefaultZ: 0, // default height for mechanisms (on product level)
+  cameraDefaultY: -150, // cameras positioned behind the product (negative Y)
+  mechanismOffsetY: 200, // mechanisms positioned in front of product (additional offset from product edge)
   startOffsetX: -150, // start offset from center for first object
 };
 
@@ -564,7 +566,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       defaultPosX = positions[cameraCount]; // Position for new camera
     }
     
-    const defaultPosY = 0;
+    // Position cameras behind the product (negative Y) to avoid overlap with mechanisms
+    const defaultPosY = AUTO_ARRANGE_CONFIG.cameraDefaultY;
     const defaultPosZ = AUTO_ARRANGE_CONFIG.cameraDefaultZ;
     
     const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
@@ -607,7 +610,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       defaultPosX = side * distance;
     }
     
-    const defaultPosY = productDimensions.width / 2 + 50; // In front of product
+    // Position mechanisms in front of product with increased offset to avoid overlap with cameras
+    const defaultPosY = productDimensions.width / 2 + AUTO_ARRANGE_CONFIG.mechanismOffsetY;
     const defaultPosZ = AUTO_ARRANGE_CONFIG.mechanismDefaultZ;
     
     const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
