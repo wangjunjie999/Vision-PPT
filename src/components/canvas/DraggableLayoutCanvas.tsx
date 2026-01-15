@@ -932,7 +932,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
-      {/* Toolbar - Row 1: Views and Actions */}
+      {/* Toolbar - Main Row: Views + Save buttons only */}
       <div className="flex items-center justify-between gap-3 px-4 py-2 bg-card border-b border-border">
         {/* Left: View tabs */}
         <div className="flex gap-1">
@@ -955,75 +955,12 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           ))}
         </div>
         
-        {/* Right: Add objects and save buttons */}
+        {/* Right: Save buttons and settings toggle */}
         <div className="flex items-center gap-2">
-          <Button variant="default" size="sm" onClick={addCamera} className="gap-1.5 h-8">
-            <Camera className="h-3.5 w-3.5" />
-            添加相机
-          </Button>
-          
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 h-8">
-                <Plus className="h-3.5 w-3.5" />
-                添加机构
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-2" align="end">
-              <div className="space-y-1 max-h-72 overflow-y-auto">
-                {enabledMechanisms.length === 0 ? (
-                  <p className="text-sm text-muted-foreground p-3 text-center">暂无可用机构</p>
-                ) : (
-                  enabledMechanisms.map(mech => (
-                    <button
-                      key={mech.id}
-                      onClick={() => addMechanism(mech)}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted text-left transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-600/10 flex items-center justify-center overflow-hidden border border-orange-500/20">
-                        {mech.front_view_image_url ? (
-                          <img src={mech.front_view_image_url} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-lg">⚙️</span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">{mech.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {mechanismCounts[mech.id] ? `已添加 ${mechanismCounts[mech.id]} 个` : '点击添加'}
-                        </div>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-          
-          <div className="h-5 w-px bg-border" />
-          
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={autoArrangeObjects} className="gap-1.5 h-8">
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  自动排布
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>一键重新排列所有对象</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          
-          <Button variant="ghost" size="icon" onClick={resetLayout} className="h-8 w-8">
-            <RotateCcw className="h-3.5 w-3.5" />
-          </Button>
-          
           <Button size="sm" onClick={handleSave} disabled={isSaving} className="gap-1.5 h-8">
             {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             保存布局
           </Button>
-          
-          <div className="h-5 w-px bg-border" />
           
           <TooltipProvider>
             <Tooltip>
@@ -1045,29 +982,97 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               <TooltipContent>一键保存三个视图截图，用于PPT生成</TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          
+          <div className="h-5 w-px bg-border" />
+          
+          <Button 
+            variant={settingsCollapsed ? "outline" : "secondary"}
+            size="sm" 
+            onClick={() => setSettingsCollapsed(!settingsCollapsed)}
+            className="gap-1.5 h-8"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            工具
+            {settingsCollapsed ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+          </Button>
         </div>
       </div>
       
-      {/* Toolbar - Row 2: Collapsible Settings */}
+      {/* Collapsible Tools Panel */}
       <Collapsible open={!settingsCollapsed} onOpenChange={(open) => setSettingsCollapsed(!open)}>
-        <div className="flex items-center bg-muted/30 border-b border-border">
-          <CollapsibleTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-7 px-2 gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0"
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              设置
-              {settingsCollapsed ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
-            </Button>
-          </CollapsibleTrigger>
-          
-          <CollapsibleContent className="flex-1 CollapsibleContent">
-            <div className="flex items-center gap-4 px-2 py-1.5">
-              {/* Grid Size */}
+        <CollapsibleContent>
+          <div className="bg-muted/30 border-b border-border px-4 py-3 space-y-3">
+            {/* Row 1: Object Actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">添加对象</span>
+              <Button variant="default" size="sm" onClick={addCamera} className="gap-1.5 h-7 text-xs">
+                <Camera className="h-3 w-3" />
+                添加相机
+              </Button>
+              
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs">
+                    <Plus className="h-3 w-3" />
+                    添加机构
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-2" align="start">
+                  <div className="space-y-1 max-h-72 overflow-y-auto">
+                    {enabledMechanisms.length === 0 ? (
+                      <p className="text-sm text-muted-foreground p-3 text-center">暂无可用机构</p>
+                    ) : (
+                      enabledMechanisms.map(mech => (
+                        <button
+                          key={mech.id}
+                          onClick={() => addMechanism(mech)}
+                          className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted text-left transition-colors"
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-600/10 flex items-center justify-center overflow-hidden border border-orange-500/20">
+                            {mech.front_view_image_url ? (
+                              <img src={mech.front_view_image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-lg">⚙️</span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm truncate">{mech.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {mechanismCounts[mech.id] ? `已添加 ${mechanismCounts[mech.id]} 个` : '点击添加'}
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              
+              <div className="h-4 w-px bg-border" />
+              
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={autoArrangeObjects} className="gap-1.5 h-7 text-xs">
+                      <LayoutGrid className="h-3 w-3" />
+                      自动排布
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>一键重新排列所有对象</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              
+              <Button variant="ghost" size="sm" onClick={resetLayout} className="gap-1.5 h-7 text-xs">
+                <RotateCcw className="h-3 w-3" />
+                重置布局
+              </Button>
+            </div>
+            
+            {/* Row 2: Grid Settings */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">网格设置</span>
               <Select value={gridSize.toString()} onValueChange={(v) => setGridSize(parseInt(v))}>
-                <SelectTrigger className="w-16 h-7 text-xs">
+                <SelectTrigger className="w-20 h-7 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1077,40 +1082,42 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                 </SelectContent>
               </Select>
               
-              <div className="flex items-center gap-1">
-                <Switch checked={gridEnabled} onCheckedChange={setGridEnabled} id="grid" className="scale-90" />
-                <Label htmlFor="grid" className="text-xs cursor-pointer">网格</Label>
+              <div className="flex items-center gap-1.5">
+                <Switch checked={gridEnabled} onCheckedChange={setGridEnabled} id="grid" className="scale-75" />
+                <Label htmlFor="grid" className="text-xs cursor-pointer">显示网格</Label>
               </div>
               
-              <div className="flex items-center gap-1">
-                <Switch checked={snapEnabled} onCheckedChange={setSnapEnabled} id="snap" className="scale-90" />
+              <div className="flex items-center gap-1.5">
+                <Switch checked={snapEnabled} onCheckedChange={setSnapEnabled} id="snap" className="scale-75" />
                 <Label htmlFor="snap" className="text-xs cursor-pointer">网格吸附</Label>
               </div>
               
-              <div className="flex items-center gap-1">
-                <Switch checked={smartSnapEnabled} onCheckedChange={setSmartSnapEnabled} id="smartsnap" className="scale-90" />
+              <div className="flex items-center gap-1.5">
+                <Switch checked={smartSnapEnabled} onCheckedChange={setSmartSnapEnabled} id="smartsnap" className="scale-75" />
                 <Label htmlFor="smartsnap" className="text-xs cursor-pointer">智能对齐</Label>
               </div>
-              
-              <div className="h-4 w-px bg-border" />
-              
-              <div className="flex items-center gap-1">
-                <Switch checked={showDistances} onCheckedChange={setShowDistances} id="dist" className="scale-90" />
-                <Label htmlFor="dist" className="text-xs cursor-pointer">标注</Label>
+            </div>
+            
+            {/* Row 3: Display Settings */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">显示选项</span>
+              <div className="flex items-center gap-1.5">
+                <Switch checked={showDistances} onCheckedChange={setShowDistances} id="dist" className="scale-75" />
+                <Label htmlFor="dist" className="text-xs cursor-pointer">尺寸标注</Label>
               </div>
               
-              <div className="flex items-center gap-1">
-                <Switch checked={showCameraSpacing} onCheckedChange={setShowCameraSpacing} id="spacing" className="scale-90" />
+              <div className="flex items-center gap-1.5">
+                <Switch checked={showCameraSpacing} onCheckedChange={setShowCameraSpacing} id="spacing" className="scale-75" />
                 <Label htmlFor="spacing" className="text-xs cursor-pointer">相机间距</Label>
               </div>
               
-              <div className="flex items-center gap-1">
-                <Switch checked={showObjectList} onCheckedChange={setShowObjectList} id="table" className="scale-90" />
+              <div className="flex items-center gap-1.5">
+                <Switch checked={showObjectList} onCheckedChange={setShowObjectList} id="table" className="scale-75" />
                 <Label htmlFor="table" className="text-xs cursor-pointer">对象清单</Label>
               </div>
             </div>
-          </CollapsibleContent>
-        </div>
+          </div>
+        </CollapsibleContent>
       </Collapsible>
       
       {/* Objects count summary */}
