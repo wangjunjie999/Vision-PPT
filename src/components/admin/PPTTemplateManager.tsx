@@ -11,10 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye, Image as ImageIcon, Loader2, CheckCircle2, Code, List, Scan } from 'lucide-react';
+import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye, Image as ImageIcon, Loader2, CheckCircle2, Code, List, Scan, Layers, LayoutTemplate, FileCode, Link2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { usePPTTemplates, PPTTemplateInsert } from '@/hooks/usePPTTemplates';
 import { toast } from 'sonner';
-import { parseTemplate, SYSTEM_FIELDS, autoMapFields, type ParsedTemplate, type FieldMapping } from '@/services/pptTemplateParser';
+import { parseTemplate, SYSTEM_FIELDS, autoMapFields, getFieldLabel, type ParsedTemplate, type FieldMapping } from '@/services/pptTemplateParser';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 // 动态页面结构选项 - 将根据模板解析结果动态更新
 const DEFAULT_SECTION_OPTIONS = [
@@ -102,7 +104,7 @@ export function PPTTemplateManager() {
     setDialogOpen(true);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (!file.name.endsWith('.pptx') && !file.name.endsWith('.ppt')) {
@@ -110,6 +112,29 @@ export function PPTTemplateManager() {
         return;
       }
       setSelectedFile(file);
+      
+      // 自动解析模板
+      setParsing(true);
+      setParsedTemplate(null);
+      setFieldMappings([]);
+      
+      try {
+        const result = await parseTemplate({ file });
+        if (result.success && result.template) {
+          setParsedTemplate(result.template);
+          // 自动映射字段
+          const mappings = autoMapFields(result.template.customFields);
+          setFieldMappings(mappings);
+          toast.success(`解析成功：发现 ${result.template.masters.length} 个母版, ${result.template.customFields.length} 个占位符`);
+        } else {
+          toast.error(result.error || '解析失败');
+        }
+      } catch (error) {
+        console.error('Parse template error:', error);
+        toast.error('解析模板时发生错误');
+      } finally {
+        setParsing(false);
+      }
     }
   };
 
@@ -430,9 +455,161 @@ export function PPTTemplateManager() {
                     {selectedFile ? selectedFile.name : '选择文件'}
                   </Button>
                 </div>
+                {parsing && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>正在解析模板...</span>
+                  </div>
+                )}
               </div>
             </div>
 
+            {/* 解析结果预览 */}
+            {parsedTemplate && (
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    解析成功
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {parsedTemplate.slideCount} 页 · {(parsedTemplate.dimensions.width / 914400).toFixed(1)}×{(parsedTemplate.dimensions.height / 914400).toFixed(1)} 英寸
+                  </div>
+                </div>
+
+                <Tabs defaultValue="masters" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3 h-8">
+                    <TabsTrigger value="masters" className="text-xs gap-1">
+                      <Layers className="h-3 w-3" />
+                      母版 ({parsedTemplate.masters.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="layouts" className="text-xs gap-1">
+                      <LayoutTemplate className="h-3 w-3" />
+                      布局 ({parsedTemplate.layouts.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="fields" className="text-xs gap-1">
+                      <FileCode className="h-3 w-3" />
+                      占位符 ({parsedTemplate.customFields.length})
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="masters" className="mt-2">
+                    <ScrollArea className="h-32">
+                      <div className="space-y-2">
+                        {parsedTemplate.masters.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-4">未检测到母版</p>
+                        ) : (
+                          parsedTemplate.masters.map((master, idx) => (
+                            <div key={master.id} className="flex items-center justify-between p-2 bg-background rounded border">
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="w-6 h-4 rounded border"
+                                  style={{ 
+                                    backgroundColor: master.background.type === 'color' ? master.background.value : undefined,
+                                    backgroundImage: master.background.type === 'gradient' ? master.background.value : undefined,
+                                  }}
+                                />
+                                <span className="text-sm">{master.name || `母版 ${idx + 1}`}</span>
+                              </div>
+                              <Badge variant="outline" className="text-xs">
+                                {master.placeholders.length} 占位
+                              </Badge>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="layouts" className="mt-2">
+                    <ScrollArea className="h-32">
+                      <div className="space-y-1">
+                        {parsedTemplate.layouts.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-4">未检测到布局</p>
+                        ) : (
+                          parsedTemplate.layouts.map((layout) => (
+                            <div key={layout.id} className="flex items-center justify-between p-2 hover:bg-muted rounded text-sm">
+                              <div className="flex items-center gap-2">
+                                <LayoutTemplate className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span>{layout.name || layout.type}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {layout.placeholders.length} 占位
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="fields" className="mt-2">
+                    <ScrollArea className="h-32">
+                      {parsedTemplate.customFields.length === 0 ? (
+                        <div className="text-center py-4">
+                          <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-xs text-muted-foreground">
+                            未发现 {'{{field}}'} 格式的占位符
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            在模板中使用 {'{{project_name}}'} 等语法来定义动态字段
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {parsedTemplate.customFields.map((field, idx) => {
+                            const mapping = fieldMappings.find(m => m.templateField === field);
+                            return (
+                              <div key={idx} className="flex items-center justify-between p-2 hover:bg-muted rounded">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="font-mono text-xs">
+                                    {`{{${field}}}`}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {mapping ? (
+                                    <>
+                                      <Link2 className="h-3 w-3 text-green-500" />
+                                      <span className="text-xs text-green-600">
+                                        {getFieldLabel(mapping.systemField)}
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">未映射</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+
+                {/* 字段映射统计 */}
+                {parsedTemplate.customFields.length > 0 && (
+                  <div className="flex items-center justify-between pt-2 border-t text-xs">
+                    <span className="text-muted-foreground">
+                      已映射: {fieldMappings.length}/{parsedTemplate.customFields.length} 个字段
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => {
+                        const mappings = autoMapFields(parsedTemplate.customFields);
+                        setFieldMappings(mappings);
+                        toast.success(`自动映射了 ${mappings.length} 个字段`);
+                      }}
+                    >
+                      重新自动映射
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
             {/* Background Image Upload */}
             <div className="space-y-2">
               <Label>PPT背景图（可选，将应用到所有页面）</Label>
