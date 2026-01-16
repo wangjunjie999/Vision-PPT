@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
+import { generateFromUserTemplate, downloadGeneratedFile } from '@/services/templateBasedGenerator';
 import { toast } from 'sonner';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { checkPPTReadiness } from '@/services/pptReadiness';
@@ -44,6 +45,7 @@ type GenerationScope = 'full' | 'workstations' | 'modules';
 type OutputLanguage = 'zh' | 'en';
 type ImageQuality = 'standard' | 'high' | 'ultra';
 type GenerationMode = 'draft' | 'final';
+type GenerationMethod = 'template' | 'scratch'; // 基于模板 or 从零生成
 
 interface GenerationLog {
   type: 'info' | 'success' | 'warning' | 'error';
@@ -108,10 +110,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     pageCount: 0,
     layoutImages: 0,
     parameterTables: 0,
-    hardwareList: 0
+    hardwareList: 0,
+    fileUrl: '' as string,
   });
   const generatedBlobRef = useRef<Blob | null>(null);
   const [checkPanelOpen, setCheckPanelOpen] = useState(true);
+  const [generationMethod, setGenerationMethod] = useState<GenerationMethod>('scratch');
 
   // Get current project and workstations
   const project = projects.find(p => p.id === selectedProjectId);
@@ -446,7 +450,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         pageCount: 2 + wsToProcess.length + modsToProcess.length + 2,
         layoutImages: wsToProcess.length * 3,
         parameterTables: wsToProcess.length + modsToProcess.length,
-        hardwareList: 1
+        hardwareList: 1,
+        fileUrl: '',
       });
 
       addLog('success', `成功生成PPT文件`);
