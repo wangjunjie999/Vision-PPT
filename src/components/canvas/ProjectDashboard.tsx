@@ -9,14 +9,10 @@ import {
   FileCheck, 
   AlertTriangle,
   Plus,
-  ArrowRight,
   CheckCircle2,
-  Save,
-  Loader2,
-  TrendingUp,
   FileText
 } from 'lucide-react';
-import { useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { NewWorkstationDialog } from '@/components/dialogs/NewWorkstationDialog';
 import {
   Select,
@@ -26,12 +22,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Progress } from '@/components/ui/progress';
-import { supabase } from '@/integrations/supabase/client';
-import { toPng } from 'html-to-image';
-import { CircularProgress, StatsCircularCard } from '@/components/ui/circular-progress';
+import { CircularProgress } from '@/components/ui/circular-progress';
 import { motion } from 'framer-motion';
 import { StaggerList, StaggerItem } from '@/components/transitions/AnimatedLayout';
+import { BatchImageSaveButton } from './BatchImageSaveButton';
 
 export function ProjectDashboard() {
   const { 
@@ -48,13 +42,6 @@ export function ProjectDashboard() {
   const { templates, isLoading: templatesLoading } = usePPTTemplates();
   
   const [showNewWorkstation, setShowNewWorkstation] = useState(false);
-  const [isBatchSaving, setIsBatchSaving] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ 
-    current: number; 
-    total: number; 
-    message: string;
-    type: 'layout' | 'schematic';
-  } | null>(null);
 
   const project = projects.find(p => p.id === selectedProjectId);
   if (!project) return null;
@@ -89,55 +76,19 @@ export function ProjectDashboard() {
   const completedTasks = layoutsComplete + schematicsComplete;
   const overallProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  // Batch save all project images (layouts + schematics)
-  const handleBatchSaveAll = useCallback(async () => {
-    setIsBatchSaving(true);
-    
-    // Calculate total tasks - only schematics now
-    const missingSchematicModules = projectWorkstations.flatMap(ws => {
-      return getWorkstationModules(ws.id).filter(m => !(m as any).schematic_image_url);
-    });
-    
-    const totalSchematics = missingSchematicModules.length;
-    const grandTotal = totalSchematics;
-    
-    if (grandTotal === 0) {
-      toast.info('所有图片已保存，无需重复操作');
-      setIsBatchSaving(false);
-      return;
-    }
-    
-    let current = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    
-    // For schematics, we show progress indication
-    toast.info(`开始批量保存: ${totalSchematics}个模块示意图`, { duration: 3000 });
-    
-    // For schematics, same situation
-    if (missingSchematicModules.length > 0) {
-      for (let i = 0; i < missingSchematicModules.length; i++) {
-        const m = missingSchematicModules[i];
-        setBatchProgress({ 
-          current: i + 1, 
-          total: totalSchematics, 
-          message: `模块: ${m.name}`,
-          type: 'schematic'
-        });
-        await new Promise(r => setTimeout(r, 100));
-      }
-    }
-    
-    setBatchProgress(null);
-    setIsBatchSaving(false);
-    
-    if (totalSchematics > 0) {
-      toast.info(
-        `请依次访问 ${totalSchematics} 个模块保存示意图`,
-        { duration: 5000 }
-      );
-    }
-  }, [projectWorkstations, getWorkstationModules]);
+  // Calculate missing images count for display
+  const missingLayoutsCount = projectWorkstations.filter(ws => {
+    const layout = layouts.find(l => l.workstation_id === ws.id);
+    if (!layout) return false;
+    return !layout.front_view_image_url || !layout.side_view_image_url || !layout.top_view_image_url;
+  }).length;
+  
+  const missingSchematicsCount = projectWorkstations.reduce((acc, ws) => {
+    const wsModules = getWorkstationModules(ws.id);
+    return acc + wsModules.filter(m => !(m as any).schematic_image_url).length;
+  }, 0);
+  
+  const totalMissingImages = missingLayoutsCount * 3 + missingSchematicsCount; // Approximate
 
   return (
     <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
@@ -478,47 +429,14 @@ export function ProjectDashboard() {
               </Button>
             </div>
             
-            {/* Batch Save Button */}
+            {/* Batch Save Button - New Component */}
             <div className="pt-2 border-t border-border">
-              <Button 
-                variant="default"
-                className="w-full gap-2"
-                onClick={handleBatchSaveAll}
-                disabled={isBatchSaving || canGenerate}
-              >
-                {isBatchSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    正在检查待保存项...
-                  </>
-                ) : canGenerate ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    所有图片已保存
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4" />
-                    一键保存全项目图片
-                  </>
-                )}
-              </Button>
-              
-              {batchProgress && (
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                      {batchProgress.type === 'layout' ? '布局图' : '示意图'}: {batchProgress.message}
-                    </span>
-                    <span>{batchProgress.current}/{batchProgress.total}</span>
-                  </div>
-                  <Progress value={(batchProgress.current / batchProgress.total) * 100} className="h-1.5" />
-                </div>
-              )}
-              
-              {!canGenerate && (
+              <div className="w-full">
+                <BatchImageSaveButton projectId={selectedProjectId!} />
+              </div>
+              {totalMissingImages > 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  提示: 点击上方按钮查看待保存的工位和模块，然后依次进入完成保存
+                  提示: 点击按钮自动渲染并保存所有缺失的三视图和示意图
                 </p>
               )}
             </div>
