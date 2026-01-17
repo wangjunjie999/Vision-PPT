@@ -191,6 +191,22 @@ interface DetectionRequirementItem {
   highlight?: string | null;
 }
 
+// Extracted template styles interface
+interface ExtractedTemplateStyles {
+  background?: { color?: string; data?: string };
+  colors?: {
+    primary?: string;
+    secondary?: string;
+    accent?: string;
+    background?: string;
+    text?: string;
+  };
+  fonts?: {
+    title?: string;
+    body?: string;
+  };
+}
+
 interface GenerationOptions {
   language: 'zh' | 'en';
   quality: 'standard' | 'high' | 'ultra';
@@ -201,6 +217,8 @@ interface GenerationOptions {
     file_url?: string | null;
     background_image_url?: string | null;
   } | null;
+  // NEW: Extracted template styles for "from scratch" generation using template design
+  extractedStyles?: ExtractedTemplateStyles | null;
 }
 
 type ProgressCallback = (progress: number, step: string, log: string) => void;
@@ -734,6 +752,20 @@ export async function generatePPTX(
   const pptx = new pptxgen();
   const isZh = options.language === 'zh';
 
+  // Merge extracted styles with default colors
+  const extractedColors = options.extractedStyles?.colors || {};
+  const activeColors = {
+    primary: extractedColors.primary || COLORS.primary,
+    secondary: extractedColors.secondary || COLORS.secondary,
+    accent: extractedColors.accent || COLORS.accent,
+    background: extractedColors.background || COLORS.background,
+    dark: extractedColors.text || COLORS.dark,
+    white: COLORS.white,
+    border: COLORS.border,
+    warning: COLORS.warning,
+    destructive: COLORS.destructive,
+  };
+
   // Set presentation properties
   pptx.author = project.responsible || 'Vision System';
   pptx.title = `${project.name} - ${isZh ? '视觉系统方案' : 'Vision System Proposal'}`;
@@ -743,9 +775,16 @@ export async function generatePPTX(
   // Explicitly set 16:9 layout
   pptx.layout = SLIDE_LAYOUT.name;
 
-  // Try to load template background if available
+  // Determine background: priority is extractedStyles > template background_image_url > default
   let templateBackground: string | null = null;
-  if (options.template?.background_image_url) {
+  
+  // First check extracted styles for background image
+  if (options.extractedStyles?.background?.data) {
+    templateBackground = options.extractedStyles.background.data;
+    console.log('Using extracted template background image');
+  } 
+  // Fall back to template background_image_url
+  else if (options.template?.background_image_url) {
     try {
       templateBackground = await fetchImageAsDataUri(options.template.background_image_url);
       console.log('Loaded template background image:', options.template.name);
@@ -759,26 +798,35 @@ export async function generatePPTX(
   const footerY = SLIDE_LAYOUT.height - SLIDE_LAYOUT.margin.bottom;
   
   // Master objects can be customized based on parsed template structure
-  // For now, we use a minimal default that doesn't override template styles
   const masterObjects: MasterObject[] = [];
   
   // Only add footer elements if no template background is set (template has its own design)
   if (!templateBackground) {
     masterObjects.push(
-      // Header bar - subtle
-      { rect: { x: 0, y: 0, w: '100%', h: 0.45, fill: { color: COLORS.primary } } },
+      // Header bar - subtle (use active primary color)
+      { rect: { x: 0, y: 0, w: '100%', h: 0.45, fill: { color: activeColors.primary } } },
       // Footer bar
-      { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: COLORS.dark } } },
+      { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: activeColors.dark } } },
       // Company name in footer
-      { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: footerY + 0.05, w: 4, h: 0.2, fontSize: 7, color: COLORS.white } } },
+      { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: footerY + 0.05, w: 4, h: 0.2, fontSize: 7, color: activeColors.white } } },
       // Customer name in footer (right aligned)
-      { text: { text: project.customer, options: { x: SLIDE_LAYOUT.width - 2.5, y: footerY + 0.05, w: 2.2, h: 0.2, fontSize: 7, color: COLORS.white, align: 'right' } } },
+      { text: { text: project.customer, options: { x: SLIDE_LAYOUT.width - 2.5, y: footerY + 0.05, w: 2.2, h: 0.2, fontSize: 7, color: activeColors.white, align: 'right' } } },
     );
+  }
+
+  // Determine background color/image for master
+  let masterBackground: { color?: string; data?: string };
+  if (templateBackground) {
+    masterBackground = { data: templateBackground };
+  } else if (options.extractedStyles?.background?.color) {
+    masterBackground = { color: options.extractedStyles.background.color };
+  } else {
+    masterBackground = { color: activeColors.background };
   }
 
   pptx.defineSlideMaster({
     title: 'MASTER_SLIDE',
-    background: templateBackground ? { data: templateBackground } : { color: COLORS.background },
+    background: masterBackground,
     objects: masterObjects,
   });
 
