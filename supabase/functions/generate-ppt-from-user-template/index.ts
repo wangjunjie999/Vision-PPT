@@ -197,18 +197,32 @@ interface SlideInfo {
 
 /**
  * 解析presentation.xml获取幻灯片信息
+ * 支持多种 sldId 属性顺序格式
  */
 function parsePresentation(zip: PizZip): { slideIds: string[]; maxId: number } {
   const presContent = zip.file('ppt/presentation.xml')?.asText() || '';
-  const slideIdPattern = /<p:sldId[^>]*id="(\d+)"[^>]*r:id="([^"]+)"/g;
   const slideIds: string[] = [];
   let maxId = 256;
   
+  // 匹配 p:sldId 标签 - 支持任意属性顺序
+  // 例如: <p:sldId id="256" r:id="rId2"/> 或 <p:sldId r:id="rId2" id="256"/>
+  const sldIdPattern = /<p:sldId\s+([^>]*)\/?\s*>/g;
+  const idAttrPattern = /\bid="(\d+)"/;
+  const rIdAttrPattern = /r:id="([^"]+)"/;
+  
   let match;
-  while ((match = slideIdPattern.exec(presContent)) !== null) {
-    slideIds.push(match[2]);
-    const id = parseInt(match[1], 10);
-    if (id > maxId) maxId = id;
+  while ((match = sldIdPattern.exec(presContent)) !== null) {
+    const attrs = match[1];
+    const idMatch = idAttrPattern.exec(attrs);
+    const rIdMatch = rIdAttrPattern.exec(attrs);
+    
+    if (rIdMatch) {
+      slideIds.push(rIdMatch[1]);
+    }
+    if (idMatch) {
+      const id = parseInt(idMatch[1], 10);
+      if (id > maxId) maxId = id;
+    }
   }
   
   return { slideIds, maxId };
@@ -373,19 +387,41 @@ serve(async (req) => {
     // 使用 PizZip 解压PPTX
     const zip = new PizZip(templateBuffer);
     
+    // 调试: 打印所有文件路径
+    const allFiles = Object.keys(zip.files);
+    console.log(`Total files in PPTX: ${allFiles.length}`);
+    
+    // 检查slides目录
+    const slidesDir = allFiles.filter(f => f.startsWith('ppt/slides/'));
+    console.log(`Slides directory files count: ${slidesDir.length}`);
+    console.log(`Slides directory files: ${slidesDir.slice(0, 10).join(', ')}`);
+    
     // 准备模板数据
     const templateData = prepareTemplateData(data);
     console.log('Template data prepared:', JSON.stringify(templateData).substring(0, 500));
 
     // 解析现有幻灯片
     const { slideIds, maxId } = parsePresentation(zip);
-    console.log(`Found ${slideIds.length} slides in template, maxId: ${maxId}`);
+    console.log(`Found ${slideIds.length} slides from presentation.xml, maxId: ${maxId}`);
 
-    // 获取所有幻灯片文件
-    const slideFiles = Object.keys(zip.files).filter(f => 
-      f.match(/^ppt\/slides\/slide\d+\.xml$/)
-    );
-    console.log(`Slide files found: ${slideFiles.join(', ')}`);
+    // 获取所有幻灯片文件 - 使用更宽松的匹配
+    const slideFiles = allFiles.filter(f => {
+      // 匹配 ppt/slides/slide*.xml (忽略大小写，处理可能的路径差异)
+      const normalized = f.toLowerCase();
+      return normalized.includes('ppt/slides/slide') && normalized.endsWith('.xml') && !normalized.includes('_rels');
+    });
+    console.log(`Slide XML files found: ${slideFiles.length} - ${slideFiles.join(', ')}`);
+
+    // 如果模板没有幻灯片，返回错误
+    if (slideFiles.length === 0) {
+      return new Response(
+        JSON.stringify({ 
+          error: '模板文件中没有幻灯片内容。请上传包含实际幻灯片的PPTX文件，而不是纯模板文件。',
+          details: '该PPTX文件只包含母版和布局，没有实际的幻灯片页面。'
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // 替换所有现有幻灯片中的占位符
     for (const slidePath of slideFiles) {
@@ -397,9 +433,10 @@ serve(async (req) => {
     }
 
     // 同样处理幻灯片母版和布局中的占位符
-    const masterFiles = Object.keys(zip.files).filter(f => 
-      f.match(/^ppt\/slideMasters\/slideMaster\d+\.xml$/)
-    );
+    const masterFiles = allFiles.filter(f => {
+      const normalized = f.toLowerCase();
+      return normalized.includes('slidemasters/slidemaster') && normalized.endsWith('.xml') && !normalized.includes('_rels');
+    });
     for (const masterPath of masterFiles) {
       const content = zip.file(masterPath)?.asText();
       if (content) {
@@ -408,9 +445,10 @@ serve(async (req) => {
       }
     }
 
-    const layoutFiles = Object.keys(zip.files).filter(f => 
-      f.match(/^ppt\/slideLayouts\/slideLayout\d+\.xml$/)
-    );
+    const layoutFiles = allFiles.filter(f => {
+      const normalized = f.toLowerCase();
+      return normalized.includes('slidelayouts/slidelayout') && normalized.endsWith('.xml') && !normalized.includes('_rels');
+    });
     for (const layoutPath of layoutFiles) {
       const content = zip.file(layoutPath)?.asText();
       if (content) {

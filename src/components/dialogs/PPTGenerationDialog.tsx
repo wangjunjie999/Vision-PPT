@@ -90,6 +90,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [language, setLanguage] = useState<OutputLanguage>('zh');
   const [quality, setQuality] = useState<ImageQuality>(pptImageQuality);
+  const [errorMessage, setErrorMessage] = useState<string>('');
   
   // Initialize template selection when templates load
   useEffect(() => {
@@ -513,8 +514,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         toast.success('PPT生成完成');
       }
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
       console.error('PPT generation failed:', error);
-      addLog('error', `生成失败: ${error}`);
+      addLog('error', `生成失败: ${errMsg}`);
+      setErrorMessage(errMsg);
       setStage('error');
       setIsGenerating(false);
       toast.error('PPT生成失败');
@@ -1046,8 +1049,11 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
               <AlertCircle className="h-8 w-8 text-destructive" />
             </div>
-            <p className="text-sm text-destructive">生成失败，请重试</p>
-            <Button variant="outline" onClick={() => setStage('config')}>返回</Button>
+            <div className="text-center max-w-md">
+              <p className="text-sm font-medium text-destructive mb-2">生成失败</p>
+              <p className="text-xs text-muted-foreground">{errorMessage || '请重试'}</p>
+            </div>
+            <Button variant="outline" onClick={() => { setStage('config'); setErrorMessage(''); }}>返回</Button>
           </div>
         )}
       </DialogContent>
