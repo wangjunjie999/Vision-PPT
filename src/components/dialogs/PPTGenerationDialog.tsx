@@ -28,6 +28,7 @@ import {
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
 import { generateFromUserTemplate, downloadGeneratedFile } from '@/services/templateBasedGenerator';
+import { extractTemplateStyles, convertStylesToGeneratorFormat } from '@/services/templateStyleExtractor';
 import { toast } from 'sonner';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { checkPPTReadiness } from '@/services/pptReadiness';
@@ -470,6 +471,29 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         // 从零生成（使用pptxgenjs）
         addLog('info', '使用内置生成器从零创建PPT...');
 
+        // 如果选择了模板，先提取其样式
+        let extractedStyles = null;
+        if (selectedTemplate?.file_url) {
+          addLog('info', '正在从模板提取样式...');
+          setProgress(8);
+          setCurrentStep('提取模板样式');
+          
+          const styleResult = await extractTemplateStyles({
+            templateId: selectedTemplate.id,
+            onProgress: (msg) => addLog('info', msg),
+          });
+          
+          if (styleResult.success && styleResult.styles) {
+            extractedStyles = convertStylesToGeneratorFormat(styleResult.styles);
+            addLog('success', `成功提取模板样式: ${styleResult.styles.masterCount} 个母版, ${styleResult.styles.layoutCount} 个布局`);
+          } else {
+            addLog('warning', `模板样式提取失败，将使用默认样式: ${styleResult.error || '未知错误'}`);
+          }
+        }
+
+        setProgress(10);
+        setCurrentStep('生成PPT内容');
+
         const blob = await generatePPTX(
           projectData,
           workstationData,
@@ -485,9 +509,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               file_url: selectedTemplate.file_url,
               background_image_url: selectedTemplate.background_image_url,
             } : null,
+            // 传入提取的样式
+            extractedStyles: extractedStyles,
           },
           (prog, step, log) => {
-            setProgress(prog);
+            // Adjust progress to start from 10%
+            setProgress(10 + prog * 0.9);
             setCurrentStep(step);
             addLog('info', log);
           },
