@@ -429,37 +429,81 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
       // ==================== 根据输出格式选择不同的生成逻辑 ====================
       
+      // Prepare product assets and annotations for generator
+      const productAssetData = productAssets.map(a => ({
+        id: a.id,
+        workstation_id: a.workstation_id,
+        module_id: a.module_id,
+        scope_type: a.scope_type as 'workstation' | 'module',
+        preview_images: a.preview_images || [],
+        model_file_url: a.model_file_url,
+      }));
+
+      const annotationData = annotations.map(a => ({
+        id: a.id,
+        asset_id: a.asset_id,
+        snapshot_url: a.snapshot_url,
+        remark: a.remark,
+        annotations_json: a.annotations_json,
+      }));
+
       // Word文档生成（快速）
       if (outputFormat === 'word') {
         addLog('info', '生成Word文档（快速模式）...');
         setProgress(10);
         setCurrentStep('生成Word文档');
 
+        // Add layout view image URLs to layout data
+        const layoutDataWithImages = layoutsToProcess.map(l => {
+          const layoutItem = l as any;
+          return {
+            workstation_id: layoutItem.workstation_id,
+            conveyor_type: layoutItem.conveyor_type,
+            camera_count: layoutItem.camera_count,
+            lens_count: layoutItem.lens_count ?? 1,
+            light_count: layoutItem.light_count ?? 1,
+            camera_mounts: layoutItem.camera_mounts,
+            mechanisms: layoutItem.mechanisms,
+            selected_cameras: layoutItem.selected_cameras || null,
+            selected_lenses: layoutItem.selected_lenses || null,
+            selected_lights: layoutItem.selected_lights || null,
+            selected_controller: layoutItem.selected_controller || null,
+            front_view_image_url: layoutItem.front_view_image_url || null,
+            side_view_image_url: layoutItem.side_view_image_url || null,
+            top_view_image_url: layoutItem.top_view_image_url || null,
+          };
+        });
+
         const blob = await generateDOCX(
           projectData,
           workstationData,
-          layoutData,
+          layoutDataWithImages,
           moduleData,
           hardwareData,
-          { language },
+          { language, includeImages: true },
           (prog, step, log) => {
             setProgress(prog);
             setCurrentStep(step);
             if (log) addLog('info', log);
-          }
+          },
+          productAssetData,
+          annotationData
         );
 
         generatedBlobRef.current = blob;
 
+        // Count images included
+        const imageCount = productAssetData.reduce((acc, a) => acc + (a.preview_images?.length || 0), 0) + annotationData.length;
+
         setGenerationResult({
           pageCount: 1,
-          layoutImages: 0,
+          layoutImages: imageCount,
           parameterTables: wsToProcess.length + modsToProcess.length,
           hardwareList: 1,
           fileUrl: '',
         });
 
-        addLog('success', 'Word文档生成完成');
+        addLog('success', `Word文档生成完成，包含 ${imageCount} 张图片`);
         setStage('complete');
         setIsGenerating(false);
         toast.success('Word文档生成完成');

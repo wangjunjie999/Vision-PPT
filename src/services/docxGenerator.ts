@@ -12,6 +12,7 @@ import {
   BorderStyle,
   ShadingType,
   convertInchesToTwip,
+  ImageRun,
 } from 'docx';
 
 // ==================== DATA INTERFACES ====================
@@ -102,6 +103,24 @@ interface ModuleData {
   measurement_config?: Record<string, unknown> | null;
 }
 
+// Product asset and annotation data
+interface ProductAssetData {
+  id: string;
+  workstation_id: string | null;
+  module_id: string | null;
+  scope_type: 'workstation' | 'module';
+  preview_images: Array<{ url: string; name?: string }> | null;
+  model_file_url: string | null;
+}
+
+interface ProductAnnotationData {
+  id: string;
+  asset_id: string;
+  snapshot_url: string;
+  remark: string | null;
+  annotations_json: unknown;
+}
+
 interface HardwareData {
   cameras: Array<{
     id: string;
@@ -146,6 +165,78 @@ interface HardwareData {
 
 interface GenerationOptions {
   language: 'zh' | 'en';
+  includeImages?: boolean;
+}
+
+// Image fetching utilities
+async function fetchImageAsArrayBuffer(url: string): Promise<ArrayBuffer | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`Failed to fetch image: ${url}, status: ${response.status}`);
+      return null;
+    }
+    return await response.arrayBuffer();
+  } catch (error) {
+    console.warn(`Error fetching image: ${url}`, error);
+    return null;
+  }
+}
+
+function getImageType(url: string): 'png' | 'jpg' | 'gif' | 'bmp' {
+  const lowerUrl = url.toLowerCase();
+  if (lowerUrl.includes('.png')) return 'png';
+  if (lowerUrl.includes('.gif')) return 'gif';
+  if (lowerUrl.includes('.bmp')) return 'bmp';
+  return 'jpg'; // default to jpg for jpeg and unknown types
+}
+
+async function createImageParagraph(
+  imageUrl: string, 
+  caption?: string,
+  maxWidth: number = 400,
+  maxHeight: number = 300
+): Promise<(Paragraph | null)[]> {
+  const imageData = await fetchImageAsArrayBuffer(imageUrl);
+  if (!imageData) return [null];
+
+  const elements: Paragraph[] = [];
+  
+  elements.push(
+    new Paragraph({
+      children: [
+        new ImageRun({
+          type: getImageType(imageUrl),
+          data: imageData,
+          transformation: {
+            width: maxWidth,
+            height: maxHeight,
+          },
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 100, after: 50 },
+    })
+  );
+
+  if (caption) {
+    elements.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: caption,
+            italics: true,
+            size: 18,
+            color: '666666',
+          }),
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 100 },
+      })
+    );
+  }
+
+  return elements;
 }
 
 type ProgressCallback = (progress: number, step: string, log: string) => void;
@@ -264,9 +355,12 @@ export async function generateDOCX(
   modules: ModuleData[],
   hardware: HardwareData,
   options: GenerationOptions,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  productAssets?: ProductAssetData[],
+  productAnnotations?: ProductAnnotationData[]
 ): Promise<Blob> {
   const isZh = options.language === 'zh';
+  const includeImages = options.includeImages !== false; // default to true
   const sections: (Paragraph | Table)[] = [];
   
   onProgress?.(5, isZh ? '开始生成文档' : 'Starting document generation', '');
@@ -382,7 +476,8 @@ export async function generateDOCX(
   sections.push(createTableFromData(wsHeaders, wsRows));
 
   // Detailed workstation info
-  workstations.forEach((ws, idx) => {
+  for (let idx = 0; idx < workstations.length; idx++) {
+    const ws = workstations[idx];
     const layout = layouts.find(l => l.workstation_id === ws.id);
     const wsMods = modules.filter(m => m.workstation_id === ws.id);
 
@@ -449,6 +544,59 @@ export async function generateDOCX(
           `${layout.selected_controller.brand} ${layout.selected_controller.model}`
         ));
       }
+      
+      // Layout view images
+      if (includeImages) {
+        const viewImages: { url: string | null | undefined; label: string }[] = [
+          { url: layout.front_view_image_url, label: isZh ? '正视图' : 'Front View' },
+          { url: layout.side_view_image_url, label: isZh ? '侧视图' : 'Side View' },
+          { url: layout.top_view_image_url, label: isZh ? '俯视图' : 'Top View' },
+        ];
+        
+        for (const viewImg of viewImages) {
+          if (viewImg.url) {
+            const imgParagraphs = await createImageParagraph(viewImg.url, viewImg.label, 450, 300);
+            for (const p of imgParagraphs) {
+              if (p) sections.push(p);
+            }
+          }
+        }
+      }
+    }
+
+    // Product images for this workstation
+    if (includeImages && productAssets) {
+      const wsAssets = productAssets.filter(a => a.workstation_id === ws.id && a.scope_type === 'workstation');
+      if (wsAssets.length > 0) {
+        sections.push(
+          createHeading(isZh ? '产品图片' : 'Product Images', HeadingLevel.HEADING_3),
+        );
+        
+        for (const asset of wsAssets) {
+          if (asset.preview_images && asset.preview_images.length > 0) {
+            for (const img of asset.preview_images) {
+              const imgParagraphs = await createImageParagraph(img.url, img.name || (isZh ? '产品预览' : 'Product Preview'), 400, 300);
+              for (const p of imgParagraphs) {
+                if (p) sections.push(p);
+              }
+            }
+          }
+          
+          // Add annotations for this asset
+          if (productAnnotations) {
+            const assetAnnotations = productAnnotations.filter(an => an.asset_id === asset.id);
+            for (const anno of assetAnnotations) {
+              if (anno.snapshot_url) {
+                const caption = anno.remark || (isZh ? '标注截图' : 'Annotation Snapshot');
+                const imgParagraphs = await createImageParagraph(anno.snapshot_url, caption, 450, 350);
+                for (const p of imgParagraphs) {
+                  if (p) sections.push(p);
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
     // Modules for this workstation
@@ -471,7 +619,7 @@ export async function generateDOCX(
 
       sections.push(createTableFromData(modHeaders, modRows));
     }
-  });
+  }
 
   onProgress?.(60, isZh ? '生成模块参数' : 'Generating module parameters', '');
 
@@ -481,7 +629,8 @@ export async function generateDOCX(
     createHeading(isZh ? '3. 模块参数详情' : '3. Module Parameter Details'),
   );
 
-  modules.forEach((mod, idx) => {
+  for (let idx = 0; idx < modules.length; idx++) {
+    const mod = modules[idx];
     const ws = workstations.find(w => w.id === mod.workstation_id);
     const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type;
 
@@ -500,6 +649,58 @@ export async function generateDOCX(
 
     if (mod.description) {
       sections.push(createLabelValue(isZh ? '描述' : 'Description', mod.description));
+    }
+
+    // Module schematic image
+    if (includeImages && mod.schematic_image_url) {
+      sections.push(createHeading(isZh ? '模块原理图' : 'Module Schematic', HeadingLevel.HEADING_3));
+      const imgParagraphs = await createImageParagraph(
+        mod.schematic_image_url, 
+        isZh ? '检测原理示意图' : 'Detection Schematic',
+        450, 
+        350
+      );
+      for (const p of imgParagraphs) {
+        if (p) sections.push(p);
+      }
+    }
+
+    // Module product annotations
+    if (includeImages && productAssets && productAnnotations) {
+      const modAssets = productAssets.filter(a => a.module_id === mod.id && a.scope_type === 'module');
+      
+      if (modAssets.length > 0) {
+        sections.push(createHeading(isZh ? '检测标注' : 'Detection Annotations', HeadingLevel.HEADING_3));
+        
+        for (const asset of modAssets) {
+          // Add preview images
+          if (asset.preview_images && asset.preview_images.length > 0) {
+            for (const img of asset.preview_images) {
+              const imgParagraphs = await createImageParagraph(
+                img.url, 
+                img.name || (isZh ? '产品预览' : 'Product Preview'), 
+                400, 
+                300
+              );
+              for (const p of imgParagraphs) {
+                if (p) sections.push(p);
+              }
+            }
+          }
+          
+          // Add annotation snapshots
+          const assetAnnotations = productAnnotations.filter(an => an.asset_id === asset.id);
+          for (const anno of assetAnnotations) {
+            if (anno.snapshot_url) {
+              const caption = anno.remark || (isZh ? '检测区域标注' : 'Detection Area Annotation');
+              const imgParagraphs = await createImageParagraph(anno.snapshot_url, caption, 450, 350);
+              for (const p of imgParagraphs) {
+                if (p) sections.push(p);
+              }
+            }
+          }
+        }
+      }
     }
 
     // Type-specific configurations
@@ -583,7 +784,7 @@ export async function generateDOCX(
         sections.push(createLabelValue(isZh ? '最小样本数' : 'Min Sample Count', String(config.minSampleCount)));
       }
     }
-  });
+  }
 
   onProgress?.(80, isZh ? '生成硬件清单' : 'Generating hardware list', '');
 
