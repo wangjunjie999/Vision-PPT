@@ -1177,7 +1177,7 @@ export async function generatePPTX(
 
     // Motion method section
     layoutSlide.addText(isZh ? '【运动方式】' : '[Motion Method]', {
-      x: 0.5, y: 3.5, w: 9, h: 0.28,
+      x: 0.5, y: 3.45, w: 9, h: 0.25,
       fontSize: 11, color: COLORS.primary, bold: true,
     });
 
@@ -1189,7 +1189,7 @@ export async function generatePPTX(
     ];
 
     layoutSlide.addTable(motionRows, {
-      x: 0.5, y: 3.85, w: 9, h: 1.3,
+      x: 0.5, y: 3.75, w: 9, h: 1.0,
       fontFace: 'Arial',
       fontSize: 9,
       colW: [2, 7],
@@ -1201,7 +1201,7 @@ export async function generatePPTX(
     // Layout info
     if (wsLayout?.width || wsLayout?.height || wsLayout?.depth) {
       layoutSlide.addText(`${isZh ? '布局尺寸' : 'Layout Size'}: ${wsLayout.width || '-'} × ${wsLayout.height || '-'} × ${wsLayout.depth || '-'} mm`, {
-        x: 0.5, y: 5.3, w: 9, h: 0.25,
+        x: 0.5, y: 4.85, w: 9, h: 0.25,
         fontSize: 9, color: COLORS.secondary,
       });
     }
@@ -1214,10 +1214,10 @@ export async function generatePPTX(
       fontSize: 20, color: COLORS.dark, bold: true,
     });
 
-    // Step 1: Three key sentences
-    const step1Y = 1.2;
+    // Step 1: Three key sentences - compressed height
+    const step1Y = 1.15;
     wsBasicSlide.addShape('rect', {
-      x: 0.5, y: step1Y, w: 9, h: 2.2,
+      x: 0.5, y: step1Y, w: 9, h: 1.6,
       fill: { color: COLORS.white },
       shadow: { type: 'outer', blur: 3, offset: 2, angle: 45, opacity: 0.15 },
     });
@@ -1225,41 +1225,41 @@ export async function generatePPTX(
     const processStageLabel = ws.process_stage ? (PROCESS_STAGE_LABELS[ws.process_stage]?.[isZh ? 'zh' : 'en'] || ws.process_stage) : '-';
     
     wsBasicSlide.addText(isZh ? '工位动作' : 'Workstation Action', {
-      x: 0.7, y: step1Y + 0.15, w: 2, h: 0.3,
-      fontSize: 11, color: COLORS.primary, bold: true,
+      x: 0.7, y: step1Y + 0.1, w: 2, h: 0.25,
+      fontSize: 10, color: COLORS.primary, bold: true,
     });
     wsBasicSlide.addText(processStageLabel, {
-      x: 2.7, y: step1Y + 0.15, w: 6.6, h: 0.3,
-      fontSize: 11, color: COLORS.dark,
+      x: 2.7, y: step1Y + 0.1, w: 6.6, h: 0.25,
+      fontSize: 10, color: COLORS.dark,
     });
 
     wsBasicSlide.addText(isZh ? '检测目标' : 'Detection Target', {
-      x: 0.7, y: step1Y + 0.55, w: 2, h: 0.3,
-      fontSize: 11, color: COLORS.primary, bold: true,
+      x: 0.7, y: step1Y + 0.4, w: 2, h: 0.25,
+      fontSize: 10, color: COLORS.primary, bold: true,
     });
     const detectionTargets = wsModules.map(m => {
       const typeLabel = MODULE_TYPE_LABELS[m.type]?.[isZh ? 'zh' : 'en'] || m.type;
       return typeLabel;
     }).join('、') || (ws.observation_target || '-');
     wsBasicSlide.addText(detectionTargets, {
-      x: 2.7, y: step1Y + 0.55, w: 6.6, h: 0.3,
-      fontSize: 11, color: COLORS.dark,
+      x: 2.7, y: step1Y + 0.4, w: 6.6, h: 0.25,
+      fontSize: 10, color: COLORS.dark,
     });
 
     wsBasicSlide.addText(isZh ? '验收口径' : 'Acceptance Criteria', {
-      x: 0.7, y: step1Y + 0.95, w: 2, h: 0.3,
-      fontSize: 11, color: COLORS.primary, bold: true,
+      x: 0.7, y: step1Y + 0.7, w: 2, h: 0.25,
+      fontSize: 10, color: COLORS.primary, bold: true,
     });
     const acceptanceCriteria = ws.acceptance_criteria;
     const criteriaText = acceptanceCriteria 
       ? `${isZh ? '精度' : 'Accuracy'}: ${acceptanceCriteria.accuracy || '-'}, ${isZh ? '节拍' : 'Cycle'}: ${acceptanceCriteria.cycle_time || '-'}, ${isZh ? '兼容尺寸' : 'Compatible'}: ${acceptanceCriteria.compatible_sizes || '-'}`
       : `${isZh ? '精度' : 'Accuracy'}: ≤0.1mm, ${isZh ? '节拍' : 'Cycle'}: ≤${ws.cycle_time || '-'}s`;
     wsBasicSlide.addText(criteriaText, {
-      x: 2.7, y: step1Y + 0.95, w: 6.6, h: 0.65,
-      fontSize: 10, color: COLORS.dark,
+      x: 2.7, y: step1Y + 0.7, w: 6.6, h: 0.5,
+      fontSize: 9, color: COLORS.dark,
     });
 
-    // Basic info table
+    // Basic info table - moved up
     const dims = ws.product_dimensions;
     const wsInfoRows: TableRow[] = [
       row([isZh ? '工位类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type]),
@@ -1271,7 +1271,7 @@ export async function generatePPTX(
     ];
 
     wsBasicSlide.addTable(wsInfoRows, {
-      x: 0.5, y: 3.6, w: 4.3, h: 2.2,
+      x: 0.5, y: 2.95, w: 4.3, h: 1.8,
       fontFace: 'Arial',
       fontSize: 9,
       colW: [1.5, 2.8],
@@ -1279,20 +1279,20 @@ export async function generatePPTX(
       fill: { color: COLORS.white },
     });
 
-    // Module summary
+    // Module summary - moved up
     if (wsModules.length > 0) {
       wsBasicSlide.addText(isZh ? '功能模块' : 'Function Modules', {
-        x: 5, y: 3.6, w: 4.5, h: 0.3,
+        x: 5, y: 2.95, w: 4.5, h: 0.28,
         fontSize: 11, color: COLORS.dark, bold: true,
       });
       
-      const modSummaryRows: TableRow[] = wsModules.slice(0, 6).map(mod => row([
+      const modSummaryRows: TableRow[] = wsModules.slice(0, 5).map(mod => row([
         MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type,
         mod.name
       ]));
       
       wsBasicSlide.addTable(modSummaryRows, {
-        x: 5, y: 3.95, w: 4.5, h: Math.min(modSummaryRows.length * 0.32, 1.85),
+        x: 5, y: 3.28, w: 4.5, h: Math.min(modSummaryRows.length * 0.3, 1.5),
         fontFace: 'Arial',
         fontSize: 9,
         colW: [1.5, 3],
@@ -1770,20 +1770,20 @@ export async function generatePPTX(
       align: 'center',
     });
 
-    // Review section
+    // Review section - moved up to stay within page bounds
     bomSlide.addText(isZh ? '【审核】' : '[Review]', {
-      x: 0.5, y: 5, w: 9, h: 0.3,
-      fontSize: 11, color: COLORS.dark, bold: true,
+      x: 0.5, y: 4.75, w: 9, h: 0.25,
+      fontSize: 10, color: COLORS.dark, bold: true,
     });
 
     bomSlide.addShape('rect', {
-      x: 0.5, y: 5.35, w: 9, h: 0.8,
+      x: 0.5, y: 5.0, w: 9, h: 0.45,
       fill: { color: COLORS.white },
       line: { color: COLORS.border, width: 0.5 },
     });
     bomSlide.addText(`☐ ${isZh ? '技术确认' : 'Technical'}     ☐ ${isZh ? '采购确认' : 'Procurement'}     ☐ ${isZh ? '客户确认' : 'Customer'}`, {
-      x: 0.7, y: 5.5, w: 8.6, h: 0.5,
-      fontSize: 11, color: COLORS.dark,
+      x: 0.7, y: 5.05, w: 8.6, h: 0.35,
+      fontSize: 10, color: COLORS.dark,
     });
 
     // ========== Risk & Pending Confirmation (Optional Step 6 detailed page) ==========
