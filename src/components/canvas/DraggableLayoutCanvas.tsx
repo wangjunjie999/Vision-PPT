@@ -40,6 +40,7 @@ import { MechanismSVG, getMechanismMountPoints, type CameraMountPoint } from './
 import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } from './CameraMountPoints';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
 import { compressImage, dataUrlToBlob, QUALITY_PRESETS, type QualityPreset } from '@/utils/imageCompression';
+import { getImageSaveErrorMessage } from '@/utils/errorMessages';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -693,6 +694,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         quality: preset.quality, 
         pixelRatio: preset.pixelRatio,
         backgroundColor: '#1e293b',
+        skipFonts: true,
       });
       
       // Convert and compress
@@ -736,7 +738,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       toast.success(`${targetView === 'front' ? '正视图' : targetView === 'side' ? '侧视图' : '俯视图'}已保存`);
     } catch (error) {
       console.error('Save view error:', error);
-      toast.error('保存视图失败');
+      toast.error(getImageSaveErrorMessage(error));
     } finally {
       setIsSavingView(false);
     }
@@ -773,6 +775,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           quality: preset.quality, 
           pixelRatio: preset.pixelRatio,
           backgroundColor: '#1e293b',
+          skipFonts: true,
         });
         
         const originalBlob = dataUrlToBlob(dataUrl);
@@ -827,7 +830,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       toast.success('三视图已全部保存');
     } catch (error) {
       console.error('Save all views error:', error);
-      toast.error('保存三视图失败');
+      toast.error(getImageSaveErrorMessage(error));
     } finally {
       setIsSavingAllViews(false);
       setSaveProgress(0);

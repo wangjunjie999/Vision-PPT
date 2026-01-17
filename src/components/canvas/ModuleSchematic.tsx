@@ -28,6 +28,7 @@ import { VisionSystemDiagram } from './VisionSystemDiagram';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { supabase } from '@/integrations/supabase/client';
+import { getImageSaveErrorMessage } from '@/utils/errorMessages';
 
 const moduleTypeIcons = {
   positioning: Crosshair,
@@ -142,6 +143,7 @@ export function ModuleSchematic() {
         quality: 1,
         pixelRatio,
         backgroundColor: '#1a1a2e',
+        skipFonts: true,
       });
       
       // Download the image
@@ -170,6 +172,7 @@ export function ModuleSchematic() {
         quality: 1,
         pixelRatio,
         backgroundColor: '#1a1a2e',
+        skipFonts: true,
       });
       
       const pdf = new jsPDF({
@@ -225,6 +228,7 @@ export function ModuleSchematic() {
         quality: 1,
         pixelRatio,
         backgroundColor: '#1a1a2e',
+        skipFonts: true,
       });
       
       // Convert base64 to blob
@@ -262,7 +266,7 @@ export function ModuleSchematic() {
       toast.success('视觉系统示意图已保存，可用于PPT生成');
     } catch (error) {
       console.error('Failed to save schematic:', error);
-      toast.error('保存示意图失败');
+      toast.error(getImageSaveErrorMessage(error));
     } finally {
       setSavingSchematic(false);
     }

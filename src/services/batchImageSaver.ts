@@ -179,6 +179,7 @@ export async function generateImageFromElement(
     quality: preset.quality,
     pixelRatio: preset.pixelRatio,
     backgroundColor,
+    skipFonts: true,
   });
   
   const originalBlob = dataUrlToBlob(dataUrl);
