@@ -210,6 +210,17 @@ export async function generateFromUserTemplate(
     };
   } catch (error) {
     console.error('Template generation error:', error);
+    console.error('Function URL:', functionUrl);
+    
+    // 区分网络错误和其他错误
+    if (error instanceof TypeError && (error.message === 'Failed to fetch' || error.message.includes('fetch'))) {
+      console.error('网络请求失败 - Edge Function可能未部署或不可访问');
+      return { 
+        success: false, 
+        error: '无法连接到服务器。可能原因：\n1. 网络连接问题\n2. 服务暂时不可用\n请检查网络连接后重试。' 
+      };
+    }
+    
     return { 
       success: false, 
       error: `生成错误: ${error}` 
