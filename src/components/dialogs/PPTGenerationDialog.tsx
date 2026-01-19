@@ -517,9 +517,74 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         setProgress(10);
         setCurrentStep('生成PDF文档');
 
-        // Add layout view image URLs to layout data
+        // Add layout view image URLs and complete hardware data to layout data
         const layoutDataWithImages = layoutsToProcess.map(l => {
           const layoutItem = l as any;
+          
+          // 处理选用相机，包含完整信息
+          const selectedCameras = layoutItem.selected_cameras?.map((c: any) => {
+            if (!c) return null;
+            // 如果只有id，尝试从硬件库中获取完整信息
+            const fullCam = cameras.find(cam => cam.id === c.id);
+            return {
+              id: c.id,
+              brand: c.brand || fullCam?.brand || '',
+              model: c.model || fullCam?.model || '',
+              image_url: c.image_url || fullCam?.image_url || null,
+              resolution: c.resolution || fullCam?.resolution || '',
+              frame_rate: c.frame_rate || fullCam?.frame_rate || 0,
+              interface: c.interface || fullCam?.interface || '',
+              sensor_size: c.sensor_size || fullCam?.sensor_size || '',
+            };
+          }).filter(Boolean) || null;
+
+          // 处理选用镜头
+          const selectedLenses = layoutItem.selected_lenses?.map((l: any) => {
+            if (!l) return null;
+            const fullLens = lenses.find(lens => lens.id === l.id);
+            return {
+              id: l.id,
+              brand: l.brand || fullLens?.brand || '',
+              model: l.model || fullLens?.model || '',
+              image_url: l.image_url || fullLens?.image_url || null,
+              focal_length: l.focal_length || fullLens?.focal_length || '',
+              aperture: l.aperture || fullLens?.aperture || '',
+              mount: l.mount || fullLens?.mount || '',
+            };
+          }).filter(Boolean) || null;
+
+          // 处理选用光源
+          const selectedLights = layoutItem.selected_lights?.map((lt: any) => {
+            if (!lt) return null;
+            const fullLight = lights.find(light => light.id === lt.id);
+            return {
+              id: lt.id,
+              brand: lt.brand || fullLight?.brand || '',
+              model: lt.model || fullLight?.model || '',
+              image_url: lt.image_url || fullLight?.image_url || null,
+              type: lt.type || fullLight?.type || '',
+              color: lt.color || fullLight?.color || '',
+              power: lt.power || fullLight?.power || '',
+            };
+          }).filter(Boolean) || null;
+
+          // 处理选用控制器
+          let selectedController = null;
+          if (layoutItem.selected_controller) {
+            const c = layoutItem.selected_controller;
+            const fullCtrl = controllers.find(ctrl => ctrl.id === c.id);
+            selectedController = {
+              id: c.id,
+              brand: c.brand || fullCtrl?.brand || '',
+              model: c.model || fullCtrl?.model || '',
+              image_url: c.image_url || fullCtrl?.image_url || null,
+              cpu: c.cpu || fullCtrl?.cpu || '',
+              gpu: c.gpu || fullCtrl?.gpu || null,
+              memory: c.memory || fullCtrl?.memory || '',
+              storage: c.storage || fullCtrl?.storage || '',
+            };
+          }
+
           return {
             workstation_id: layoutItem.workstation_id,
             conveyor_type: layoutItem.conveyor_type,
@@ -528,10 +593,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             light_count: layoutItem.light_count ?? 1,
             camera_mounts: layoutItem.camera_mounts,
             mechanisms: layoutItem.mechanisms,
-            selected_cameras: layoutItem.selected_cameras || null,
-            selected_lenses: layoutItem.selected_lenses || null,
-            selected_lights: layoutItem.selected_lights || null,
-            selected_controller: layoutItem.selected_controller || null,
+            selected_cameras: selectedCameras,
+            selected_lenses: selectedLenses,
+            selected_lights: selectedLights,
+            selected_controller: selectedController,
             front_view_image_url: layoutItem.front_view_image_url || null,
             side_view_image_url: layoutItem.side_view_image_url || null,
             top_view_image_url: layoutItem.top_view_image_url || null,

@@ -37,6 +37,12 @@ interface HardwareSlotProps {
 
 function HardwareSlot({ label, icon, item, slotIndex, onSelect, onClear }: HardwareSlotProps) {
   const isEmpty = !item;
+  const [imageError, setImageError] = useState(false);
+
+  // Reset image error when item changes
+  useEffect(() => {
+    setImageError(false);
+  }, [item?.id, item?.image_url]);
 
   return (
     <div className="space-y-1.5">
@@ -88,11 +94,12 @@ function HardwareSlot({ label, icon, item, slotIndex, onSelect, onClear }: Hardw
               <X className="h-3 w-3" />
             </Button>
             <div className="flex flex-col items-center gap-2">
-              {item.image_url ? (
+              {item.image_url && !imageError ? (
                 <img
                   src={item.image_url}
                   alt={item.model}
                   className="w-12 h-12 object-contain rounded-lg bg-background/50"
+                  onError={() => setImageError(true)}
                 />
               ) : (
                 <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -119,6 +126,59 @@ function HardwareSlot({ label, icon, item, slotIndex, onSelect, onClear }: Hardw
             </Button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// 单独的硬件选择项组件，用于处理图片加载错误
+function HardwareSelectionItem({ 
+  item, 
+  type, 
+  onSelect, 
+  getItemDetails 
+}: { 
+  item: HardwareItem; 
+  type: 'cameras' | 'lenses' | 'lights' | 'controllers';
+  onSelect: () => void; 
+  getItemDetails: (item: HardwareItem) => string;
+}) {
+  const [imageError, setImageError] = useState(false);
+
+  const renderIcon = () => {
+    switch (type) {
+      case 'cameras': return <Camera className="h-6 w-6 text-primary" />;
+      case 'lenses': return <Focus className="h-6 w-6 text-primary" />;
+      case 'lights': return <Lightbulb className="h-6 w-6 text-primary" />;
+      case 'controllers': return <Monitor className="h-6 w-6 text-primary" />;
+    }
+  };
+
+  return (
+    <div
+      className="group relative p-3 rounded-xl border-2 border-border bg-card hover:border-primary hover:shadow-md transition-all cursor-pointer"
+      onClick={onSelect}
+    >
+      <div className="flex items-start gap-3">
+        {item.image_url && !imageError ? (
+          <img
+            src={item.image_url}
+            alt={item.model}
+            className="w-14 h-14 object-contain rounded-lg bg-muted/50"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+            {renderIcon()}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate">{item.brand}</p>
+          <p className="text-xs text-muted-foreground truncate">{item.model}</p>
+          <p className="text-[10px] text-muted-foreground/70 mt-1 truncate">
+            {getItemDetails(item)}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -200,38 +260,16 @@ function HardwareSelectionDialog({ open, onOpenChange, type, onSelect }: Hardwar
           ) : (
             <div className="grid grid-cols-2 gap-3 p-1">
               {items.map((item) => (
-                <div
-                  key={item.id}
-                  className="group relative p-3 rounded-xl border-2 border-border bg-card hover:border-primary hover:shadow-md transition-all cursor-pointer"
-                  onClick={() => {
+                <HardwareSelectionItem 
+                  key={item.id} 
+                  item={item} 
+                  type={type}
+                  onSelect={() => {
                     onSelect(item);
                     onOpenChange(false);
                   }}
-                >
-                  <div className="flex items-start gap-3">
-                    {item.image_url ? (
-                      <img
-                        src={item.image_url}
-                        alt={item.model}
-                        className="w-14 h-14 object-contain rounded-lg bg-muted/50"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
-                        {type === 'cameras' && <Camera className="h-6 w-6 text-primary" />}
-                        {type === 'lenses' && <Focus className="h-6 w-6 text-primary" />}
-                        {type === 'lights' && <Lightbulb className="h-6 w-6 text-primary" />}
-                        {type === 'controllers' && <Monitor className="h-6 w-6 text-primary" />}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{item.brand}</p>
-                      <p className="text-xs text-muted-foreground truncate">{item.model}</p>
-                      <p className="text-[10px] text-muted-foreground/70 mt-1 truncate">
-                        {getItemDetails(item)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  getItemDetails={getItemDetails}
+                />
               ))}
             </div>
           )}
