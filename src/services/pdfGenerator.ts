@@ -71,10 +71,44 @@ interface LayoutData {
   light_count?: number | null;
   camera_mounts: string[] | null;
   mechanisms: string[] | null;
-  selected_cameras: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-  selected_lenses: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-  selected_lights: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-  selected_controller: { id: string; brand: string; model: string; image_url?: string | null } | null;
+  selected_cameras: Array<{ 
+    id: string; 
+    brand: string; 
+    model: string; 
+    image_url?: string | null;
+    resolution?: string;
+    frame_rate?: number;
+    interface?: string;
+    sensor_size?: string;
+  }> | null;
+  selected_lenses: Array<{ 
+    id: string; 
+    brand: string; 
+    model: string; 
+    image_url?: string | null;
+    focal_length?: string;
+    aperture?: string;
+    mount?: string;
+  }> | null;
+  selected_lights: Array<{ 
+    id: string; 
+    brand: string; 
+    model: string; 
+    image_url?: string | null;
+    type?: string;
+    color?: string;
+    power?: string;
+  }> | null;
+  selected_controller: { 
+    id: string; 
+    brand: string; 
+    model: string; 
+    image_url?: string | null;
+    cpu?: string;
+    gpu?: string | null;
+    memory?: string;
+    storage?: string;
+  } | null;
   front_view_image_url?: string | null;
   side_view_image_url?: string | null;
   top_view_image_url?: string | null;
@@ -214,11 +248,34 @@ const COMPANY_NAME_EN = 'SuZhou DXY Intelligent Solution Co.,Ltd';
 
 // ==================== HELPER FUNCTIONS ====================
 
+/**
+ * 将相对路径转换为完整URL
+ * 处理如 /hardware/camera-keyence.png 这类本地资源路径
+ */
+function resolveImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  // 如果已经是完整URL，直接返回
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  // 如果是相对路径（如/hardware/camera-keyence.png），转为完整URL
+  if (url.startsWith('/')) {
+    // 使用当前origin构建完整URL
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return origin ? `${origin}${url}` : url;
+  }
+  return url;
+}
+
 async function fetchImageAsBase64(url: string): Promise<string | null> {
+  // 先处理URL，确保相对路径被正确解析
+  const resolvedUrl = resolveImageUrl(url);
+  if (!resolvedUrl) return null;
+  
   try {
-    const response = await fetch(url);
+    const response = await fetch(resolvedUrl);
     if (!response.ok) {
-      console.warn(`Failed to fetch image: ${url}, status: ${response.status}`);
+      console.warn(`Failed to fetch image: ${resolvedUrl}, status: ${response.status}`);
       return null;
     }
     const blob = await response.blob();
@@ -229,7 +286,7 @@ async function fetchImageAsBase64(url: string): Promise<string | null> {
       reader.readAsDataURL(blob);
     });
   } catch (error) {
-    console.warn(`Error fetching image: ${url}`, error);
+    console.warn(`Error fetching image: ${resolvedUrl}`, error);
     return null;
   }
 }
@@ -828,12 +885,76 @@ export async function generatePDF(
         helper.addLabelValue(isZh ? '布局尺寸' : 'Layout Size', `${layout.width} × ${layout.depth} × ${layout.height} mm`);
       }
       helper.addSpace(5);
+
+      // ========== 选用硬件详情（相机、镜头、光源、控制器） ==========
+      // 选用相机
+      if (layout.selected_cameras && layout.selected_cameras.length > 0) {
+        helper.addSubtitle(isZh ? '选用相机' : 'Selected Cameras');
+        for (const cam of layout.selected_cameras) {
+          if (cam) {
+            const camInfo = `${cam.brand} ${cam.model}${cam.resolution ? ` | ${cam.resolution}` : ''}${cam.frame_rate ? ` @ ${cam.frame_rate}fps` : ''}${cam.interface ? ` | ${cam.interface}` : ''}`;
+            helper.addLabelValue(isZh ? '相机' : 'Camera', camInfo, 5);
+            // 添加相机图片
+            if (includeImages && cam.image_url) {
+              const added = await helper.addImage(cam.image_url, `${cam.brand} ${cam.model}`, 60, 45);
+              if (added) totalImages++;
+            }
+          }
+        }
+        helper.addSpace(5);
+      }
+
+      // 选用镜头
+      if (layout.selected_lenses && layout.selected_lenses.length > 0) {
+        helper.addSubtitle(isZh ? '选用镜头' : 'Selected Lenses');
+        for (const lens of layout.selected_lenses) {
+          if (lens) {
+            const lensInfo = `${lens.brand} ${lens.model}${lens.focal_length ? ` | ${lens.focal_length}` : ''}${lens.aperture ? ` ${lens.aperture}` : ''}${lens.mount ? ` | ${lens.mount}` : ''}`;
+            helper.addLabelValue(isZh ? '镜头' : 'Lens', lensInfo, 5);
+            if (includeImages && lens.image_url) {
+              const added = await helper.addImage(lens.image_url, `${lens.brand} ${lens.model}`, 60, 45);
+              if (added) totalImages++;
+            }
+          }
+        }
+        helper.addSpace(5);
+      }
+
+      // 选用光源
+      if (layout.selected_lights && layout.selected_lights.length > 0) {
+        helper.addSubtitle(isZh ? '选用光源' : 'Selected Lights');
+        for (const light of layout.selected_lights) {
+          if (light) {
+            const lightInfo = `${light.brand} ${light.model}${light.type ? ` | ${light.type}` : ''}${light.color ? ` ${light.color}` : ''}${light.power ? ` | ${light.power}` : ''}`;
+            helper.addLabelValue(isZh ? '光源' : 'Light', lightInfo, 5);
+            if (includeImages && light.image_url) {
+              const added = await helper.addImage(light.image_url, `${light.brand} ${light.model}`, 60, 45);
+              if (added) totalImages++;
+            }
+          }
+        }
+        helper.addSpace(5);
+      }
+
+      // 选用控制器
+      if (layout.selected_controller) {
+        helper.addSubtitle(isZh ? '选用控制器' : 'Selected Controller');
+        const ctrl = layout.selected_controller;
+        const ctrlInfo = `${ctrl.brand} ${ctrl.model}${ctrl.cpu ? ` | ${ctrl.cpu}` : ''}${ctrl.memory ? ` | ${ctrl.memory}` : ''}${ctrl.storage ? ` | ${ctrl.storage}` : ''}`;
+        helper.addLabelValue(isZh ? '控制器' : 'Controller', ctrlInfo, 5);
+        if (includeImages && ctrl.image_url) {
+          const added = await helper.addImage(ctrl.image_url, `${ctrl.brand} ${ctrl.model}`, 60, 45);
+          if (added) totalImages++;
+        }
+        helper.addSpace(5);
+      }
     }
 
-    // 布局三视图
+    // 机械结构三视图
     if (includeImages && layout) {
       if (layout.front_view_image_url || layout.side_view_image_url || layout.top_view_image_url) {
-        helper.addSubtitle(isZh ? '布局视图' : 'Layout Views');
+        helper.addNewPageIfNeeded(100);
+        helper.addSubtitle(isZh ? '机械结构三视图' : 'Mechanical Structure Views');
       }
       
       if (layout.front_view_image_url) {
@@ -941,9 +1062,13 @@ export async function generatePDF(
           }
         }
 
-        // 模块示意图
+        // 视觉系统示意图（模块示意图）
         if (includeImages && mod.schematic_image_url) {
-          const added = await helper.addImage(mod.schematic_image_url, isZh ? '模块示意图' : 'Module Schematic', 110, 70);
+          helper.addNewPageIfNeeded(90);
+          helper.addSpace(3);
+          helper.addTextImage(isZh ? '视觉系统示意图：' : 'Vision System Schematic:', margin + 5, 10, 'bold', '#4a5568');
+          helper.y += 10;
+          const added = await helper.addImage(mod.schematic_image_url, isZh ? '视觉系统示意图' : 'Vision System Schematic', 130, 85);
           if (added) totalImages++;
         }
 
