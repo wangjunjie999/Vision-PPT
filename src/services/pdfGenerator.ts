@@ -139,6 +139,95 @@ interface ModuleData {
   measurement_config?: Record<string, unknown> | null;
 }
 
+// ==================== HARDWARE ID TO NAME HELPER ====================
+
+function getHardwareDisplayName(
+  id: string | null | undefined, 
+  hardware: HardwareData, 
+  type: 'camera' | 'lens' | 'light' | 'controller'
+): string {
+  if (!id) return '—';
+  
+  if (type === 'camera') {
+    const cam = hardware.cameras.find(c => c.id === id);
+    if (cam) {
+      return `${cam.brand} ${cam.model} | ${cam.resolution} @ ${cam.frame_rate}fps | ${cam.interface}`;
+    }
+  } else if (type === 'lens') {
+    const lens = hardware.lenses.find(l => l.id === id);
+    if (lens) {
+      return `${lens.brand} ${lens.model} | ${lens.focal_length} ${lens.aperture} | ${lens.mount}`;
+    }
+  } else if (type === 'light') {
+    const light = hardware.lights.find(l => l.id === id);
+    if (light) {
+      return `${light.brand} ${light.model} | ${light.type} ${light.color} | ${light.power}`;
+    }
+  } else if (type === 'controller') {
+    const ctrl = hardware.controllers.find(c => c.id === id);
+    if (ctrl) {
+      return `${ctrl.brand} ${ctrl.model} | ${ctrl.cpu} | ${ctrl.memory}`;
+    }
+  }
+  
+  // 如果找不到硬件，可能是UUID，尝试显示短格式
+  if (id.length > 20 && id.includes('-')) {
+    return `ID: ${id.substring(0, 8)}...`;
+  }
+  return id;
+}
+
+// ==================== MODULE CONFIG LABEL HELPERS ====================
+
+const JUDGMENT_STRATEGY_LABELS: Record<string, { zh: string; en: string }> = {
+  strict: { zh: '严格', en: 'Strict' },
+  balanced: { zh: '平衡', en: 'Balanced' },
+  tolerant: { zh: '宽松', en: 'Tolerant' },
+};
+
+const OUTPUT_ACTION_LABELS: Record<string, { zh: string; en: string }> = {
+  alarm: { zh: '报警', en: 'Alarm' },
+  reject: { zh: '剔除', en: 'Reject' },
+  mark: { zh: '标记', en: 'Mark' },
+  saveImage: { zh: '存图', en: 'Save Image' },
+  saveData: { zh: '存数据', en: 'Save Data' },
+  stopLine: { zh: '停线', en: 'Stop Line' },
+};
+
+const COMMUNICATION_METHOD_LABELS: Record<string, { zh: string; en: string }> = {
+  plc: { zh: 'PLC', en: 'PLC' },
+  tcp: { zh: 'TCP/IP', en: 'TCP/IP' },
+  serial: { zh: '串口', en: 'Serial' },
+  modbus: { zh: 'Modbus', en: 'Modbus' },
+  mqtt: { zh: 'MQTT', en: 'MQTT' },
+};
+
+const CHAR_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
+  laser: { zh: '激光打码', en: 'Laser Marking' },
+  inkjet: { zh: '喷墨打印', en: 'Inkjet' },
+  label: { zh: '标签', en: 'Label' },
+  emboss: { zh: '压印', en: 'Emboss' },
+  etch: { zh: '蚀刻', en: 'Etch' },
+};
+
+const DL_TASK_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
+  classification: { zh: '分类', en: 'Classification' },
+  detection: { zh: '检测', en: 'Detection' },
+  segmentation: { zh: '分割', en: 'Segmentation' },
+  anomaly: { zh: '异常检测', en: 'Anomaly Detection' },
+};
+
+const MEAS_DIM_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
+  length: { zh: '长度', en: 'Length' },
+  width: { zh: '宽度', en: 'Width' },
+  height: { zh: '高度', en: 'Height' },
+  diameter: { zh: '直径', en: 'Diameter' },
+  radius: { zh: '半径', en: 'Radius' },
+  angle: { zh: '角度', en: 'Angle' },
+  gap: { zh: '间隙', en: 'Gap' },
+  flatness: { zh: '平面度', en: 'Flatness' },
+};
+
 interface ProductAssetData {
   id: string;
   workstation_id: string | null;
@@ -405,13 +494,13 @@ class PDFTextHelper {
     }
   }
   
-  // 添加章节标题
+  // 添加章节标题 - 16pt
   addSectionTitle(text: string) {
     this.sectionNumber++;
-    this.addNewPageIfNeeded(20);
+    this.addNewPageIfNeeded(25);
     const fullText = `${this.sectionNumber}. ${text}`;
     const { height } = this.addTextImage(fullText, this.margin, 16, 'bold', '#1a365d');
-    this.y += Math.max(height, 12) + 8;
+    this.y += Math.max(height, 14) + 8;
     
     // 添加下划线装饰
     this.pdf.setDrawColor(26, 54, 93);
@@ -420,42 +509,43 @@ class PDFTextHelper {
     this.y += 4;
   }
   
-  // 添加子标题
+  // 添加子标题 - 14pt
   addSubsectionTitle(parentNum: number, subNum: number, text: string) {
-    this.addNewPageIfNeeded(15);
+    this.addNewPageIfNeeded(20);
     const fullText = `${parentNum}.${subNum} ${text}`;
-    const { height } = this.addTextImage(fullText, this.margin, 13, 'bold', '#2c5282');
-    this.y += Math.max(height, 10) + 5;
+    const { height } = this.addTextImage(fullText, this.margin, 14, 'bold', '#2c5282');
+    this.y += Math.max(height, 12) + 6;
   }
   
+  // 添加小节标题 - 13pt
   addSubtitle(text: string) {
-    this.addNewPageIfNeeded(15);
-    const { height } = this.addTextImage(text, this.margin, 12, 'bold', '#2d3748');
-    this.y += Math.max(height, 10) + 4;
+    this.addNewPageIfNeeded(18);
+    const { height } = this.addTextImage(text, this.margin, 13, 'bold', '#2d3748');
+    this.y += Math.max(height, 11) + 5;
   }
   
-  // 添加标签值对（两列布局）
+  // 添加标签值对（两列布局）- 正文12pt（小四）
   addLabelValue(label: string, value: string, indent: number = 0) {
-    this.addNewPageIfNeeded(12);
+    this.addNewPageIfNeeded(14);
     const labelX = this.margin + indent;
-    const { width: labelWidth, height: labelHeight } = this.addTextImage(`${label}：`, labelX, 10, 'bold', '#4a5568');
+    const { width: labelWidth, height: labelHeight } = this.addTextImage(`${label}：`, labelX, 12, 'bold', '#4a5568');
     
-    const valueX = labelX + Math.max(labelWidth, 70) + 5;
+    const valueX = labelX + Math.max(labelWidth, 75) + 5;
     const maxValueWidth = this.contentWidth - (valueX - this.margin) - 5;
-    const { height: valueHeight } = this.addTextImage(value || '—', valueX, 10, 'normal', '#1a202c', maxValueWidth);
+    const { height: valueHeight } = this.addTextImage(value || '—', valueX, 12, 'normal', '#1a202c', maxValueWidth);
     
-    this.y += Math.max(labelHeight, valueHeight, 8) + 3;
+    this.y += Math.max(labelHeight, valueHeight, 10) + 3;
   }
   
-  // 添加纯文本段落
+  // 添加纯文本段落 - 正文12pt
   addParagraph(text: string, indent: number = 0) {
     if (!text) return;
-    this.addNewPageIfNeeded(15);
+    this.addNewPageIfNeeded(18);
     const maxWidth = this.contentWidth - indent;
-    const { height, lines } = renderTextToCanvas(text, 10, 'normal', maxWidth, '#2d3748', 1.6);
+    const { height } = renderTextToCanvas(text, 12, 'normal', maxWidth, '#2d3748', 1.5);
     
     try {
-      const { dataUrl } = renderTextToCanvas(text, 10, 'normal', maxWidth, '#2d3748', 1.6);
+      const { dataUrl } = renderTextToCanvas(text, 12, 'normal', maxWidth, '#2d3748', 1.5);
       this.pdf.addImage(dataUrl, 'PNG', this.margin + indent, this.y, undefined, height);
     } catch (e) {
       console.warn('Failed to add paragraph:', e);
@@ -510,16 +600,16 @@ class PDFTextHelper {
     }
   }
   
-  // 添加表格
+  // 添加表格 - 表头10pt 数据9pt
   addTable(headers: string[], rows: string[][], colWidths?: number[]) {
     const cols = headers.length;
     const totalWidth = this.contentWidth;
     const defaultWidth = totalWidth / cols;
     const widths = colWidths || headers.map(() => defaultWidth);
-    const cellHeight = 10;
+    const cellHeight = 11;
     const cellPadding = 3;
 
-    this.addNewPageIfNeeded(cellHeight * Math.min(rows.length + 1, 6) + 10);
+    this.addNewPageIfNeeded(cellHeight * Math.min(rows.length + 1, 6) + 15);
 
     // 表头背景
     this.pdf.setFillColor(241, 245, 249);
@@ -535,7 +625,7 @@ class PDFTextHelper {
     x = this.margin;
     headers.forEach((header, i) => {
       this.pdf.rect(x, this.y, widths[i], cellHeight, 'S');
-      const { dataUrl, width, height } = renderTextToCanvas(header, 9, 'bold', undefined, '#1a365d');
+      const { dataUrl, width, height } = renderTextToCanvas(header, 10, 'bold', undefined, '#1a365d');
       try {
         const textX = x + (widths[i] - width) / 2;
         const textY = this.y + (cellHeight - height) / 2;
@@ -564,8 +654,8 @@ class PDFTextHelper {
       x = this.margin;
       row.forEach((cell, i) => {
         this.pdf.rect(x, this.y, widths[i], cellHeight, 'S');
-        const truncated = cell && cell.length > 20 ? cell.substring(0, 18) + '...' : (cell || '—');
-        const { dataUrl, width, height } = renderTextToCanvas(truncated, 8, 'normal', undefined, '#374151');
+        const truncated = cell && cell.length > 25 ? cell.substring(0, 23) + '...' : (cell || '—');
+        const { dataUrl, width, height } = renderTextToCanvas(truncated, 9, 'normal', undefined, '#374151');
         try {
           const textX = x + cellPadding;
           const textY = this.y + (cellHeight - height) / 2;
@@ -1022,14 +1112,16 @@ export async function generatePDF(
       for (let modIdx = 0; modIdx < wsMods.length; modIdx++) {
         const mod = wsMods[modIdx];
         
-        helper.addNewPageIfNeeded(50);
+        helper.addNewPageIfNeeded(60);
         
-        // 模块标题（三级标题）
+        // 模块标题（三级标题）- 12pt
         const modTitle = `${sectionNum}.${wsIdx + 1}.${modIdx + 1} ${mod.name}`;
-        const { height: modTitleHeight } = helper.addTextImage(modTitle, margin, 11, 'bold', '#4a5568');
-        helper.y += Math.max(modTitleHeight, 9) + 4;
+        const { height: modTitleHeight } = helper.addTextImage(modTitle, margin, 12, 'bold', '#4a5568');
+        helper.y += Math.max(modTitleHeight, 10) + 5;
         
-        // 模块基本信息
+        // ========== 1. 模块基本信息 ==========
+        helper.addTextImage(isZh ? '【基本信息】' : '【Basic Info】', margin + 5, 12, 'bold', '#2d3748');
+        helper.y += 12;
         helper.addLabelValue(isZh ? '模块类型' : 'Type', MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type || '', 5);
         helper.addLabelValue(isZh ? '触发方式' : 'Trigger', TRIGGER_LABELS[mod.trigger_type || '']?.[isZh ? 'zh' : 'en'] || mod.trigger_type || '', 5);
         helper.addLabelValue(isZh ? 'ROI策略' : 'ROI Strategy', ROI_LABELS[mod.roi_strategy || '']?.[isZh ? 'zh' : 'en'] || mod.roi_strategy || '', 5);
@@ -1043,31 +1135,281 @@ export async function generatePDF(
           helper.addLabelValue(isZh ? '输出类型' : 'Output Types', mod.output_types.join(', '), 5);
         }
 
-        // 硬件配置
-        if (mod.selected_camera || mod.selected_lens || mod.selected_light || mod.selected_controller) {
+        // ========== 2. 获取模块类型对应的配置 ==========
+        const config: Record<string, unknown> = 
+          mod.type === 'positioning' ? (mod.positioning_config || {}) :
+          mod.type === 'defect' ? (mod.defect_config || {}) :
+          mod.type === 'ocr' ? (mod.ocr_config || {}) :
+          mod.type === 'measurement' ? (mod.measurement_config || {}) :
+          mod.type === 'deeplearning' ? (mod.deep_learning_config || {}) : {};
+
+        // ========== 3. 成像配置 ==========
+        const hasImagingConfig = config.workingDistance || config.fieldOfView || config.exposure || config.gain || 
+                                 config.lightMode || config.lightAngle || config.cameraLayout;
+        
+        if (hasImagingConfig) {
+          helper.addNewPageIfNeeded(40);
           helper.addSpace(3);
-          helper.addTextImage(isZh ? '硬件配置：' : 'Hardware:', margin + 5, 10, 'bold', '#4a5568');
-          helper.y += 8;
-          if (mod.selected_camera) {
-            helper.addLabelValue(isZh ? '相机' : 'Camera', mod.selected_camera, 15);
+          helper.addTextImage(isZh ? '【成像配置】' : '【Imaging Config】', margin + 5, 12, 'bold', '#2d3748');
+          helper.y += 12;
+          
+          if (config.workingDistance) {
+            helper.addLabelValue(isZh ? '工作距离' : 'Working Distance', `${config.workingDistance}mm`, 5);
           }
-          if (mod.selected_lens) {
-            helper.addLabelValue(isZh ? '镜头' : 'Lens', mod.selected_lens, 15);
+          if (config.fieldOfView) {
+            helper.addLabelValue(isZh ? '视场FOV' : 'Field of View', String(config.fieldOfView), 5);
           }
-          if (mod.selected_light) {
-            helper.addLabelValue(isZh ? '光源' : 'Light', mod.selected_light, 15);
+          if (config.resolutionPerPixel) {
+            helper.addLabelValue(isZh ? '像素分辨率' : 'Resolution/Pixel', `${config.resolutionPerPixel}mm/px`, 5);
           }
-          if (mod.selected_controller) {
-            helper.addLabelValue(isZh ? '控制器' : 'Controller', mod.selected_controller, 15);
+          if (config.exposure) {
+            helper.addLabelValue(isZh ? '曝光时间' : 'Exposure', `${config.exposure}ms`, 5);
+          }
+          if (config.gain) {
+            helper.addLabelValue(isZh ? '增益' : 'Gain', `${config.gain}dB`, 5);
+          }
+          if (config.lightMode) {
+            const lightModeLabel = config.lightMode === 'continuous' ? (isZh ? '常亮' : 'Continuous') :
+                                   config.lightMode === 'strobe' ? (isZh ? '频闪' : 'Strobe') : String(config.lightMode);
+            helper.addLabelValue(isZh ? '光源模式' : 'Light Mode', lightModeLabel, 5);
+          }
+          if (config.lightAngle) {
+            helper.addLabelValue(isZh ? '光源角度' : 'Light Angle', `${config.lightAngle}°`, 5);
+          }
+          if (config.cameraLayout) {
+            const layoutLabel = config.cameraLayout === 'top' ? (isZh ? '顶部' : 'Top') :
+                               config.cameraLayout === 'side' ? (isZh ? '侧面' : 'Side') :
+                               config.cameraLayout === 'multi' ? (isZh ? '多角度' : 'Multi-angle') : String(config.cameraLayout);
+            helper.addLabelValue(isZh ? '相机布局' : 'Camera Layout', layoutLabel, 5);
           }
         }
 
-        // 视觉系统示意图（模块示意图）
-        if (includeImages && mod.schematic_image_url) {
-          helper.addNewPageIfNeeded(90);
+        // ========== 4. 检测参数（根据模块类型） ==========
+        helper.addNewPageIfNeeded(40);
+        
+        // 定位检测参数
+        if (mod.type === 'positioning' && mod.positioning_config) {
+          const posConfig = mod.positioning_config as Record<string, unknown>;
+          const hasPositioningParams = posConfig.targetType || posConfig.outputCoordinate || posConfig.guidingMode || posConfig.angleRange;
+          
+          if (hasPositioningParams) {
+            helper.addSpace(3);
+            helper.addTextImage(isZh ? '【定位参数】' : '【Positioning Params】', margin + 5, 12, 'bold', '#2d3748');
+            helper.y += 12;
+            
+            if (posConfig.targetType) {
+              helper.addLabelValue(isZh ? '定位目标' : 'Target Type', String(posConfig.targetType), 5);
+            }
+            if (posConfig.outputCoordinate) {
+              helper.addLabelValue(isZh ? '输出坐标' : 'Output Coordinate', String(posConfig.outputCoordinate), 5);
+            }
+            if (posConfig.guidingMode) {
+              helper.addLabelValue(isZh ? '引导模式' : 'Guiding Mode', String(posConfig.guidingMode), 5);
+            }
+            if (posConfig.angleRange) {
+              helper.addLabelValue(isZh ? '角度范围' : 'Angle Range', `${posConfig.angleRange}°`, 5);
+            }
+            if (posConfig.repeatability) {
+              helper.addLabelValue(isZh ? '重复精度' : 'Repeatability', `${posConfig.repeatability}mm`, 5);
+            }
+          }
+        }
+
+        // 缺陷检测参数
+        if (mod.type === 'defect' && mod.defect_config) {
+          const defConfig = mod.defect_config as Record<string, unknown>;
+          const hasDefectParams = defConfig.surfaces || defConfig.defectTypes || defConfig.minDefectSize || defConfig.materialProperty;
+          
+          if (hasDefectParams) {
+            helper.addSpace(3);
+            helper.addTextImage(isZh ? '【缺陷检测参数】' : '【Defect Detection Params】', margin + 5, 12, 'bold', '#2d3748');
+            helper.y += 12;
+            
+            if (defConfig.surfaces) {
+              const surfaces = Array.isArray(defConfig.surfaces) ? defConfig.surfaces.join(', ') : String(defConfig.surfaces);
+              helper.addLabelValue(isZh ? '检测面' : 'Surfaces', surfaces, 5);
+            }
+            if (defConfig.defectTypes) {
+              const defTypes = Array.isArray(defConfig.defectTypes) ? defConfig.defectTypes.join(', ') : String(defConfig.defectTypes);
+              helper.addLabelValue(isZh ? '缺陷类型' : 'Defect Types', defTypes, 5);
+            }
+            if (defConfig.minDefectSize) {
+              helper.addLabelValue(isZh ? '最小缺陷尺寸' : 'Min Defect Size', `${defConfig.minDefectSize}mm`, 5);
+            }
+            if (defConfig.materialProperty) {
+              helper.addLabelValue(isZh ? '材质属性' : 'Material Property', String(defConfig.materialProperty), 5);
+            }
+            if (defConfig.qualityStrategy) {
+              helper.addLabelValue(isZh ? '质量策略' : 'Quality Strategy', String(defConfig.qualityStrategy), 5);
+            }
+          }
+        }
+
+        // OCR参数
+        if (mod.type === 'ocr' && mod.ocr_config) {
+          const ocrConfig = mod.ocr_config as Record<string, unknown>;
+          const hasOCRParams = ocrConfig.charType || ocrConfig.charSet || ocrConfig.charRule || ocrConfig.charDirection;
+          
+          if (hasOCRParams) {
+            helper.addSpace(3);
+            helper.addTextImage(isZh ? '【OCR参数】' : '【OCR Params】', margin + 5, 12, 'bold', '#2d3748');
+            helper.y += 12;
+            
+            if (ocrConfig.charType) {
+              const charTypeLabel = CHAR_TYPE_LABELS[ocrConfig.charType as string]?.[isZh ? 'zh' : 'en'] || String(ocrConfig.charType);
+              helper.addLabelValue(isZh ? '字符类型' : 'Char Type', charTypeLabel, 5);
+            }
+            if (ocrConfig.charSet) {
+              helper.addLabelValue(isZh ? '字符集' : 'Charset', String(ocrConfig.charSet), 5);
+            }
+            if (ocrConfig.charRule) {
+              helper.addLabelValue(isZh ? '字符规则' : 'Char Rule', String(ocrConfig.charRule), 5);
+            }
+            if (ocrConfig.charDirection) {
+              helper.addLabelValue(isZh ? '字符方向' : 'Direction', String(ocrConfig.charDirection), 5);
+            }
+            if (ocrConfig.charHeight) {
+              helper.addLabelValue(isZh ? '字符高度' : 'Char Height', `${ocrConfig.charHeight}mm`, 5);
+            }
+          }
+        }
+
+        // 测量参数
+        if (mod.type === 'measurement' && mod.measurement_config) {
+          const measConfig = mod.measurement_config as Record<string, unknown>;
+          const hasMeasParams = measConfig.systemAccuracy || measConfig.measurementFieldOfView || measConfig.measurementItems;
+          
+          if (hasMeasParams) {
+            helper.addSpace(3);
+            helper.addTextImage(isZh ? '【测量参数】' : '【Measurement Params】', margin + 5, 12, 'bold', '#2d3748');
+            helper.y += 12;
+            
+            if (measConfig.systemAccuracy) {
+              helper.addLabelValue(isZh ? '系统精度' : 'System Accuracy', `${measConfig.systemAccuracy}mm`, 5);
+            }
+            if (measConfig.measurementFieldOfView) {
+              helper.addLabelValue(isZh ? '测量视场' : 'Measurement FOV', String(measConfig.measurementFieldOfView), 5);
+            }
+            if (measConfig.calibrationMethod) {
+              helper.addLabelValue(isZh ? '标定方式' : 'Calibration', String(measConfig.calibrationMethod), 5);
+            }
+            
+            // 测量项表格
+            if (measConfig.measurementItems && Array.isArray(measConfig.measurementItems) && measConfig.measurementItems.length > 0) {
+              helper.addNewPageIfNeeded(50);
+              helper.addSpace(3);
+              helper.addTextImage(isZh ? '测量项目：' : 'Measurement Items:', margin + 10, 11, 'bold', '#4a5568');
+              helper.y += 10;
+              
+              const measHeaders = isZh 
+                ? ['项目名称', '类型', '标称值', '上公差', '下公差', '单位']
+                : ['Name', 'Type', 'Nominal', 'Upper', 'Lower', 'Unit'];
+              
+              const measRows = measConfig.measurementItems.map((item: any) => [
+                item.name || '—',
+                MEAS_DIM_TYPE_LABELS[item.type]?.[isZh ? 'zh' : 'en'] || item.type || '—',
+                item.nominal?.toString() || '—',
+                item.upperTolerance?.toString() || '—',
+                item.lowerTolerance?.toString() || '—',
+                item.unit || 'mm',
+              ]);
+              
+              helper.addTable(measHeaders, measRows, [35, 25, 25, 25, 25, 20]);
+            }
+          }
+        }
+
+        // 深度学习参数
+        if (mod.type === 'deeplearning' && mod.deep_learning_config) {
+          const dlConfig = mod.deep_learning_config as Record<string, unknown>;
+          const hasDLParams = dlConfig.taskType || dlConfig.modelName || dlConfig.deployTarget || dlConfig.inferenceTime;
+          
+          if (hasDLParams) {
+            helper.addSpace(3);
+            helper.addTextImage(isZh ? '【深度学习参数】' : '【Deep Learning Params】', margin + 5, 12, 'bold', '#2d3748');
+            helper.y += 12;
+            
+            if (dlConfig.taskType) {
+              const taskLabel = DL_TASK_TYPE_LABELS[dlConfig.taskType as string]?.[isZh ? 'zh' : 'en'] || String(dlConfig.taskType);
+              helper.addLabelValue(isZh ? '任务类型' : 'Task Type', taskLabel, 5);
+            }
+            if (dlConfig.modelName) {
+              helper.addLabelValue(isZh ? '模型名称' : 'Model Name', String(dlConfig.modelName), 5);
+            }
+            if (dlConfig.deployTarget) {
+              helper.addLabelValue(isZh ? '部署目标' : 'Deploy Target', String(dlConfig.deployTarget), 5);
+            }
+            if (dlConfig.inferenceTime) {
+              helper.addLabelValue(isZh ? '推理时间' : 'Inference Time', `${dlConfig.inferenceTime}ms`, 5);
+            }
+            if (dlConfig.trainingDataCount) {
+              helper.addLabelValue(isZh ? '训练数据量' : 'Training Data', String(dlConfig.trainingDataCount), 5);
+            }
+          }
+        }
+
+        // ========== 5. 输出配置 ==========
+        const hasOutputConfig = config.detectionObject || config.judgmentStrategy || config.outputAction || 
+                                config.communicationMethod || config.signalDefinition || config.dataRetentionDays;
+        
+        if (hasOutputConfig) {
+          helper.addNewPageIfNeeded(40);
           helper.addSpace(3);
-          helper.addTextImage(isZh ? '视觉系统示意图：' : 'Vision System Schematic:', margin + 5, 10, 'bold', '#4a5568');
-          helper.y += 10;
+          helper.addTextImage(isZh ? '【输出配置】' : '【Output Config】', margin + 5, 12, 'bold', '#2d3748');
+          helper.y += 12;
+          
+          if (config.detectionObject) {
+            helper.addLabelValue(isZh ? '检测对象' : 'Detection Object', String(config.detectionObject), 5);
+          }
+          if (config.judgmentStrategy) {
+            const strategyLabel = JUDGMENT_STRATEGY_LABELS[config.judgmentStrategy as string]?.[isZh ? 'zh' : 'en'] || String(config.judgmentStrategy);
+            helper.addLabelValue(isZh ? '判定策略' : 'Judgment Strategy', strategyLabel, 5);
+          }
+          if (config.outputAction) {
+            const actions = Array.isArray(config.outputAction) 
+              ? config.outputAction.map(a => OUTPUT_ACTION_LABELS[a]?.[isZh ? 'zh' : 'en'] || a).join(', ')
+              : String(config.outputAction);
+            helper.addLabelValue(isZh ? '输出动作' : 'Output Actions', actions, 5);
+          }
+          if (config.communicationMethod) {
+            const commLabel = COMMUNICATION_METHOD_LABELS[config.communicationMethod as string]?.[isZh ? 'zh' : 'en'] || String(config.communicationMethod);
+            helper.addLabelValue(isZh ? '通讯方式' : 'Communication', commLabel, 5);
+          }
+          if (config.signalDefinition) {
+            helper.addLabelValue(isZh ? '信号定义' : 'Signal Definition', String(config.signalDefinition), 5);
+          }
+          if (config.dataRetentionDays) {
+            helper.addLabelValue(isZh ? '数据保存' : 'Data Retention', `${config.dataRetentionDays}${isZh ? '天' : ' days'}`, 5);
+          }
+        }
+
+        // ========== 6. 硬件配置（修复UUID显示） ==========
+        if (mod.selected_camera || mod.selected_lens || mod.selected_light || mod.selected_controller) {
+          helper.addNewPageIfNeeded(40);
+          helper.addSpace(3);
+          helper.addTextImage(isZh ? '【硬件配置】' : '【Hardware Config】', margin + 5, 12, 'bold', '#2d3748');
+          helper.y += 12;
+          
+          if (mod.selected_camera) {
+            helper.addLabelValue(isZh ? '相机' : 'Camera', getHardwareDisplayName(mod.selected_camera, hardware, 'camera'), 5);
+          }
+          if (mod.selected_lens) {
+            helper.addLabelValue(isZh ? '镜头' : 'Lens', getHardwareDisplayName(mod.selected_lens, hardware, 'lens'), 5);
+          }
+          if (mod.selected_light) {
+            helper.addLabelValue(isZh ? '光源' : 'Light', getHardwareDisplayName(mod.selected_light, hardware, 'light'), 5);
+          }
+          if (mod.selected_controller) {
+            helper.addLabelValue(isZh ? '控制器' : 'Controller', getHardwareDisplayName(mod.selected_controller, hardware, 'controller'), 5);
+          }
+        }
+
+        // ========== 7. 视觉系统示意图（模块示意图） ==========
+        if (includeImages && mod.schematic_image_url) {
+          helper.addNewPageIfNeeded(100);
+          helper.addSpace(3);
+          helper.addTextImage(isZh ? '【视觉系统示意图】' : '【Vision System Schematic】', margin + 5, 12, 'bold', '#2d3748');
+          helper.y += 12;
           const added = await helper.addImage(mod.schematic_image_url, isZh ? '视觉系统示意图' : 'Vision System Schematic', 130, 85);
           if (added) totalImages++;
         }
@@ -1185,7 +1527,7 @@ export async function generatePDF(
     pdf.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
     
     // 左侧：项目信息
-    const footerLeft = renderTextToCanvas(`${project.code} - ${project.name}`, 8, 'normal', undefined, '#9ca3af');
+    const footerLeft = renderTextToCanvas(`${project.code} - ${project.name}`, 9, 'normal', undefined, '#9ca3af');
     try {
       pdf.addImage(footerLeft.dataUrl, 'PNG', margin, pageHeight - 12, footerLeft.width, footerLeft.height);
     } catch {
@@ -1193,7 +1535,7 @@ export async function generatePDF(
     }
     
     // 右侧：页码
-    const footerRight = renderTextToCanvas(`${i} / ${totalPages}`, 8, 'normal', undefined, '#9ca3af');
+    const footerRight = renderTextToCanvas(`${i} / ${totalPages}`, 9, 'normal', undefined, '#9ca3af');
     try {
       pdf.addImage(footerRight.dataUrl, 'PNG', pageWidth - margin - footerRight.width, pageHeight - 12, footerRight.width, footerRight.height);
     } catch {
