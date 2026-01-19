@@ -213,6 +213,20 @@ interface DetectionRequirementItem {
   highlight?: string | null;
 }
 
+interface LogoInfo {
+  data: string;
+  width?: number;
+  height?: number;
+  position?: { x: number; y: number };
+}
+
+interface FooterInfo {
+  hasPageNumber: boolean;
+  hasDate: boolean;
+  hasFooterText: boolean;
+  footerText?: string;
+}
+
 interface ExtractedTemplateStyles {
   background?: { color?: string; data?: string };
   colors?: {
@@ -225,7 +239,11 @@ interface ExtractedTemplateStyles {
   fonts?: {
     title?: string;
     body?: string;
+    titleEA?: string;
+    bodyEA?: string;
   };
+  logo?: LogoInfo;
+  footer?: FooterInfo;
 }
 
 interface GenerationOptions {
@@ -685,10 +703,34 @@ export async function generatePPTX(
   type MasterObject = NonNullable<PptxGenJS.SlideMasterProps['objects']>[number];
   const footerY = SLIDE_LAYOUT.height - SLIDE_LAYOUT.margin.bottom;
   
+  // Extract logo and footer info from template styles
+  const templateLogo = options.extractedStyles?.logo;
+  const templateFooter = options.extractedStyles?.footer;
+  
   // Master objects can be customized based on parsed template structure
   const masterObjects: MasterObject[] = [];
   
-  // Only add footer elements if no template background is set (template has its own design)
+  // Add logo if extracted from template
+  if (templateLogo?.data) {
+    const logoX = templateLogo.position?.x ?? 0.2;
+    const logoY = templateLogo.position?.y ?? 0.1;
+    // Convert EMU to inches if needed, otherwise use reasonable defaults
+    const logoW = templateLogo.width ? templateLogo.width / 914400 : 1.2;
+    const logoH = templateLogo.height ? templateLogo.height / 914400 : 0.4;
+    
+    masterObjects.push({
+      image: { 
+        x: logoX, 
+        y: logoY, 
+        w: Math.min(logoW, 2), // Cap at 2 inches
+        h: Math.min(logoH, 0.8), // Cap at 0.8 inches
+        data: templateLogo.data,
+      }
+    });
+    console.log(`Added template logo at (${logoX}, ${logoY}), size: ${logoW}x${logoH}`);
+  }
+  
+  // Only add default footer elements if no template background is set
   if (!templateBackground) {
     masterObjects.push(
       // Header bar - subtle (use active primary color)
@@ -700,6 +742,10 @@ export async function generatePPTX(
       // Customer name in footer (right aligned)
       { text: { text: project.customer, options: { x: SLIDE_LAYOUT.width - 2.5, y: footerY + 0.05, w: 2.2, h: 0.2, fontSize: 7, color: activeColors.white, align: 'right' } } },
     );
+  } else if (templateFooter) {
+    // Template has its own design, but we can add page numbers if template expects them
+    // This is handled per-slide for page numbers
+    console.log(`Template footer config: pageNum=${templateFooter.hasPageNumber}, date=${templateFooter.hasDate}`);
   }
 
   // Determine background color/image for master
