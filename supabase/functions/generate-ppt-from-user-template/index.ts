@@ -115,15 +115,16 @@ interface RequestBody {
   data: GenerationData;
   outputFileName?: string;
   options?: {
-    duplicateWorkstationSlides?: boolean;  // 是否为每个工位复制幻灯片
-    workstationSlideMapping?: Record<string, number[]>; // 工位页类型到模板幻灯片索引的映射
+    duplicateWorkstationSlides?: boolean;
+    workstationSlideMapping?: Record<string, number[]>;
+    enableSmartReplace?: boolean; // 启用智能替换
   };
 }
 
 // ==================== SLIDE TYPE DETECTION ====================
 
 const SLIDE_TYPE_PATTERNS = {
-  title: /封面|标题|title/i,
+  title: /封面|标题|title|项目方案|技术方案/i,
   basic_info: /基本信息|项目信息|概述|overview|basic/i,
   product_schematic: /产品示意|产品图|检测对象|product/i,
   technical_requirements: /技术要求|检测要求|requirements/i,
@@ -136,7 +137,7 @@ const SLIDE_TYPE_PATTERNS = {
   thank_you: /谢谢|thank|结束|end/i,
 };
 
-type SlideType = keyof typeof SLIDE_TYPE_PATTERNS | 'unknown';
+type SlideType = keyof typeof SLIDE_TYPE_PATTERNS | 'cover' | 'unknown';
 
 interface SlideInfo {
   index: number;
@@ -146,6 +147,22 @@ interface SlideInfo {
   detectedType: SlideType;
   customFields: string[];
   hasLoopSyntax: boolean;
+  textBoxes: TextBoxInfo[];
+}
+
+interface TextBoxInfo {
+  id: string;
+  text: string;
+  fontSize: number;
+  isBold: boolean;
+  position: { x: number; y: number; width: number; height: number };
+  textType: 'title' | 'subtitle' | 'body' | 'date' | 'footer' | 'unknown';
+}
+
+interface ReplacementLog {
+  slideIndex: number;
+  slideType: string;
+  replacements: Array<{ original: string; replaced: string; type: string }>;
 }
 
 // ==================== LABEL MAPPINGS ====================
@@ -200,8 +217,13 @@ function escapeXml(str: string): string {
 /**
  * 检测幻灯片类型
  */
-function detectSlideType(content: string, layoutType: string): SlideType {
+function detectSlideType(content: string, layoutType: string, slideIndex: number): SlideType {
   const textContent = content.replace(/<[^>]*>/g, ' ').toLowerCase();
+  
+  // 第一页通常是封面
+  if (slideIndex === 0) {
+    return 'cover';
+  }
   
   for (const [type, pattern] of Object.entries(SLIDE_TYPE_PATTERNS)) {
     if (pattern.test(textContent)) {
@@ -238,6 +260,75 @@ function extractCustomFields(content: string): string[] {
  */
 function hasLoopSyntax(content: string): boolean {
   return /\{\{#(workstations|modules|hardware\.\w+)\}\}/.test(content);
+}
+
+/**
+ * 提取文本框信息（用于智能替换）
+ */
+function extractTextBoxes(content: string): TextBoxInfo[] {
+  const textBoxes: TextBoxInfo[] = [];
+  
+  // 匹配 <a:t> 标签中的文本
+  const textPattern = /<a:t>([^<]*)<\/a:t>/g;
+  let match;
+  let index = 0;
+  
+  while ((match = textPattern.exec(content)) !== null) {
+    const text = match[1].trim();
+    if (!text) continue;
+    
+    // 分析文本类型
+    let textType: TextBoxInfo['textType'] = 'unknown';
+    const fontSize = extractFontSize(content, match.index);
+    const isBold = checkIsBold(content, match.index);
+    
+    // 根据字体大小和位置判断文本类型
+    if (fontSize >= 28 || isBold) {
+      textType = 'title';
+    } else if (fontSize >= 18) {
+      textType = 'subtitle';
+    } else if (text.match(/\d{4}[\-\/\.年]\d{1,2}[\-\/\.月]?\d{0,2}/)) {
+      textType = 'date';
+    } else {
+      textType = 'body';
+    }
+    
+    textBoxes.push({
+      id: `tb_${index++}`,
+      text,
+      fontSize,
+      isBold,
+      position: { x: 0, y: 0, width: 0, height: 0 },
+      textType,
+    });
+  }
+  
+  return textBoxes;
+}
+
+/**
+ * 提取字体大小
+ */
+function extractFontSize(content: string, position: number): number {
+  // 向前查找 <a:sz val="xxxx" /> 标签
+  const searchStart = Math.max(0, position - 500);
+  const searchArea = content.substring(searchStart, position);
+  
+  const szMatch = searchArea.match(/<a:sz\s+val="(\d+)"/);
+  if (szMatch) {
+    // OOXML 字体大小单位是百分之一磅
+    return parseInt(szMatch[1]) / 100;
+  }
+  return 14; // 默认字号
+}
+
+/**
+ * 检查是否粗体
+ */
+function checkIsBold(content: string, position: number): boolean {
+  const searchStart = Math.max(0, position - 500);
+  const searchArea = content.substring(searchStart, position);
+  return /<a:b[^a-z]/.test(searchArea);
 }
 
 // ==================== DATA PREPARATION ====================
@@ -376,6 +467,126 @@ function prepareModuleData(mod: ModuleData, index: number): Record<string, strin
   result['mod_schematic_url'] = mod.schematic_image_url || '';
   
   return result;
+}
+
+// ==================== SMART TEXT REPLACEMENT ====================
+
+/**
+ * 智能替换封面页内容
+ * 识别标题、副标题、日期等位置并替换
+ */
+function smartReplaceCoverSlide(
+  content: string, 
+  projectData: Record<string, string>,
+  _textBoxes: TextBoxInfo[]
+): { content: string; replacements: Array<{ original: string; replaced: string; type: string }> } {
+  let result = content;
+  const replacements: Array<{ original: string; replaced: string; type: string }> = [];
+  
+  // 策略1：查找并替换大标题（通常是最大字体的文本）
+  // 查找 <a:t> 标签，根据上下文判断是否是标题
+  const textElements = [...content.matchAll(/<a:t>([^<]+)<\/a:t>/g)];
+  
+  for (const match of textElements) {
+    const originalText = match[1];
+    const matchIndex = match.index || 0;
+    
+    // 检查是否是标题（根据字体大小、位置等判断）
+    const fontSize = extractFontSize(content, matchIndex);
+    const isBold = checkIsBold(content, matchIndex);
+    
+    // 标题通常字体较大且可能加粗
+    if (fontSize >= 24 || isBold) {
+      // 检查是否是日期格式
+      if (originalText.match(/\d{4}[\-\/\.年]\d{1,2}[\-\/\.月]?\d{0,2}/)) {
+        if (projectData['date_formatted']) {
+          result = result.replace(`<a:t>${originalText}</a:t>`, `<a:t>${escapeXml(projectData['date_formatted'])}</a:t>`);
+          replacements.push({ original: originalText, replaced: projectData['date_formatted'], type: 'date' });
+        }
+      }
+      // 检查是否包含"方案"、"项目"等关键词（可能是标题）
+      else if (originalText.match(/方案|项目|技术|视觉|检测|测试/)) {
+        const newTitle = projectData['project_name'] || projectData['project_code'] || '';
+        if (newTitle) {
+          // 构建新标题，保留"技术方案"等后缀
+          let suffix = '';
+          const suffixMatch = originalText.match(/(技术方案|项目方案|检测方案|视觉方案|方案)$/);
+          if (suffixMatch) {
+            suffix = suffixMatch[1];
+          }
+          const fullTitle = suffix ? `${newTitle}${suffix}` : newTitle;
+          result = result.replace(`<a:t>${originalText}</a:t>`, `<a:t>${escapeXml(fullTitle)}</a:t>`);
+          replacements.push({ original: originalText, replaced: fullTitle, type: 'title' });
+        }
+      }
+      // 检查是否包含公司名相关内容
+      else if (originalText.match(/公司|Co\.|Ltd|有限/i)) {
+        // 保持公司名不变，或替换为项目数据中的公司名
+        if (projectData['company_name']) {
+          result = result.replace(`<a:t>${originalText}</a:t>`, `<a:t>${escapeXml(projectData['company_name'])}</a:t>`);
+          replacements.push({ original: originalText, replaced: projectData['company_name'], type: 'company' });
+        }
+      }
+    }
+    
+    // 检查客户名称（通常在副标题位置）
+    if (fontSize >= 14 && fontSize < 24 && !isBold) {
+      if (originalText.match(/客户|customer|致/i)) {
+        if (projectData['customer']) {
+          const newText = `致：${projectData['customer']}`;
+          result = result.replace(`<a:t>${originalText}</a:t>`, `<a:t>${escapeXml(newText)}</a:t>`);
+          replacements.push({ original: originalText, replaced: newText, type: 'customer' });
+        }
+      }
+    }
+  }
+  
+  return { content: result, replacements };
+}
+
+/**
+ * 智能替换幻灯片内容
+ * 根据幻灯片类型采用不同的替换策略
+ */
+function smartReplaceSlideContent(
+  content: string,
+  slideType: SlideType,
+  projectData: Record<string, string>,
+  slideIndex: number
+): { content: string; replacements: Array<{ original: string; replaced: string; type: string }> } {
+  const textBoxes = extractTextBoxes(content);
+  
+  // 封面页特殊处理
+  if (slideType === 'cover' || slideIndex === 0) {
+    return smartReplaceCoverSlide(content, projectData, textBoxes);
+  }
+  
+  // 其他页面：查找并替换可识别的文本模式
+  let result = content;
+  const replacements: Array<{ original: string; replaced: string; type: string }> = [];
+  
+  // 替换项目相关文本
+  const projectPatterns = [
+    { pattern: /项目名称[：:]\s*([^\n<]+)/g, field: 'project_name', label: '项目名称' },
+    { pattern: /项目编号[：:]\s*([^\n<]+)/g, field: 'project_code', label: '项目编号' },
+    { pattern: /客户[：:]\s*([^\n<]+)/g, field: 'customer', label: '客户' },
+    { pattern: /日期[：:]\s*([^\n<]+)/g, field: 'date_formatted', label: '日期' },
+    { pattern: /负责人[：:]\s*([^\n<]+)/g, field: 'responsible', label: '负责人' },
+    { pattern: /工位数量[：:]\s*(\d+)/g, field: 'workstation_count', label: '工位数量' },
+    { pattern: /相机数量[：:]\s*(\d+)/g, field: 'camera_count', label: '相机数量' },
+  ];
+  
+  for (const { pattern, field, label } of projectPatterns) {
+    const value = projectData[field];
+    if (value) {
+      result = result.replace(pattern, (_match, _oldValue) => {
+        replacements.push({ original: _oldValue, replaced: value, type: label });
+        return `${label}：${escapeXml(value)}`;
+      });
+    }
+  }
+  
+  return { content: result, replacements };
 }
 
 // ==================== TEXT REPLACEMENT ====================
@@ -517,9 +728,11 @@ async function insertImagesIntoSlide(
   zip: PizZip,
   slidePath: string,
   images: ImageInsertRequest[]
-): Promise<void> {
+): Promise<number> {
   const content = zip.file(slidePath)?.asText();
-  if (!content) return;
+  if (!content) return 0;
+  
+  let insertedCount = 0;
   
   // 查找图片占位符
   const imgPattern = /\{\{img:(\w+)\}\}/g;
@@ -573,9 +786,12 @@ async function insertImagesIntoSlide(
         }
         
         console.log(`Inserted image: ${placeholderName} -> ${imagePath}`);
+        insertedCount++;
       }
     }
   }
+  
+  return insertedCount;
 }
 
 // ==================== SLIDE DUPLICATION ====================
@@ -583,7 +799,7 @@ async function insertImagesIntoSlide(
 /**
  * 解析presentation.xml获取幻灯片信息
  */
-function parsePresentation(zip: PizZip): { slideIds: string[]; maxId: number; slideInfos: SlideInfo[] } {
+function parsePresentation(zip: PizZip, enableSmartReplace: boolean): { slideIds: string[]; maxId: number; slideInfos: SlideInfo[] } {
   const presContent = zip.file('ppt/presentation.xml')?.asText() || '';
   const slideIds: string[] = [];
   let maxId = 256;
@@ -635,14 +851,18 @@ function parsePresentation(zip: PizZip): { slideIds: string[]; maxId: number; sl
     else if (content.includes('twoCol')) layoutType = 'twoCol';
     else if (content.includes('obj')) layoutType = 'obj';
     
+    // 提取文本框信息（用于智能替换）
+    const textBoxes = enableSmartReplace ? extractTextBoxes(content) : [];
+    
     slideInfos.push({
       index,
       path,
       layoutRef,
       layoutType,
-      detectedType: detectSlideType(content, layoutType),
+      detectedType: detectSlideType(content, layoutType, index),
       customFields: extractCustomFields(content),
       hasLoopSyntax: hasLoopSyntax(content),
+      textBoxes,
     });
   });
   
@@ -740,21 +960,23 @@ async function generateWorkstationSlides(
   slideInfos: SlideInfo[],
   startSlideNum: number,
   startSlideId: number
-): Promise<{ slideCount: number; newSlideNum: number; newSlideId: number }> {
+): Promise<{ slideCount: number; newSlideNum: number; newSlideId: number; imageCount: number }> {
   let currentSlideNum = startSlideNum;
   let currentSlideId = startSlideId;
   let totalSlides = 0;
+  let totalImages = 0;
   
   // 找到可以作为工位模板的幻灯片
   const workstationTemplateSlides = slideInfos.filter(s => 
     s.detectedType !== 'title' && 
+    s.detectedType !== 'cover' &&
     s.detectedType !== 'thank_you' &&
     !s.hasLoopSyntax // 有循环语法的在项目级处理
   );
   
   if (workstationTemplateSlides.length === 0) {
     console.log('No workstation template slides found');
-    return { slideCount: 0, newSlideNum: currentSlideNum, newSlideId: currentSlideId };
+    return { slideCount: 0, newSlideNum: currentSlideNum, newSlideId: currentSlideId, imageCount: 0 };
   }
   
   const projectData = prepareProjectData(data);
@@ -772,7 +994,8 @@ async function generateWorkstationSlides(
         // 处理图片插入
         const images = collectImageInserts(ws);
         if (images.length > 0) {
-          await insertImagesIntoSlide(zip, `ppt/slides/slide${currentSlideNum}.xml`, images);
+          const insertedCount = await insertImagesIntoSlide(zip, `ppt/slides/slide${currentSlideNum}.xml`, images);
+          totalImages += insertedCount;
         }
         
         // 添加到presentation
@@ -785,7 +1008,7 @@ async function generateWorkstationSlides(
     }
   }
   
-  return { slideCount: totalSlides, newSlideNum: currentSlideNum, newSlideId: currentSlideId };
+  return { slideCount: totalSlides, newSlideNum: currentSlideNum, newSlideId: currentSlideId, imageCount: totalImages };
 }
 
 // ==================== MAIN HANDLER ====================
@@ -824,6 +1047,9 @@ serve(async (req) => {
 
     const body: RequestBody = await req.json();
     const { templateId, data, outputFileName = 'generated.pptx', options } = body;
+    
+    // 默认启用智能替换
+    const enableSmartReplace = options?.enableSmartReplace !== false;
 
     if (!templateId) {
       return new Response(
@@ -860,26 +1086,56 @@ serve(async (req) => {
     const allFiles = Object.keys(zip.files);
     
     // 解析幻灯片信息
-    const { slideIds, maxId, slideInfos } = parsePresentation(zip);
+    const { slideIds, maxId, slideInfos } = parsePresentation(zip, enableSmartReplace);
     console.log(`Found ${slideInfos.length} slides, types: ${slideInfos.map(s => s.detectedType).join(', ')}`);
     
     // 准备项目级数据
     const projectData = prepareProjectData(data);
     
-    // Step 1: 处理现有幻灯片中的占位符和循环
+    // 收集所有替换日志
+    const allReplacementLogs: ReplacementLog[] = [];
+    let totalReplacements = 0;
+    let totalImages = 0;
+    
+    // Step 1: 处理现有幻灯片中的占位符、循环和智能替换
     for (const slideInfo of slideInfos) {
       let content = zip.file(slideInfo.path)?.asText();
       if (!content) continue;
       
+      const slideReplacements: Array<{ original: string; replaced: string; type: string }> = [];
+      
       // 处理循环语法
       if (slideInfo.hasLoopSyntax) {
         content = processLoops(content, data);
+        slideReplacements.push({ original: '[loop]', replaced: '[expanded]', type: 'loop' });
       }
       
       // 替换项目级占位符
+      const originalContent = content;
       content = replaceSimplePlaceholders(content, projectData);
       
+      // 检查是否有占位符被替换
+      if (content !== originalContent) {
+        slideReplacements.push({ original: '[placeholders]', replaced: '[replaced]', type: 'placeholder' });
+      }
+      
+      // 智能替换（如果启用且没有找到占位符）
+      if (enableSmartReplace && content === originalContent) {
+        const smartResult = smartReplaceSlideContent(content, slideInfo.detectedType, projectData, slideInfo.index);
+        content = smartResult.content;
+        slideReplacements.push(...smartResult.replacements);
+        totalReplacements += smartResult.replacements.length;
+      }
+      
       zip.file(slideInfo.path, content);
+      
+      if (slideReplacements.length > 0) {
+        allReplacementLogs.push({
+          slideIndex: slideInfo.index,
+          slideType: slideInfo.detectedType,
+          replacements: slideReplacements,
+        });
+      }
     }
     
     // Step 2: 处理母版和布局中的占位符
@@ -930,8 +1186,14 @@ serve(async (req) => {
       );
       
       generatedSlideCount += result.slideCount;
-      console.log(`Generated ${result.slideCount} workstation slides`);
+      totalImages += result.imageCount;
+      console.log(`Generated ${result.slideCount} workstation slides, ${result.imageCount} images`);
     }
+
+    // 日志输出替换统计
+    console.log(`Smart replace enabled: ${enableSmartReplace}`);
+    console.log(`Total replacements: ${totalReplacements}`);
+    console.log(`Replacement logs:`, JSON.stringify(allReplacementLogs.slice(0, 5))); // 只输出前5个
 
     // 生成输出
     const outputBuffer = zip.generate({
@@ -977,6 +1239,10 @@ serve(async (req) => {
         templateName: template.name,
         replacedFields: Object.keys(projectData),
         slideTypes: slideInfos.map(s => ({ index: s.index, type: s.detectedType })),
+        smartReplaceEnabled: enableSmartReplace,
+        totalReplacements,
+        totalImages,
+        replacementLogs: allReplacementLogs.slice(0, 10), // 返回前10个替换日志
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
