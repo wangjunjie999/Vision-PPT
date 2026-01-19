@@ -2,6 +2,33 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import type { Json } from '@/integrations/supabase/types';
+
+// 幻灯片映射配置
+export interface SlideMapping {
+  templateSlideIndex: number;
+  slideType: string;
+  enabled: boolean;
+}
+
+export interface LayoutMappingConfig {
+  mappings: SlideMapping[];
+  duplicateForEachWorkstation: boolean;
+  preserveUnmappedSlides: boolean;
+}
+
+// 解析后的幻灯片信息
+export interface ParsedSlideInfo {
+  index: number;
+  detectedType: string;
+  customFields: string[];
+}
+
+export interface StructureMeta {
+  sections: string[];
+  layoutMapping?: LayoutMappingConfig;
+  parsedSlides?: ParsedSlideInfo[];
+}
 
 export interface PPTTemplate {
   id: string;
@@ -10,9 +37,7 @@ export interface PPTTemplate {
   description: string | null;
   version: number;
   file_url: string | null;
-  structure_meta: {
-    sections: string[];
-  } | null;
+  structure_meta: StructureMeta | null;
   scope: string | null;
   is_default: boolean | null;
   enabled: boolean | null;
@@ -26,7 +51,7 @@ export interface PPTTemplateInsert {
   description?: string;
   version?: number;
   file_url?: string;
-  structure_meta?: { sections: string[] };
+  structure_meta?: StructureMeta;
   scope?: string;
   is_default?: boolean;
   background_image_url?: string;
@@ -37,7 +62,7 @@ export interface PPTTemplateUpdate {
   description?: string;
   version?: number;
   file_url?: string;
-  structure_meta?: { sections: string[] };
+  structure_meta?: StructureMeta;
   scope?: string;
   is_default?: boolean;
   enabled?: boolean;
@@ -63,7 +88,7 @@ export function usePPTTemplates() {
       // Cast structure_meta from Json to our expected type
       return (data || []).map(item => ({
         ...item,
-        structure_meta: item.structure_meta as { sections: string[] } | null,
+        structure_meta: item.structure_meta as unknown as StructureMeta | null,
       })) as PPTTemplate[];
     },
     enabled: !!user?.id,
@@ -85,7 +110,17 @@ export function usePPTTemplates() {
 
       const { data, error } = await supabase
         .from('ppt_templates')
-        .insert({ ...template, user_id: user.id })
+        .insert({
+          name: template.name,
+          user_id: user.id,
+          description: template.description,
+          version: template.version,
+          file_url: template.file_url,
+          structure_meta: template.structure_meta as unknown as Json,
+          scope: template.scope,
+          is_default: template.is_default,
+          background_image_url: template.background_image_url,
+        })
         .select()
         .single();
 
@@ -114,9 +149,14 @@ export function usePPTTemplates() {
           .neq('id', id);
       }
 
+      const { structure_meta, ...restUpdates } = updates;
+      
       const { data, error } = await supabase
         .from('ppt_templates')
-        .update(updates)
+        .update({
+          ...restUpdates,
+          ...(structure_meta !== undefined && { structure_meta: structure_meta as unknown as Json }),
+        })
         .eq('id', id)
         .eq('user_id', user.id)
         .select()

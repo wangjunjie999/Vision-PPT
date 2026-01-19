@@ -11,12 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye, Image as ImageIcon, Loader2, CheckCircle2, Code, List, Scan, Layers, LayoutTemplate, FileCode, Link2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { usePPTTemplates, PPTTemplateInsert } from '@/hooks/usePPTTemplates';
+import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye, Image as ImageIcon, Loader2, CheckCircle2, Code, List, Scan, Layers, LayoutTemplate, FileCode, Link2, AlertCircle, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
+import { usePPTTemplates, PPTTemplateInsert, type LayoutMappingConfig, type ParsedSlideInfo } from '@/hooks/usePPTTemplates';
 import { toast } from 'sonner';
 import { parseTemplate, SYSTEM_FIELDS, autoMapFields, getFieldLabel, type ParsedTemplate, type FieldMapping } from '@/services/pptTemplateParser';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SlideLayoutMapping, type LayoutMappingConfig as SlideLayoutMappingConfig } from './SlideLayoutMapping';
 
 // 动态页面结构选项 - 将根据模板解析结果动态更新
 const DEFAULT_SECTION_OPTIONS = [
@@ -58,7 +59,11 @@ export function PPTTemplateManager() {
     description: '',
     scope: 'all',
     is_default: false,
-    structure_meta: { sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'] },
+    structure_meta: { 
+      sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'],
+      layoutMapping: { mappings: [], duplicateForEachWorkstation: true, preserveUnmappedSlides: true },
+      parsedSlides: [],
+    },
     background_image_url: '',
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -67,6 +72,7 @@ export function PPTTemplateManager() {
   const [parsing, setParsing] = useState(false);
   const [parsedTemplate, setParsedTemplate] = useState<ParsedTemplate | null>(null);
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([]);
+  const [layoutMappingOpen, setLayoutMappingOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -77,13 +83,18 @@ export function PPTTemplateManager() {
       description: '',
       scope: 'all',
       is_default: false,
-      structure_meta: { sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'] },
+      structure_meta: { 
+        sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'],
+        layoutMapping: { mappings: [], duplicateForEachWorkstation: true, preserveUnmappedSlides: true },
+        parsedSlides: [],
+      },
       background_image_url: '',
     });
     setSelectedFile(null);
     setSelectedBgFile(null);
     setParsedTemplate(null);
     setFieldMappings([]);
+    setLayoutMappingOpen(false);
     setDialogOpen(true);
   };
 
@@ -94,13 +105,18 @@ export function PPTTemplateManager() {
       description: template.description || '',
       scope: template.scope || 'all',
       is_default: template.is_default || false,
-      structure_meta: template.structure_meta || { sections: [] },
+      structure_meta: template.structure_meta || { 
+        sections: [],
+        layoutMapping: { mappings: [], duplicateForEachWorkstation: true, preserveUnmappedSlides: true },
+        parsedSlides: [],
+      },
       background_image_url: template.background_image_url || '',
     });
     setSelectedFile(null);
     setSelectedBgFile(null);
     setParsedTemplate(null);
     setFieldMappings([]);
+    setLayoutMappingOpen(false);
     setDialogOpen(true);
   };
 
@@ -609,6 +625,45 @@ export function PPTTemplateManager() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Slide Layout Mapping */}
+            {parsedTemplate && parsedTemplate.slides.length > 0 && (
+              <Collapsible open={layoutMappingOpen} onOpenChange={setLayoutMappingOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <Settings2 className="h-4 w-4" />
+                      幻灯片布局映射配置
+                    </span>
+                    {layoutMappingOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-4">
+                  <SlideLayoutMapping
+                    templateSlides={parsedTemplate.slides.map(s => ({
+                      index: s.index,
+                      detectedType: s.layoutRef || 'unknown',
+                      customFields: s.customFields,
+                    }))}
+                    config={formData.structure_meta?.layoutMapping || {
+                      mappings: [],
+                      duplicateForEachWorkstation: true,
+                      preserveUnmappedSlides: true,
+                    }}
+                    onChange={(config) => {
+                      setFormData({
+                        ...formData,
+                        structure_meta: {
+                          ...formData.structure_meta,
+                          sections: formData.structure_meta?.sections || [],
+                          layoutMapping: config,
+                        },
+                      });
+                    }}
+                  />
+                </CollapsibleContent>
+              </Collapsible>
             )}
             {/* Background Image Upload */}
             <div className="space-y-2">
