@@ -1038,13 +1038,14 @@ export async function generatePPTX(
     ...createAutoPageTableOptions(wsListY + 0.32),
   });
 
-  // ========== WORKSTATION SLIDES (Per-Workstation 7-Page Fixed Output) ==========
+  // ========== WORKSTATION SLIDES (10-Page Fixed Output per Workstation) ==========
+  // Order: 0.标题 → 1.基本信息 → 2.产品示意 → 3.技术要求 → 4.三视图 → 5.示意图 → 6.运动方式 → 7.光学方案 → 8.视觉清单 → 9.BOM
   const totalWsProgress = 65;
   const progressPerWs = totalWsProgress / Math.max(workstations.length, 1);
   
   for (let i = 0; i < workstations.length; i++) {
     const ws = workstations[i];
-    const wsLayout = layouts.find(l => l.workstation_id === ws.id);
+    const wsLayout = layouts.find(l => l.workstation_id === ws.id) || null;
     const wsModules = modules.filter(m => m.workstation_id === ws.id);
     const wsCode = getWorkstationCode(project.code, i);
     
@@ -1054,919 +1055,102 @@ export async function generatePPTX(
     progress = 20 + i * progressPerWs;
     onProgress(progress, `${isZh ? '处理工位' : 'Processing workstation'}: ${ws.name}...`, `${isZh ? '生成工位页' : 'Workstation slide'}: ${ws.name}`);
 
-    // ========== Page 1: Layout Three-View + Motion Method (FIRST PAGE per user request) ==========
-    const hasThreeViews = wsLayout && (wsLayout.front_view_image_url || wsLayout.side_view_image_url || wsLayout.top_view_image_url);
+    // Build slide context and data
+    const ctx = {
+      pptx,
+      isZh,
+      wsCode,
+      wsName: ws.name,
+      responsible: project.responsible,
+    };
+
+    const slideData = {
+      ws: {
+        id: ws.id,
+        name: ws.name,
+        type: ws.type,
+        cycle_time: ws.cycle_time,
+        product_dimensions: ws.product_dimensions,
+        enclosed: ws.enclosed,
+        process_stage: ws.process_stage,
+        observation_target: ws.observation_target,
+        acceptance_criteria: ws.acceptance_criteria,
+        motion_description: ws.motion_description,
+        shot_count: ws.shot_count,
+        risk_notes: ws.risk_notes,
+        action_script: ws.action_script,
+      },
+      layout: wsLayout ? {
+        workstation_id: wsLayout.workstation_id,
+        conveyor_type: wsLayout.conveyor_type,
+        camera_count: wsLayout.camera_count,
+        camera_mounts: wsLayout.camera_mounts,
+        mechanisms: wsLayout.mechanisms,
+        front_view_image_url: wsLayout.front_view_image_url,
+        side_view_image_url: wsLayout.side_view_image_url,
+        top_view_image_url: wsLayout.top_view_image_url,
+        width: wsLayout.width,
+        height: wsLayout.height,
+        depth: wsLayout.depth,
+        selected_cameras: wsLayout.selected_cameras,
+        selected_lenses: wsLayout.selected_lenses,
+        selected_lights: wsLayout.selected_lights,
+        selected_controller: wsLayout.selected_controller,
+      } : null,
+      modules: wsModules.map(m => ({
+        id: m.id,
+        name: m.name,
+        type: m.type,
+        trigger_type: m.trigger_type,
+        processing_time_limit: m.processing_time_limit,
+        schematic_image_url: m.schematic_image_url,
+        positioning_config: m.positioning_config,
+        defect_config: m.defect_config,
+        measurement_config: m.measurement_config,
+      })),
+      annotation: wsAnnotation ? {
+        snapshot_url: wsAnnotation.snapshot_url,
+        annotations_json: wsAnnotation.annotations_json,
+        remark: wsAnnotation.remark,
+      } : undefined,
+      productAsset: wsProductAsset ? {
+        preview_images: wsProductAsset.preview_images,
+        detection_method: wsProductAsset.detection_method,
+        product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
+        detection_requirements: wsProductAsset.detection_requirements as Array<{ content: string; highlight?: string | null }> | null,
+      } : undefined,
+    };
+
+    // Generate slides in the correct order (10 pages per workstation)
+    // 0. 工位标题页 (Workstation Title)
+    generateWorkstationTitleSlide(ctx, slideData);
     
-    // Always create three-view page as first page for each workstation
-    const layoutSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    // 1. 基本信息 (Basic Information)
+    generateBasicInfoSlide(ctx, slideData);
     
-    layoutSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '布局三视图 + 运动方式' : 'Layout & Motion Method'}`, {
-      x: 0.5, y: 0.6, w: 9, h: 0.4,
-      fontSize: 16, color: COLORS.dark, bold: true,
-    });
-
-    // Three views
-    const viewWidth = 2.9;
-    const viewHeight = 2.2;
-    const viewY = 1.1;
-    const views = [
-      { label: isZh ? '正视图' : 'Front View', url: wsLayout?.front_view_image_url, x: 0.5 },
-      { label: isZh ? '侧视图' : 'Side View', url: wsLayout?.side_view_image_url, x: 3.55 },
-      { label: isZh ? '俯视图' : 'Top View', url: wsLayout?.top_view_image_url, x: 6.6 },
-    ];
-
-    for (const view of views) {
-      layoutSlide.addText(view.label, {
-        x: view.x, y: viewY, w: viewWidth, h: 0.22,
-        fontSize: 9, color: COLORS.dark, bold: true, align: 'center',
-      });
-
-      if (view.url) {
-        try {
-          const dataUri = await fetchImageAsDataUri(view.url);
-          if (dataUri) {
-            layoutSlide.addImage({
-              data: dataUri,
-              x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
-              sizing: { type: 'contain', w: viewWidth, h: viewHeight - 0.25 },
-            });
-          } else {
-            throw new Error('Failed to fetch image');
-          }
-        } catch (e) {
-          layoutSlide.addShape('rect', {
-            x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
-            fill: { color: COLORS.border },
-          });
-        }
-      } else {
-        layoutSlide.addShape('rect', {
-          x: view.x, y: viewY + 0.25, w: viewWidth, h: viewHeight - 0.25,
-          fill: { color: COLORS.border },
-        });
-        layoutSlide.addText(isZh ? '未保存' : 'Not Saved', {
-          x: view.x, y: viewY + 1, w: viewWidth, h: 0.25,
-          fontSize: 9, color: COLORS.secondary, align: 'center',
-        });
-      }
-    }
-
-    // Motion method section
-    layoutSlide.addText(isZh ? '【运动方式】' : '[Motion Method]', {
-      x: 0.5, y: 3.45, w: 9, h: 0.25,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const motionRows: TableRow[] = [
-      row([isZh ? '相机固定/跟动' : 'Camera Mode', ws.motion_description || (isZh ? '固定安装' : 'Fixed Mount')]),
-      row([isZh ? '拍照次数' : 'Shot Count', ws.shot_count ? `${ws.shot_count} ${isZh ? '次' : ''}` : '-']),
-      row([isZh ? '执行机构' : 'Mechanisms', wsLayout?.mechanisms?.join('、') || '-']),
-      row([isZh ? '触发方式' : 'Trigger', wsModules.length > 0 ? (TRIGGER_LABELS[wsModules[0].trigger_type || 'io']?.[isZh ? 'zh' : 'en'] || '-') : '-']),
-    ];
-
-    layoutSlide.addTable(motionRows, {
-      x: 0.5, y: 3.75, w: 9, h: 1.0,
-      fontFace: 'Arial',
-      fontSize: 9,
-      colW: [2, 7],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-      valign: 'middle',
-    });
-
-    // Layout info
-    if (wsLayout?.width || wsLayout?.height || wsLayout?.depth) {
-      layoutSlide.addText(`${isZh ? '布局尺寸' : 'Layout Size'}: ${wsLayout.width || '-'} × ${wsLayout.height || '-'} × ${wsLayout.depth || '-'} mm`, {
-        x: 0.5, y: 4.85, w: 9, h: 0.25,
-        fontSize: 9, color: COLORS.secondary,
-      });
-    }
-
-    // ========== Page 2: Workstation Basic Info ==========
-    const wsBasicSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    // 2. 产品示意图 (Product Schematic)
+    await generateProductSchematicSlide(ctx, slideData);
     
-    wsBasicSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '基本信息' : 'Basic Info'}`, {
-      x: 0.5, y: 0.6, w: 9, h: 0.45,
-      fontSize: 20, color: COLORS.dark, bold: true,
-    });
-
-    // Step 1: Three key sentences - compressed height
-    const step1Y = 1.15;
-    wsBasicSlide.addShape('rect', {
-      x: 0.5, y: step1Y, w: 9, h: 1.6,
-      fill: { color: COLORS.white },
-      shadow: { type: 'outer', blur: 3, offset: 2, angle: 45, opacity: 0.15 },
-    });
-
-    const processStageLabel = ws.process_stage ? (PROCESS_STAGE_LABELS[ws.process_stage]?.[isZh ? 'zh' : 'en'] || ws.process_stage) : '-';
+    // 3. 技术要求 (Technical Requirements)
+    generateTechnicalRequirementsSlide(ctx, slideData);
     
-    wsBasicSlide.addText(isZh ? '工位动作' : 'Workstation Action', {
-      x: 0.7, y: step1Y + 0.1, w: 2, h: 0.25,
-      fontSize: 10, color: COLORS.primary, bold: true,
-    });
-    wsBasicSlide.addText(processStageLabel, {
-      x: 2.7, y: step1Y + 0.1, w: 6.6, h: 0.25,
-      fontSize: 10, color: COLORS.dark,
-    });
-
-    wsBasicSlide.addText(isZh ? '检测目标' : 'Detection Target', {
-      x: 0.7, y: step1Y + 0.4, w: 2, h: 0.25,
-      fontSize: 10, color: COLORS.primary, bold: true,
-    });
-    const detectionTargets = wsModules.map(m => {
-      const typeLabel = MODULE_TYPE_LABELS[m.type]?.[isZh ? 'zh' : 'en'] || m.type;
-      return typeLabel;
-    }).join('、') || (ws.observation_target || '-');
-    wsBasicSlide.addText(detectionTargets, {
-      x: 2.7, y: step1Y + 0.4, w: 6.6, h: 0.25,
-      fontSize: 10, color: COLORS.dark,
-    });
-
-    wsBasicSlide.addText(isZh ? '验收口径' : 'Acceptance Criteria', {
-      x: 0.7, y: step1Y + 0.7, w: 2, h: 0.25,
-      fontSize: 10, color: COLORS.primary, bold: true,
-    });
-    const acceptanceCriteria = ws.acceptance_criteria;
-    const criteriaText = acceptanceCriteria 
-      ? `${isZh ? '精度' : 'Accuracy'}: ${acceptanceCriteria.accuracy || '-'}, ${isZh ? '节拍' : 'Cycle'}: ${acceptanceCriteria.cycle_time || '-'}, ${isZh ? '兼容尺寸' : 'Compatible'}: ${acceptanceCriteria.compatible_sizes || '-'}`
-      : `${isZh ? '精度' : 'Accuracy'}: ≤0.1mm, ${isZh ? '节拍' : 'Cycle'}: ≤${ws.cycle_time || '-'}s`;
-    wsBasicSlide.addText(criteriaText, {
-      x: 2.7, y: step1Y + 0.7, w: 6.6, h: 0.5,
-      fontSize: 9, color: COLORS.dark,
-    });
-
-    // Basic info table - moved up
-    const dims = ws.product_dimensions;
-    const wsInfoRows: TableRow[] = [
-      row([isZh ? '工位类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type]),
-      row([isZh ? '节拍' : 'Cycle Time', `${ws.cycle_time || '-'} s/pcs`]),
-      row([isZh ? '产品尺寸' : 'Product Size', dims ? `${dims.length}×${dims.width}×${dims.height} mm` : '-']),
-      row([isZh ? '输送类型' : 'Conveyor', wsLayout?.conveyor_type || '-']),
-      row([isZh ? '相机数量' : 'Cameras', `${wsLayout?.camera_count || '-'} ${isZh ? '台' : ''}`]),
-      row([isZh ? '封闭罩体' : 'Enclosed', ws.enclosed ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No')]),
-    ];
-
-    wsBasicSlide.addTable(wsInfoRows, {
-      x: 0.5, y: 2.95, w: 4.3, h: 1.8,
-      fontFace: 'Arial',
-      fontSize: 9,
-      colW: [1.5, 2.8],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-    });
-
-    // Module summary - moved up
-    if (wsModules.length > 0) {
-      wsBasicSlide.addText(isZh ? '功能模块' : 'Function Modules', {
-        x: 5, y: 2.95, w: 4.5, h: 0.28,
-        fontSize: 11, color: COLORS.dark, bold: true,
-      });
-      
-      const modSummaryRows: TableRow[] = wsModules.slice(0, 5).map(mod => row([
-        MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type,
-        mod.name
-      ]));
-      
-      wsBasicSlide.addTable(modSummaryRows, {
-        x: 5, y: 3.28, w: 4.5, h: Math.min(modSummaryRows.length * 0.3, 1.5),
-        fontFace: 'Arial',
-        fontSize: 9,
-        colW: [1.5, 3],
-        border: { pt: 0.5, color: COLORS.border },
-        fill: { color: COLORS.white },
-      });
-    }
-
-    // ========== Page 3: Product Technical Requirements (Left-Right Layout) ==========
-    // This page shows: Left - Technical Requirements, Right - Product Schematic with Annotations
-    const hasTechInfo = wsProductAsset && (
-      wsProductAsset.detection_method || 
-      (wsProductAsset.product_models && wsProductAsset.product_models.length > 0) ||
-      (wsProductAsset.detection_requirements && wsProductAsset.detection_requirements.length > 0) ||
-      (wsProductAsset.preview_images && wsProductAsset.preview_images.length > 0)
-    );
+    // 4. 机械布局三视图 (Mechanical Layout Three Views - proportional)
+    await generateThreeViewSlide(ctx, slideData);
     
-    if (hasTechInfo) {
-      const techInfoSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      
-      techInfoSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '产品技术要求' : 'Product Technical Requirements'}`, {
-        x: 0.5, y: 0.6, w: 9, h: 0.45,
-        fontSize: 18, color: COLORS.dark, bold: true,
-      });
-
-      // Left column header
-      techInfoSlide.addText(isZh ? '技术要求' : 'Technical Requirements', {
-        x: 0.5, y: 1.15, w: 4.5, h: 0.3,
-        fontSize: 12, color: COLORS.primary, bold: true,
-      });
-
-      // Right column header
-      techInfoSlide.addText(isZh ? '产品示意图' : 'Product Schematic', {
-        x: 5.2, y: 1.15, w: 4.3, h: 0.3,
-        fontSize: 12, color: COLORS.primary, bold: true,
-      });
-
-      // Left side: Technical Requirements
-      let leftY = 1.5;
-
-      // Basic info section
-      techInfoSlide.addText(isZh ? '基本信息:' : 'Basic Info:', {
-        x: 0.5, y: leftY, w: 4.5, h: 0.25,
-        fontSize: 10, color: COLORS.dark, bold: true,
-      });
-      leftY += 0.3;
-
-      // Detection method
-      const detectionMethod = wsProductAsset.detection_method || '-';
-      techInfoSlide.addText(`1. ${isZh ? '检测方式' : 'Method'}: ${detectionMethod}`, {
-        x: 0.5, y: leftY, w: 4.5, h: 0.4,
-        fontSize: 9, color: COLORS.dark,
-      });
-      leftY += 0.45;
-
-      // Product models
-      const productModels = wsProductAsset.product_models || [];
-      if (productModels.length > 0) {
-        techInfoSlide.addText(`2. ${isZh ? '蓝本型号' : 'Models'}:`, {
-          x: 0.5, y: leftY, w: 4.5, h: 0.22,
-          fontSize: 9, color: COLORS.dark,
-        });
-        leftY += 0.25;
-
-        productModels.slice(0, 5).forEach((model, idx) => {
-          techInfoSlide.addText(`   ${model.name}: ${model.spec}`, {
-            x: 0.5, y: leftY, w: 4.5, h: 0.2,
-            fontSize: 8, color: COLORS.secondary,
-          });
-          leftY += 0.22;
-        });
-        leftY += 0.1;
-      }
-
-      // Detection requirements section
-      const detectionReqs = wsProductAsset.detection_requirements || [];
-      if (detectionReqs.length > 0) {
-        techInfoSlide.addText(isZh ? '检测要求:' : 'Detection Requirements:', {
-          x: 0.5, y: leftY, w: 4.5, h: 0.25,
-          fontSize: 10, color: COLORS.dark, bold: true,
-        });
-        leftY += 0.3;
-
-        detectionReqs.slice(0, 6).forEach((req, idx) => {
-          const reqText = `${idx + 1}. ${req.content}`;
-          const textHeight = Math.min(0.5, 0.2 + (req.content.length / 30) * 0.1);
-          
-          techInfoSlide.addText(reqText, {
-            x: 0.5, y: leftY, w: 4.5, h: textHeight,
-            fontSize: 8, color: COLORS.dark,
-          });
-          leftY += textHeight + 0.05;
-
-          // Add highlight/note if exists
-          if (req.highlight) {
-            techInfoSlide.addText(`   → ${req.highlight}`, {
-              x: 0.5, y: leftY, w: 4.5, h: 0.18,
-              fontSize: 7, color: COLORS.warning, italic: true,
-            });
-            leftY += 0.2;
-          }
-        });
-      }
-
-      // Right side: Product image with annotations
-      const previewImages = wsProductAsset.preview_images || [];
-      const rightImgX = 5.2;
-      const rightImgY = 1.5;
-      const rightImgW = 4.3;
-      const rightImgH = 4;
-
-      if (previewImages.length > 0 && previewImages[0].url) {
-        try {
-          const dataUri = await fetchImageAsDataUri(previewImages[0].url);
-          if (dataUri) {
-            techInfoSlide.addImage({
-              data: dataUri,
-              x: rightImgX, y: rightImgY, w: rightImgW, h: rightImgH,
-              sizing: { type: 'contain', w: rightImgW, h: rightImgH },
-            });
-          } else {
-            throw new Error('Failed to fetch image');
-          }
-        } catch (e) {
-          techInfoSlide.addShape('rect', {
-            x: rightImgX, y: rightImgY, w: rightImgW, h: rightImgH,
-            fill: { color: COLORS.border },
-          });
-          techInfoSlide.addText(isZh ? '待上传产品图' : 'Product Image Pending', {
-            x: rightImgX, y: rightImgY + rightImgH / 2 - 0.15, w: rightImgW, h: 0.3,
-            fontSize: 10, color: COLORS.secondary, align: 'center',
-          });
-        }
-      } else {
-        techInfoSlide.addShape('rect', {
-          x: rightImgX, y: rightImgY, w: rightImgW, h: rightImgH,
-          fill: { color: COLORS.border },
-        });
-        techInfoSlide.addText(isZh ? '待上传产品图' : 'Product Image Pending', {
-          x: rightImgX, y: rightImgY + rightImgH / 2 - 0.15, w: rightImgW, h: 0.3,
-          fontSize: 10, color: COLORS.secondary, align: 'center',
-        });
-      }
-
-      // Add annotation labels from wsAnnotation if exists
-      if (wsAnnotation && wsAnnotation.annotations_json && wsAnnotation.annotations_json.length > 0) {
-        // Show annotation labels below the image
-        techInfoSlide.addText(isZh ? '标注说明:' : 'Annotations:', {
-          x: rightImgX, y: rightImgY + rightImgH + 0.15, w: rightImgW, h: 0.2,
-          fontSize: 8, color: COLORS.dark, bold: true,
-        });
-
-        const annotLabels = wsAnnotation.annotations_json
-          .filter(a => a.label || a.text)
-          .map((a, idx) => `${a.labelNumber || idx + 1}. ${a.label || a.text}`)
-          .slice(0, 6)
-          .join('  ');
-        
-        if (annotLabels) {
-          techInfoSlide.addText(annotLabels, {
-            x: rightImgX, y: rightImgY + rightImgH + 0.35, w: rightImgW, h: 0.6,
-            fontSize: 7, color: COLORS.secondary,
-          });
-        }
-      }
-    }
-
-    // ========== Page 4: Technical Requirements ==========
-    const techReqSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    // 5. 示意图/布置图 (Schematic Diagram)
+    await generateDiagramSlide(ctx, slideData);
     
-    techReqSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '技术要求' : 'Technical Requirements'}`, {
-      x: 0.5, y: 0.6, w: 9, h: 0.45,
-      fontSize: 18, color: COLORS.dark, bold: true,
-    });
-
-    // Precision requirements
-    techReqSlide.addText(isZh ? '【精度要求】' : '[Precision Requirements]', {
-      x: 0.5, y: 1.2, w: 9, h: 0.3,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const precisionRows: TableRow[] = [];
-    wsModules.forEach(mod => {
-      const cfg = (mod.positioning_config || mod.measurement_config || mod.defect_config || {}) as Record<string, unknown>;
-      if (cfg.accuracyRequirement || cfg.targetAccuracy) {
-        precisionRows.push(row([mod.name, `±${cfg.accuracyRequirement || cfg.targetAccuracy} mm`]));
-      }
-      if (cfg.minDefectSize) {
-        precisionRows.push(row([`${mod.name} (${isZh ? '最小缺陷' : 'Min Defect'})`, `${cfg.minDefectSize} mm`]));
-      }
-    });
-    if (precisionRows.length === 0) {
-      precisionRows.push(row([isZh ? '定位精度' : 'Positioning Accuracy', `±0.1 mm`]));
-    }
-
-    techReqSlide.addTable(precisionRows, {
-      x: 0.5, y: 1.55, w: 4.3, h: Math.min(precisionRows.length * 0.32 + 0.1, 1.5),
-      fontFace: 'Arial',
-      fontSize: 9,
-      colW: [2.5, 1.8],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-    });
-
-    // Cycle time requirements
-    techReqSlide.addText(isZh ? '【节拍要求】' : '[Cycle Time Requirements]', {
-      x: 5, y: 1.2, w: 4.5, h: 0.3,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const cycleRows: TableRow[] = [
-      row([isZh ? '目标节拍' : 'Target Cycle', `${ws.cycle_time || '-'} s/pcs`]),
-    ];
-    wsModules.forEach(mod => {
-      if (mod.processing_time_limit) {
-        cycleRows.push(row([mod.name, `≤${mod.processing_time_limit} ms`]));
-      }
-    });
-
-    techReqSlide.addTable(cycleRows, {
-      x: 5, y: 1.55, w: 4.5, h: Math.min(cycleRows.length * 0.32 + 0.1, 1.5),
-      fontFace: 'Arial',
-      fontSize: 9,
-      colW: [2.5, 2],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-    });
-
-    // Risk notes
-    techReqSlide.addText(isZh ? '【风险口径/备注】' : '[Risk Notes / Remarks]', {
-      x: 0.5, y: 3.2, w: 9, h: 0.3,
-      fontSize: 11, color: COLORS.warning, bold: true,
-    });
-
-    const riskText = ws.risk_notes || (isZh ? '• 缺陷检测能力需以实际样品测试为准\n• 精度验收需现场调试后确认' : '• Detection capability subject to actual sample testing\n• Accuracy acceptance to be confirmed after on-site commissioning');
+    // 6. 运动/检测方式 (Motion/Detection Method)
+    generateMotionMethodSlide(ctx, slideData);
     
-    techReqSlide.addShape('rect', {
-      x: 0.5, y: 3.55, w: 9, h: 1.2,
-      fill: { color: 'FFF3CD' },
-      line: { color: COLORS.warning, width: 1 },
-    });
-    techReqSlide.addText(riskText, {
-      x: 0.7, y: 3.65, w: 8.6, h: 1,
-      fontSize: 9, color: COLORS.dark,
-    });
-
-    // ========== Page 5: Optical Solution (Step 3) ==========
-    const opticalSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    // 7. 光学方案 (Optical Solution)
+    generateOpticalSolutionSlide(ctx, slideData);
     
-    opticalSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '光学方案' : 'Optical Solution'}`, {
-      x: 0.5, y: 0.6, w: 9, h: 0.45,
-      fontSize: 18, color: COLORS.dark, bold: true,
-    });
-
-    // Camera configuration
-    opticalSlide.addText(isZh ? '【相机配置】' : '[Camera Configuration]', {
-      x: 0.5, y: 1.15, w: 9, h: 0.28,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const cameraHeader: TableRow = row([isZh ? '型号' : 'Model', isZh ? '分辨率' : 'Resolution', isZh ? '帧率' : 'FPS', isZh ? '接口' : 'Interface', isZh ? '安装' : 'Mount']);
-    const cameraRows: TableRow[] = wsLayout?.selected_cameras?.filter(c => c).map((cam, idx) => {
-      const mount = wsLayout?.camera_mounts?.[idx] || 'top';
-      return row([`${cam.brand} ${cam.model}`, '-', '-', '-', mount]);
-    }) || [];
+    // 8. 测量方法及视觉清单 (Measurement & Vision List)
+    generateVisionListSlide(ctx, slideData);
     
-    if (cameraRows.length === 0) {
-      cameraRows.push(row(['-', '-', '-', '-', '-']));
-    }
-
-    opticalSlide.addTable([cameraHeader, ...cameraRows], {
-      x: 0.5, y: 1.48, w: 9, h: Math.min(cameraRows.length * 0.3 + 0.35, 1.3),
-      fontFace: 'Arial',
-      fontSize: 8,
-      colW: [3, 1.5, 1, 1.5, 2],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-      valign: 'middle',
-      align: 'center',
-    });
-
-    // Lens configuration
-    opticalSlide.addText(isZh ? '【镜头配置】' : '[Lens Configuration]', {
-      x: 0.5, y: 2.9, w: 4.3, h: 0.28,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const lensRows: TableRow[] = wsLayout?.selected_lenses?.filter(l => l).map(lens => 
-      row([`${lens.brand} ${lens.model}`])
-    ) || [row(['-'])];
-
-    opticalSlide.addTable(lensRows, {
-      x: 0.5, y: 3.22, w: 4.3, h: Math.min(lensRows.length * 0.3, 1),
-      fontFace: 'Arial',
-      fontSize: 9,
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-    });
-
-    // Light source configuration
-    opticalSlide.addText(isZh ? '【光源配置】' : '[Light Source Configuration]', {
-      x: 5, y: 2.9, w: 4.5, h: 0.28,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const lightRows: TableRow[] = wsLayout?.selected_lights?.filter(l => l).map(light => 
-      row([`${light.brand} ${light.model}`])
-    ) || [row(['-'])];
-
-    opticalSlide.addTable(lightRows, {
-      x: 5, y: 3.22, w: 4.5, h: Math.min(lightRows.length * 0.3, 1),
-      fontFace: 'Arial',
-      fontSize: 9,
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-    });
-
-    // Imaging parameters
-    opticalSlide.addText(isZh ? '【成像参数】' : '[Imaging Parameters]', {
-      x: 0.5, y: 4.4, w: 9, h: 0.28,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const imagingRows: TableRow[] = [];
-    wsModules.forEach(mod => {
-      const cfg = (mod.defect_config || mod.positioning_config || mod.ocr_config || mod.measurement_config || mod.deep_learning_config) as Record<string, unknown> | null;
-      if (cfg) {
-        const params = getImagingParams(cfg, isZh);
-        if (params.length > 0) {
-          imagingRows.push(row([`【${mod.name}】`, '']));
-          imagingRows.push(...params.slice(0, 3));
-        }
-      }
-    });
-
-    if (imagingRows.length > 0) {
-      opticalSlide.addTable(imagingRows.slice(0, 8), {
-        x: 0.5, y: 4.75, w: 9, h: Math.min(imagingRows.length * 0.28, 2),
-        fontFace: 'Arial',
-        fontSize: 8,
-        colW: [2.5, 6.5],
-        border: { pt: 0.5, color: COLORS.border },
-        fill: { color: COLORS.white },
-      });
-    }
-
-    // ========== Page 6: Measurement Method & Vision List (Step 4 & 5) ==========
-    const measureSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-    
-    measureSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '测量方法及视觉清单' : 'Measurement & Vision List'}`, {
-      x: 0.5, y: 0.6, w: 9, h: 0.45,
-      fontSize: 18, color: COLORS.dark, bold: true,
-    });
-
-    // Action breakdown (Step 4)
-    measureSlide.addText(isZh ? '【动作分解】' : '[Action Breakdown]', {
-      x: 0.5, y: 1.15, w: 9, h: 0.28,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const actionScript = ws.action_script || (isZh 
-      ? '1. 产品到位触发信号\n2. 相机采集图像\n3. 算法处理并输出结果\n4. 结果反馈给PLC' 
-      : '1. Product in position trigger\n2. Camera capture image\n3. Algorithm process and output\n4. Result feedback to PLC');
-
-    measureSlide.addShape('rect', {
-      x: 0.5, y: 1.48, w: 9, h: 1.5,
-      fill: { color: COLORS.white },
-      line: { color: COLORS.border, width: 0.5 },
-    });
-    measureSlide.addText(actionScript, {
-      x: 0.65, y: 1.55, w: 8.7, h: 1.35,
-      fontSize: 9, color: COLORS.dark,
-    });
-
-    // Vision equipment list (Step 5)
-    measureSlide.addText(isZh ? '【视觉清单】' : '[Vision Equipment List]', {
-      x: 0.5, y: 3.1, w: 9, h: 0.28,
-      fontSize: 11, color: COLORS.primary, bold: true,
-    });
-
-    const visionListRows: TableRow[] = [
-      row([isZh ? '相机' : 'Camera', `${wsLayout?.camera_count || 0} ${isZh ? '台' : ''}`]),
-      row([isZh ? '镜头' : 'Lens', `${wsLayout?.selected_lenses?.filter(l => l).length || wsLayout?.camera_count || 0} ${isZh ? '个' : ''}`]),
-      row([isZh ? '光源' : 'Light', `${wsLayout?.selected_lights?.filter(l => l).length || wsLayout?.camera_count || 0} ${isZh ? '个' : ''}`]),
-      row([isZh ? '工控机' : 'IPC', wsLayout?.selected_controller ? `${wsLayout.selected_controller.brand} ${wsLayout.selected_controller.model}` : '1 台']),
-      row([isZh ? '编码器/触发器' : 'Encoder/Trigger', wsModules.some(m => m.trigger_type === 'encoder') ? (isZh ? '需要' : 'Required') : (isZh ? 'IO触发' : 'IO Trigger')]),
-    ];
-
-    measureSlide.addTable(visionListRows, {
-      x: 0.5, y: 3.45, w: 4.5, h: 1.8,
-      fontFace: 'Arial',
-      fontSize: 9,
-      colW: [1.8, 2.7],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-    });
-
-    // Module list
-    if (wsModules.length > 0) {
-      measureSlide.addText(isZh ? '功能模块' : 'Function Modules', {
-        x: 5.2, y: 3.1, w: 4.3, h: 0.28,
-        fontSize: 11, color: COLORS.dark, bold: true,
-      });
-
-      const modListRows: TableRow[] = wsModules.map(mod => row([
-        MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type,
-        mod.name
-      ]));
-
-      measureSlide.addTable(modListRows, {
-        x: 5.2, y: 3.45, w: 4.3, h: Math.min(modListRows.length * 0.3, 1.8),
-        fontFace: 'Arial',
-        fontSize: 9,
-        colW: [1.5, 2.8],
-        border: { pt: 0.5, color: COLORS.border },
-        fill: { color: COLORS.white },
-      });
-    }
-
-    // ========== Page 7: BOM List & Review ==========
-    const bomSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-    
-    bomSlide.addText(`${wsCode} ${ws.name} - ${isZh ? 'BOM清单与审核' : 'BOM List & Review'}`, {
-      x: 0.5, y: 0.6, w: 9, h: 0.45,
-      fontSize: 18, color: COLORS.dark, bold: true,
-    });
-
-    const bomHeader: TableRow = row([
-      isZh ? '序号' : 'No.',
-      isZh ? '设备名称' : 'Device',
-      isZh ? '型号' : 'Model',
-      isZh ? '数量' : 'Qty',
-      isZh ? '单价' : 'Price',
-      isZh ? '备注' : 'Notes'
-    ]);
-
-    const bomRows: TableRow[] = [];
-    let bomIdx = 1;
-    
-    // Cameras
-    if (wsLayout?.selected_cameras) {
-      wsLayout.selected_cameras.filter(c => c).forEach(cam => {
-        bomRows.push(row([String(bomIdx++), isZh ? '工业相机' : 'Camera', `${cam.brand} ${cam.model}`, '1', 'TBD', '']));
-      });
-    }
-    // Lenses
-    if (wsLayout?.selected_lenses) {
-      wsLayout.selected_lenses.filter(l => l).forEach(lens => {
-        bomRows.push(row([String(bomIdx++), isZh ? '工业镜头' : 'Lens', `${lens.brand} ${lens.model}`, '1', 'TBD', '']));
-      });
-    }
-    // Lights
-    if (wsLayout?.selected_lights) {
-      wsLayout.selected_lights.filter(l => l).forEach(light => {
-        bomRows.push(row([String(bomIdx++), isZh ? 'LED光源' : 'Light', `${light.brand} ${light.model}`, '1', 'TBD', '']));
-      });
-    }
-    // Controller
-    if (wsLayout?.selected_controller) {
-      bomRows.push(row([String(bomIdx++), isZh ? '工控机' : 'IPC', `${wsLayout.selected_controller.brand} ${wsLayout.selected_controller.model}`, '1', 'TBD', isZh ? '含GPU' : 'w/ GPU']));
-    }
-
-    if (bomRows.length === 0) {
-      bomRows.push(row(['1', '-', '-', '-', '-', '-']));
-    }
-
-    bomSlide.addTable([bomHeader, ...bomRows.slice(0, 10)], {
-      x: 0.5, y: 1.15, w: 9, h: Math.min((bomRows.length + 1) * 0.35, 3.5),
-      fontFace: 'Arial',
-      fontSize: 9,
-      colW: [0.6, 1.5, 2.8, 0.8, 1, 2.3],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-      valign: 'middle',
-      align: 'center',
-    });
-
-    // Review section - moved up to stay within page bounds
-    bomSlide.addText(isZh ? '【审核】' : '[Review]', {
-      x: 0.5, y: 4.75, w: 9, h: 0.25,
-      fontSize: 10, color: COLORS.dark, bold: true,
-    });
-
-    bomSlide.addShape('rect', {
-      x: 0.5, y: 5.0, w: 9, h: 0.45,
-      fill: { color: COLORS.white },
-      line: { color: COLORS.border, width: 0.5 },
-    });
-    bomSlide.addText(`☐ ${isZh ? '技术确认' : 'Technical'}     ☐ ${isZh ? '采购确认' : 'Procurement'}     ☐ ${isZh ? '客户确认' : 'Customer'}`, {
-      x: 0.7, y: 5.05, w: 8.6, h: 0.35,
-      fontSize: 10, color: COLORS.dark,
-    });
-
-    // ========== Risk & Pending Confirmation (Optional Step 6 detailed page) ==========
-    if (ws.risk_notes && ws.risk_notes.length > 50) {
-      const riskSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      
-      riskSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '风险与待确认事项' : 'Risks & Pending Items'}`, {
-        x: 0.5, y: 0.6, w: 9, h: 0.45,
-        fontSize: 18, color: COLORS.dark, bold: true,
-      });
-
-      riskSlide.addText(isZh ? '【风险项】' : '[Risk Items]', {
-        x: 0.5, y: 1.2, w: 9, h: 0.3,
-        fontSize: 12, color: COLORS.destructive, bold: true,
-      });
-
-      riskSlide.addShape('rect', {
-        x: 0.5, y: 1.55, w: 9, h: 2,
-        fill: { color: 'FFEBEE' },
-        line: { color: COLORS.destructive, width: 1 },
-      });
-      riskSlide.addText(ws.risk_notes, {
-        x: 0.7, y: 1.65, w: 8.6, h: 1.8,
-        fontSize: 10, color: COLORS.dark,
-      });
-    }
-
-    // ========== Module Detail Slides ==========
-    for (let j = 0; j < wsModules.length; j++) {
-      const mod = wsModules[j];
-      const moduleCode = getModuleDisplayName(wsCode, mod.type, isZh);
-      const modAnnotation = annotations?.find(a => a.scope_type === 'module' && a.module_id === mod.id);
-      
-      const modSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-
-      modSlide.addText(`${isZh ? '模块' : 'Module'}: ${moduleCode}`, {
-        x: 0.5, y: 0.6, w: 9, h: 0.5,
-        fontSize: 20, color: COLORS.dark, bold: true,
-      });
-
-      // Left: Vision System Diagram
-      modSlide.addText(isZh ? '视觉系统示意图' : 'Vision System Diagram', {
-        x: 0.5, y: 1.2, w: 4.5, h: 0.3,
-        fontSize: 12, color: COLORS.dark, bold: true,
-      });
-
-      const schematicUrl = mod.schematic_image_url;
-      
-      if (schematicUrl) {
-        try {
-          const dataUri = await fetchImageAsDataUri(schematicUrl);
-          if (dataUri) {
-            modSlide.addImage({
-              data: dataUri,
-              x: 0.5, y: 1.55, w: 4.5, h: 3.3,
-              sizing: { type: 'contain', w: 4.5, h: 3.3 },
-            });
-          } else {
-            throw new Error('Failed to fetch image');
-          }
-        } catch (e) {
-          modSlide.addShape('rect', {
-            x: 0.5, y: 1.55, w: 4.5, h: 3.3,
-            fill: { color: COLORS.border },
-          });
-          modSlide.addText(isZh ? '未保存示意图' : 'No Diagram Saved', {
-            x: 0.5, y: 3, w: 4.5, h: 0.4,
-            fontSize: 12, color: COLORS.secondary, align: 'center',
-          });
-        }
-      } else {
-        modSlide.addShape('rect', {
-          x: 0.5, y: 1.55, w: 4.5, h: 3.3,
-          fill: { color: COLORS.border },
-        });
-        modSlide.addText(isZh ? '请先保存视觉系统示意图' : 'Please save diagram first', {
-          x: 0.5, y: 3, w: 4.5, h: 0.4,
-          fontSize: 11, color: COLORS.secondary, align: 'center',
-        });
-      }
-
-      // Right: Module Configuration
-      modSlide.addText(isZh ? '模块配置参数' : 'Module Configuration', {
-        x: 5.2, y: 1.2, w: 4.3, h: 0.3,
-        fontSize: 12, color: COLORS.dark, bold: true,
-      });
-
-      const selectedCamera = hardware?.cameras.find(c => c.id === mod.selected_camera);
-      const selectedLens = hardware?.lenses.find(l => l.id === mod.selected_lens);
-      const selectedLight = hardware?.lights.find(l => l.id === mod.selected_light);
-      const selectedController = hardware?.controllers.find(c => c.id === mod.selected_controller);
-
-      const paramRows: TableRow[] = [
-        row([isZh ? '模块类型' : 'Type', MODULE_TYPE_LABELS[mod.type]?.[options.language] || mod.type]),
-        row([isZh ? '触发方式' : 'Trigger', TRIGGER_LABELS[mod.trigger_type || 'io']?.[options.language] || mod.trigger_type || '-']),
-        row([isZh ? '处理时限' : 'Time Limit', mod.processing_time_limit ? `${mod.processing_time_limit}ms` : '-']),
-      ];
-      
-      // Add module-type specific parameters
-      if (mod.type === 'defect' && mod.defect_config) {
-        paramRows.push(...getDefectParams(mod.defect_config as Record<string, unknown>, isZh).slice(0, 5));
-      } else if (mod.type === 'measurement' && mod.measurement_config) {
-        paramRows.push(...getMeasurementParams(mod.measurement_config as Record<string, unknown>, isZh).slice(0, 5));
-      } else if (mod.type === 'ocr' && mod.ocr_config) {
-        paramRows.push(...getOCRParams(mod.ocr_config as Record<string, unknown>, isZh).slice(0, 5));
-      } else if (mod.type === 'positioning' && mod.positioning_config) {
-        paramRows.push(...getPositioningParams(mod.positioning_config as Record<string, unknown>, isZh).slice(0, 5));
-      } else if (mod.type === 'deeplearning' && mod.deep_learning_config) {
-        paramRows.push(...getDeepLearningParams(mod.deep_learning_config as Record<string, unknown>, isZh).slice(0, 5));
-      }
-
-      // Hardware
-      paramRows.push(row(['', '']));
-      if (selectedCamera) {
-        paramRows.push(row([isZh ? '相机' : 'Camera', `${selectedCamera.brand} ${selectedCamera.model}`]));
-      }
-      if (selectedLens) {
-        paramRows.push(row([isZh ? '镜头' : 'Lens', `${selectedLens.brand} ${selectedLens.model}`]));
-      }
-      if (selectedLight) {
-        paramRows.push(row([isZh ? '光源' : 'Light', `${selectedLight.brand} ${selectedLight.model}`]));
-      }
-      if (selectedController) {
-        paramRows.push(row([isZh ? '工控机' : 'IPC', `${selectedController.brand} ${selectedController.model}`]));
-      }
-
-      const displayRows = paramRows.filter(r => r[0].text || r[1].text).slice(0, 14);
-      
-      modSlide.addTable(displayRows, {
-        x: 5.2, y: 1.55, w: 4.3, h: 3.3,
-        fontFace: 'Arial',
-        fontSize: 8,
-        colW: [1.5, 2.8],
-        border: { pt: 0.5, color: COLORS.border },
-        fill: { color: COLORS.white },
-        valign: 'middle',
-      });
-
-      // Module annotation slide if exists
-      if (modAnnotation && modAnnotation.snapshot_url) {
-        const modAnnotationSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-        
-        modAnnotationSlide.addText(`${moduleCode} - ${isZh ? '产品局部标注' : 'Product Annotation'}`, {
-          x: 0.5, y: 0.6, w: 9, h: 0.5,
-          fontSize: 18, color: COLORS.dark, bold: true,
-        });
-
-        try {
-          const dataUri = await fetchImageAsDataUri(modAnnotation.snapshot_url);
-          if (dataUri) {
-            modAnnotationSlide.addImage({
-              data: dataUri,
-              x: 0.5, y: 1.2, w: 5.5, h: 3.8,
-              sizing: { type: 'contain', w: 5.5, h: 3.8 },
-            });
-          }
-        } catch (e) {
-          modAnnotationSlide.addShape('rect', {
-            x: 0.5, y: 1.2, w: 5.5, h: 3.8,
-            fill: { color: COLORS.border },
-          });
-        }
-
-        // Legend
-        modAnnotationSlide.addText(isZh ? '标注说明' : 'Annotation Legend', {
-          x: 6.2, y: 1.2, w: 3.3, h: 0.3,
-          fontSize: 11, color: COLORS.dark, bold: true,
-        });
-
-        const annotationItems = modAnnotation.annotations_json || [];
-        const legendRows: TableRow[] = annotationItems
-          .filter(item => item.labelNumber && item.label)
-          .map(item => row([`#${item.labelNumber}`, item.label || '']));
-
-        if (legendRows.length > 0) {
-          modAnnotationSlide.addTable(legendRows, {
-            x: 6.2, y: 1.55, w: 3.3, h: Math.min(legendRows.length * 0.32 + 0.1, 2.8),
-            fontFace: 'Arial',
-            fontSize: 9,
-            colW: [0.6, 2.7],
-            border: { pt: 0.5, color: COLORS.border },
-            fill: { color: COLORS.white },
-          });
-        }
-
-        if (modAnnotation.remark) {
-          modAnnotationSlide.addText(modAnnotation.remark, {
-            x: 6.2, y: 4.5, w: 3.3, h: 0.5,
-            fontSize: 9, color: COLORS.secondary,
-          });
-        }
-      }
-    }
-
-    // Workstation-level annotation slide
-    if (wsAnnotation && wsAnnotation.snapshot_url) {
-      const annotationSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      
-      annotationSlide.addText(`${wsCode} ${ws.name} - ${isZh ? '产品标注' : 'Product Annotation'}`, {
-        x: 0.5, y: 0.6, w: 9, h: 0.5,
-        fontSize: 18, color: COLORS.dark, bold: true,
-      });
-
-      try {
-        const dataUri = await fetchImageAsDataUri(wsAnnotation.snapshot_url);
-        if (dataUri) {
-          annotationSlide.addImage({
-            data: dataUri,
-            x: 0.5, y: 1.2, w: 5.5, h: 3.8,
-            sizing: { type: 'contain', w: 5.5, h: 3.8 },
-          });
-        }
-      } catch (e) {
-        annotationSlide.addShape('rect', {
-          x: 0.5, y: 1.2, w: 5.5, h: 3.8,
-          fill: { color: COLORS.border },
-        });
-      }
-
-      annotationSlide.addText(isZh ? '标注说明' : 'Annotation Legend', {
-        x: 6.2, y: 1.2, w: 3.3, h: 0.3,
-        fontSize: 11, color: COLORS.dark, bold: true,
-      });
-
-      const annotationItems = wsAnnotation.annotations_json || [];
-      const legendRows: TableRow[] = annotationItems
-        .filter(item => item.labelNumber && item.label)
-        .map(item => row([`#${item.labelNumber}`, item.label || '']));
-
-      if (legendRows.length > 0) {
-        annotationSlide.addTable(legendRows, {
-          x: 6.2, y: 1.55, w: 3.3, h: Math.min(legendRows.length * 0.32 + 0.1, 2.8),
-          fontFace: 'Arial',
-          fontSize: 9,
-          colW: [0.6, 2.7],
-          border: { pt: 0.5, color: COLORS.border },
-          fill: { color: COLORS.white },
-        });
-      }
-
-      if (wsAnnotation.remark) {
-        annotationSlide.addText(wsAnnotation.remark, {
-          x: 6.2, y: 4.5, w: 3.3, h: 0.5,
-          fontSize: 9, color: COLORS.secondary,
-        });
-      }
-    }
+    // 9. BOM清单及审核 (BOM List & Review)
+    generateBOMSlide(ctx, slideData);
   }
 
   // ========== HARDWARE DETAIL SLIDES ==========
