@@ -1,5 +1,35 @@
 import pptxgen from 'pptxgenjs';
 import type PptxGenJS from 'pptxgenjs';
+import { 
+  fetchImageAsDataUri, 
+  collectAllImageUrls, 
+  preloadImagesInBatches 
+} from './pptx/imagePreloader';
+import {
+  generateWorkstationTitleSlide,
+  generateBasicInfoSlide,
+  generateProductSchematicSlide,
+  generateTechnicalRequirementsSlide,
+  generateThreeViewSlide,
+  generateDiagramSlide,
+  generateMotionMethodSlide,
+  generateOpticalSolutionSlide,
+  generateVisionListSlide,
+  generateBOMSlide,
+} from './pptx/workstationSlides';
+import {
+  COLORS,
+  SLIDE_LAYOUT,
+  MODULE_TYPE_LABELS,
+  WS_TYPE_LABELS,
+  TRIGGER_LABELS,
+  PROCESS_STAGE_LABELS,
+  COMPANY_NAME_ZH,
+  COMPANY_NAME_EN,
+  getWorkstationCode,
+  getModuleDisplayName,
+} from './pptx/slideLabels';
+
 // Type definitions for pptxgenjs
 type TableCell = { text: string; options?: Record<string, unknown> };
 type TableRow = TableCell[];
@@ -41,7 +71,6 @@ interface WorkstationData {
   cycle_time: number | null;
   product_dimensions: { length: number; width: number; height: number } | null;
   enclosed: boolean | null;
-  // New SOP fields (Step 1-6)
   process_stage?: string | null;
   observation_target?: string | null;
   acceptance_criteria?: AcceptanceCriteria | null;
@@ -63,14 +92,12 @@ interface LayoutData {
   selected_lenses: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_lights: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_controller: { id: string; brand: string; model: string; image_url?: string | null } | null;
-  // Three-view image URLs
   front_view_image_url?: string | null;
   side_view_image_url?: string | null;
   top_view_image_url?: string | null;
   front_view_saved?: boolean | null;
   side_view_saved?: boolean | null;
   top_view_saved?: boolean | null;
-  // Layout dimensions
   width?: number | null;
   height?: number | null;
   depth?: number | null;
@@ -140,7 +167,6 @@ interface HardwareData {
   }>;
 }
 
-// Annotation data types for PPT generation
 interface AnnotationItem {
   id: string;
   type: 'rect' | 'circle' | 'arrow' | 'text';
@@ -165,7 +191,6 @@ interface AnnotationData {
   module_id?: string;
 }
 
-// Product asset data for PPT generation
 interface ProductAssetData {
   id: string;
   workstation_id?: string | null;
@@ -173,25 +198,21 @@ interface ProductAssetData {
   scope_type: 'workstation' | 'module';
   preview_images: Array<{ url: string; name?: string }> | null;
   model_file_url?: string | null;
-  // New fields for product technical requirements
   detection_method?: string | null;
   product_models?: Array<{ name: string; spec: string }> | null;
   detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
 }
 
-// Product model item for display
 interface ProductModelItem {
   name: string;
   spec: string;
 }
 
-// Detection requirement item
 interface DetectionRequirementItem {
   content: string;
   highlight?: string | null;
 }
 
-// Extracted template styles interface
 interface ExtractedTemplateStyles {
   background?: { color?: string; data?: string };
   colors?: {
@@ -217,7 +238,6 @@ interface GenerationOptions {
     file_url?: string | null;
     background_image_url?: string | null;
   } | null;
-  // NEW: Extracted template styles for "from scratch" generation using template design
   extractedStyles?: ExtractedTemplateStyles | null;
 }
 
@@ -228,40 +248,6 @@ const cell = (text: string, opts?: Partial<TableCell>): TableCell => ({ text, op
 
 // Helper to create table row from strings
 const row = (cells: string[]): TableRow => cells.map(t => cell(t));
-
-// Color scheme
-const COLORS = {
-  primary: '2563EB',
-  secondary: '64748B',
-  accent: '10B981',
-  warning: 'F59E0B',
-  destructive: 'EF4444',
-  background: 'F8FAFC',
-  dark: '1E293B',
-  white: 'FFFFFF',
-  border: 'E2E8F0',
-};
-
-// ==================== 16:9 LAYOUT CONSTANTS ====================
-// Standard 16:9 slide dimensions (10" x 5.625")
-const SLIDE_LAYOUT = {
-  name: 'LAYOUT_16x9' as const,
-  width: 10,        // inches
-  height: 5.625,    // inches (16:9 ratio)
-  margin: {
-    top: 0.55,      // header area
-    bottom: 0.3,    // footer area
-    left: 0.4,
-    right: 0.4,
-  },
-  // Computed content area
-  get contentTop() { return this.margin.top; },
-  get contentBottom() { return this.height - this.margin.bottom; },
-  get contentHeight() { return this.contentBottom - this.contentTop; },
-  get contentWidth() { return this.width - this.margin.left - this.margin.right; },
-  get contentLeft() { return this.margin.left; },
-  get contentRight() { return this.width - this.margin.right; },
-};
 
 // Helper to create auto-page table options
 function createAutoPageTableOptions(
@@ -277,104 +263,6 @@ function createAutoPageTableOptions(
     newSlideStartY: SLIDE_LAYOUT.contentTop + 0.3,
     masterName,
   };
-}
-
-// Module type translations
-const MODULE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  positioning: { zh: '定位检测', en: 'Positioning' },
-  defect: { zh: '缺陷检测', en: 'Defect Detection' },
-  ocr: { zh: 'OCR识别', en: 'OCR Recognition' },
-  deeplearning: { zh: '深度学习', en: 'Deep Learning' },
-  measurement: { zh: '尺寸测量', en: 'Measurement' },
-};
-
-// Workstation type translations
-const WS_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  line: { zh: '线体', en: 'Line' },
-  turntable: { zh: '转盘', en: 'Turntable' },
-  robot: { zh: '机械手', en: 'Robot' },
-  platform: { zh: '平台', en: 'Platform' },
-};
-
-// Trigger type translations
-const TRIGGER_LABELS: Record<string, { zh: string; en: string }> = {
-  io: { zh: 'IO触发', en: 'IO Trigger' },
-  encoder: { zh: '编码器', en: 'Encoder' },
-  software: { zh: '软触发', en: 'Software' },
-  continuous: { zh: '连续采集', en: 'Continuous' },
-};
-
-// Process stage translations
-const PROCESS_STAGE_LABELS: Record<string, { zh: string; en: string }> = {
-  '上料': { zh: '上料', en: 'Loading' },
-  '装配': { zh: '装配', en: 'Assembly' },
-  '检测': { zh: '检测', en: 'Inspection' },
-  '下线': { zh: '下线', en: 'Unloading' },
-  '焊接': { zh: '焊接', en: 'Welding' },
-  '涂装': { zh: '涂装', en: 'Coating' },
-  '其他': { zh: '其他', en: 'Other' },
-};
-
-// Company info constants
-const COMPANY_NAME_ZH = '苏州德星云智能装备有限公司';
-const COMPANY_NAME_EN = 'SuZhou DXY Intelligent Solution Co.,Ltd';
-
-// Helper to get workstation code with index
-const getWorkstationCode = (projectCode: string, wsIndex: number): string => {
-  return `${projectCode}.${String(wsIndex + 1).padStart(2, '0')}`;
-};
-
-// Helper to get module display name
-const getModuleDisplayName = (wsCode: string, moduleType: string, isZh: boolean): string => {
-  const typeLabel = MODULE_TYPE_LABELS[moduleType]?.[isZh ? 'zh' : 'en'] || moduleType;
-  return `${wsCode}-${typeLabel}`;
-};
-
-// Image cache for dataUri conversion
-const imageCache = new Map<string, string>();
-const MAX_CACHE_SIZE = 50;
-
-async function fetchImageAsDataUri(url: string): Promise<string> {
-  if (!url || url.trim() === '') return '';
-  
-  if (imageCache.has(url)) {
-    return imageCache.get(url)!;
-  }
-  
-  if (url.startsWith('data:')) {
-    if (imageCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = imageCache.keys().next().value;
-      imageCache.delete(firstKey);
-    }
-    imageCache.set(url, url);
-    return url;
-  }
-  
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.warn('Failed to fetch image:', url, response.status);
-      return '';
-    }
-    
-    const blob = await response.blob();
-    const reader = new FileReader();
-    const dataUri = await new Promise<string>((resolve, reject) => {
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    
-    if (imageCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = imageCache.keys().next().value;
-      imageCache.delete(firstKey);
-    }
-    imageCache.set(url, dataUri);
-    return dataUri;
-  } catch (error) {
-    console.warn('Failed to fetch image as dataUri:', url, error);
-    return '';
-  }
 }
 
 // ==================== MODULE PARAMETER HELPERS ====================
