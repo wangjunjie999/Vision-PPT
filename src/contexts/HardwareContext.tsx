@@ -103,29 +103,97 @@ export function HardwareProvider({ children }: { children: React.ReactNode }) {
   const [controllers, setControllers] = useState<Controller[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch all hardware data in a single batch
+  // Fetch all hardware data in a single batch with enhanced error handling
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [camerasRes, lensesRes, lightsRes, controllersRes] = await Promise.all([
+      console.log('Fetching hardware data...');
+      
+      // 使用 Promise.allSettled 以便即使部分请求失败也能继续
+      const [camerasResult, lensesResult, lightsResult, controllersResult] = await Promise.allSettled([
         supabase.from('cameras').select('*').order('brand', { ascending: true }),
         supabase.from('lenses').select('*').order('brand', { ascending: true }),
         supabase.from('lights').select('*').order('brand', { ascending: true }),
         supabase.from('controllers').select('*').order('brand', { ascending: true }),
       ]);
 
-      if (camerasRes.error) throw camerasRes.error;
-      if (lensesRes.error) throw lensesRes.error;
-      if (lightsRes.error) throw lightsRes.error;
-      if (controllersRes.error) throw controllersRes.error;
+      const errorMessages: string[] = [];
 
-      setCameras(camerasRes.data || []);
-      setLenses(lensesRes.data || []);
-      setLights(lightsRes.data || []);
-      setControllers(controllersRes.data || []);
+      // 处理相机数据
+      if (camerasResult.status === 'fulfilled') {
+        const { data, error } = camerasResult.value;
+        if (error) {
+          console.error('相机数据加载失败:', error);
+          errorMessages.push(`相机: ${error.message}`);
+          setCameras([]);
+        } else {
+          console.log(`Loaded ${data?.length || 0} cameras`);
+          setCameras(data || []);
+        }
+      } else {
+        console.error('相机请求失败:', camerasResult.reason);
+        errorMessages.push('相机: 请求失败');
+        setCameras([]);
+      }
+
+      // 处理镜头数据
+      if (lensesResult.status === 'fulfilled') {
+        const { data, error } = lensesResult.value;
+        if (error) {
+          console.error('镜头数据加载失败:', error);
+          errorMessages.push(`镜头: ${error.message}`);
+          setLenses([]);
+        } else {
+          console.log(`Loaded ${data?.length || 0} lenses`);
+          setLenses(data || []);
+        }
+      } else {
+        console.error('镜头请求失败:', lensesResult.reason);
+        errorMessages.push('镜头: 请求失败');
+        setLenses([]);
+      }
+
+      // 处理光源数据
+      if (lightsResult.status === 'fulfilled') {
+        const { data, error } = lightsResult.value;
+        if (error) {
+          console.error('光源数据加载失败:', error);
+          errorMessages.push(`光源: ${error.message}`);
+          setLights([]);
+        } else {
+          console.log(`Loaded ${data?.length || 0} lights`);
+          setLights(data || []);
+        }
+      } else {
+        console.error('光源请求失败:', lightsResult.reason);
+        errorMessages.push('光源: 请求失败');
+        setLights([]);
+      }
+
+      // 处理控制器数据
+      if (controllersResult.status === 'fulfilled') {
+        const { data, error } = controllersResult.value;
+        if (error) {
+          console.error('控制器数据加载失败:', error);
+          errorMessages.push(`控制器: ${error.message}`);
+          setControllers([]);
+        } else {
+          console.log(`Loaded ${data?.length || 0} controllers`);
+          setControllers(data || []);
+        }
+      } else {
+        console.error('控制器请求失败:', controllersResult.reason);
+        errorMessages.push('控制器: 请求失败');
+        setControllers([]);
+      }
+
+      if (errorMessages.length > 0) {
+        console.error('Hardware loading errors:', errorMessages);
+        toast.error(`部分硬件数据加载失败: ${errorMessages.join(', ')}`);
+      }
     } catch (err) {
       console.error('Failed to fetch hardware data:', err);
-      toast.error('硬件数据加载失败');
+      toast.error('硬件数据加载失败，请刷新页面重试');
     } finally {
       setLoading(false);
     }
