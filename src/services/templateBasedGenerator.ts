@@ -219,15 +219,48 @@ export async function generateFromUserTemplate(
 
 /**
  * 下载生成的PPT文件
+ * 支持多种下载策略以处理不同环境和CORS问题
  */
 export async function downloadGeneratedFile(fileUrl: string, fileName: string): Promise<void> {
+  console.log('Starting download:', { fileUrl, fileName });
+  
+  // 策略1：对于Supabase存储URL，直接使用<a>标签下载（绕过CORS）
+  if (fileUrl.includes('supabase.co/storage') || fileUrl.includes('.supabase.co')) {
+    try {
+      console.log('Using direct link download strategy');
+      const a = document.createElement('a');
+      a.href = fileUrl;
+      a.download = fileName;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // 给一点时间让下载开始
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('Direct link download initiated');
+      return;
+    } catch (directError) {
+      console.warn('Direct link download failed, trying fetch strategy:', directError);
+    }
+  }
+
+  // 策略2：fetch + blob 方式
   try {
-    const response = await fetch(fileUrl);
+    console.log('Using fetch + blob download strategy');
+    const response = await fetch(fileUrl, { 
+      mode: 'cors',
+      credentials: 'omit',
+    });
+    
     if (!response.ok) {
-      throw new Error(`下载失败: ${response.statusText}`);
+      throw new Error(`下载失败: ${response.status} ${response.statusText}`);
     }
     
     const blob = await response.blob();
+    console.log('Blob created:', { size: blob.size, type: blob.type });
+    
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -236,9 +269,17 @@ export async function downloadGeneratedFile(fileUrl: string, fileName: string): 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Download error:', error);
-    throw error;
+    console.log('Fetch + blob download completed');
+    return;
+  } catch (fetchError) {
+    console.warn('Fetch download failed:', fetchError);
+  }
+
+  // 策略3：回退到在新窗口打开链接
+  console.log('Falling back to window.open');
+  const opened = window.open(fileUrl, '_blank');
+  if (!opened) {
+    throw new Error('无法下载文件，请检查浏览器是否阻止了弹出窗口');
   }
 }
 
