@@ -5,11 +5,15 @@ type DbWorkstation = Database['public']['Tables']['workstations']['Row'];
 type DbLayout = Database['public']['Tables']['mechanical_layouts']['Row'];
 type DbModule = Database['public']['Tables']['function_modules']['Row'];
 
+export type OutputFormat = 'ppt' | 'pdf' | 'word';
+export type GenerationMode = 'draft' | 'final';
+
 export interface MissingItem {
-  level: 'project' | 'workstation' | 'module';
+  level: 'project' | 'workstation' | 'module' | 'layout';
   id: string;
   name: string;
   missing: string[];
+  required: boolean; // true = final模式必须，false = 建议填写
   actionType: 'selectWorkstation' | 'selectModule' | 'selectProject';
   targetId: string;
 }
@@ -33,18 +37,28 @@ export interface PPTReadinessResult {
   };
 }
 
+// 关键必填字段定义（final模式缺失则阻断）
+const REQUIRED_PROJECT_FIELDS = ['code', 'name', 'customer'];
+const REQUIRED_PROJECT_LABELS: Record<string, string> = {
+  code: '项目编号',
+  name: '项目名称',
+  customer: '客户名称',
+};
+
 interface CheckInput {
   projects: DbProject[];
   workstations: DbWorkstation[];
   layouts: DbLayout[];
   modules: DbModule[];
   selectedProjectId: string | null;
+  outputFormat?: OutputFormat;
+  mode?: GenerationMode;
 }
 
 /**
- * 检查PPT生成就绪状态
- * @param input 项目数据
- * @returns PPT就绪状态检查结果
+ * 检查文档生成就绪状态（PDF/Word/PPT通用）
+ * @param input 项目数据和生成选项
+ * @returns 就绪状态检查结果
  */
 export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   const { projects, workstations, layouts, modules, selectedProjectId } = input;
@@ -62,6 +76,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
         id: '',
         name: '未选择项目',
         missing: ['请先选择一个项目'],
+        required: true,
         actionType: 'selectProject',
         targetId: '',
       }],
@@ -84,6 +99,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
         id: selectedProjectId,
         name: '项目不存在',
         missing: ['项目数据不存在'],
+        required: true,
         actionType: 'selectProject',
         targetId: selectedProjectId,
       }],
@@ -114,6 +130,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
       id: project.id,
       name: project.name || '未命名项目',
       missing: projectMissing,
+      required: true,
       actionType: 'selectProject',
       targetId: project.id,
     });
@@ -139,6 +156,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
         id: ws.id,
         name: ws.name,
         missing: ['机械布局配置'],
+        required: false,
         actionType: 'selectWorkstation',
         targetId: ws.id,
       });
@@ -156,6 +174,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
         id: mod.id,
         name: mod.name,
         missing: ['视觉系统示意图'],
+        required: true,
         actionType: 'selectModule',
         targetId: mod.id,
       });
