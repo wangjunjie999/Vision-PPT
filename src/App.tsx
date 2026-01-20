@@ -10,6 +10,7 @@ import { HardwareProvider } from "@/contexts/HardwareContext";
 import { AnimatePresence, motion } from "framer-motion";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { initErrorReporter } from "@/services/errorReporter";
+import DiagnosticPanelWrapper from "@/components/debug/DiagnosticPanel";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -134,6 +135,7 @@ const App = () => (
               <HardwareProvider>
                 <Toaster />
                 <Sonner />
+                <DiagnosticPanelWrapper />
                 <BrowserRouter>
                   <ErrorBoundary 
                     fallbackTitle="页面加载失败"
