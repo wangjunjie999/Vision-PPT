@@ -8,11 +8,20 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
 import { HardwareProvider } from "@/contexts/HardwareContext";
 import { AnimatePresence, motion } from "framer-motion";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      staleTime: 30 * 1000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -109,23 +118,33 @@ function AnimatedRoutes() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-      <TooltipProvider>
-        <AuthProvider>
-          <DataProvider>
-            <HardwareProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
-                <AnimatedRoutes />
-              </BrowserRouter>
-            </HardwareProvider>
-          </DataProvider>
-        </AuthProvider>
-      </TooltipProvider>
-    </ThemeProvider>
-  </QueryClientProvider>
+  <ErrorBoundary 
+    fallbackTitle="应用加载失败"
+    onReset={() => window.location.reload()}
+  >
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <TooltipProvider>
+          <AuthProvider>
+            <DataProvider>
+              <HardwareProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <ErrorBoundary 
+                    fallbackTitle="页面加载失败"
+                    onReset={() => window.location.reload()}
+                  >
+                    <AnimatedRoutes />
+                  </ErrorBoundary>
+                </BrowserRouter>
+              </HardwareProvider>
+            </DataProvider>
+          </AuthProvider>
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;
