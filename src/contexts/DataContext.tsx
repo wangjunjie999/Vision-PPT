@@ -4,6 +4,12 @@ import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { offlineCache } from '@/services/offlineCache';
+import { 
+  normalizeProjects, 
+  normalizeWorkstations, 
+  normalizeLayouts, 
+  normalizeModules 
+} from '@/services/dataNormalizer';
 
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
@@ -113,10 +119,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         offlineCache.get<DbModule[]>('modules'),
       ]);
 
-      if (cachedProjects) setProjects(cachedProjects);
-      if (cachedWorkstations) setWorkstations(cachedWorkstations);
-      if (cachedLayouts) setLayouts(cachedLayouts);
-      if (cachedModules) setModules(cachedModules);
+      // Load and normalize cached data
+      if (cachedProjects) setProjects(normalizeProjects(cachedProjects));
+      if (cachedWorkstations) setWorkstations(normalizeWorkstations(cachedWorkstations));
+      if (cachedLayouts) setLayouts(normalizeLayouts(cachedLayouts));
+      if (cachedModules) setModules(normalizeModules(cachedModules));
       
       // If we have cached data, don't show loading state
       if (cachedProjects || cachedWorkstations) {
@@ -156,10 +163,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (layoutsRes.error) throw layoutsRes.error;
       if (modulesRes.error) throw modulesRes.error;
 
-      const projectsData = projectsRes.data || [];
-      const workstationsData = workstationsRes.data || [];
-      const layoutsData = layoutsRes.data || [];
-      const modulesData = modulesRes.data || [];
+      // Normalize data before setting state
+      const projectsData = normalizeProjects(projectsRes.data || []);
+      const workstationsData = normalizeWorkstations(workstationsRes.data || []);
+      const layoutsData = normalizeLayouts(layoutsRes.data || []);
+      const modulesData = normalizeModules(modulesRes.data || []);
 
       setProjects(projectsData);
       setWorkstations(workstationsData);
