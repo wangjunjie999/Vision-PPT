@@ -41,6 +41,7 @@ import { CameraMountPoints, findNearestMountPoint, getMountPointWorldPosition } 
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
 import { compressImage, dataUrlToBlob, QUALITY_PRESETS, type QualityPreset } from '@/utils/imageCompression';
 import { getImageSaveErrorMessage } from '@/utils/errorMessages';
+import { safeArray, safeMap, safeNumber } from '@/utils/safe';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -267,18 +268,21 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         const loadedObjects = typeof layout.layout_objects === 'string' 
           ? JSON.parse(layout.layout_objects) 
           : layout.layout_objects;
-        if (Array.isArray(loadedObjects)) {
+        // Use safeArray to handle non-array or null values
+        const objectsArray = safeArray<Record<string, unknown>>(loadedObjects);
+        if (objectsArray.length > 0) {
           // Ensure all objects have 3D coordinates (migrate old data)
-          const migratedObjects = loadedObjects.map((obj: any) => ({
+          const migratedObjects = objectsArray.map((obj: any) => ({
             ...obj,
-            posX: obj.posX ?? 0,
-            posY: obj.posY ?? 0,
-            posZ: obj.posZ ?? (obj.type === 'camera' ? 300 : 0),
+            posX: safeNumber(obj.posX) ?? 0,
+            posY: safeNumber(obj.posY) ?? 0,
+            posZ: safeNumber(obj.posZ) ?? (obj.type === 'camera' ? 300 : 0),
           }));
           setObjects(migratedObjects);
         }
       } catch (e) {
         console.error('Failed to parse layout objects:', e);
+        setObjects([]); // Reset to empty on parse failure
       }
     }
     if (layout?.grid_enabled !== undefined) setGridEnabled(layout.grid_enabled);
