@@ -121,7 +121,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   });
   const generatedBlobRef = useRef<Blob | null>(null);
   const [checkPanelOpen, setCheckPanelOpen] = useState(true);
-  const [generationMethod, setGenerationMethod] = useState<GenerationMethod>('template'); // 默认使用用户模板
+  // 默认使用"从零生成"，因为模板生成需要Edge Function支持
+  const [generationMethod, setGenerationMethod] = useState<GenerationMethod>('scratch');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('ppt'); // 输出格式
 
   // Get current project and workstations
@@ -440,6 +441,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         extra_fields: ws.extra_fields,
       }));
 
+      // 转换 layoutData 为 pptxGenerator 期望的格式
+      // ReportHardwareItem 需要转换为 { id, brand, model, image_url } 简单格式
       const layoutData = reportData.layouts.map(l => ({
         workstation_id: l.workstation_id,
         name: l.name,
@@ -452,10 +455,31 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         camera_mounts_labels: l.camera_mounts_labels,
         mechanisms: l.mechanisms,
         mechanisms_labels: l.mechanisms_labels,
-        selected_cameras: l.selected_cameras,
-        selected_lenses: l.selected_lenses,
-        selected_lights: l.selected_lights,
-        selected_controller: l.selected_controller,
+        // 转换硬件数据为简单格式，兼容 pptxGenerator 的类型定义
+        selected_cameras: l.selected_cameras?.map(c => ({
+          id: c.id,
+          brand: c.brand,
+          model: c.model,
+          image_url: c.image_url,
+        })) ?? null,
+        selected_lenses: l.selected_lenses?.map(lens => ({
+          id: lens.id,
+          brand: lens.brand,
+          model: lens.model,
+          image_url: lens.image_url,
+        })) ?? null,
+        selected_lights: l.selected_lights?.map(light => ({
+          id: light.id,
+          brand: light.brand,
+          model: light.model,
+          image_url: light.image_url,
+        })) ?? null,
+        selected_controller: l.selected_controller ? {
+          id: l.selected_controller.id,
+          brand: l.selected_controller.brand,
+          model: l.selected_controller.model,
+          image_url: l.selected_controller.image_url,
+        } : null,
         front_view_image_url: l.front_view_image_url,
         side_view_image_url: l.side_view_image_url,
         top_view_image_url: l.top_view_image_url,
@@ -827,12 +851,24 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error('PPT generation failed:', error);
+      const errStack = error instanceof Error ? error.stack : '';
+      // 详细错误日志，便于调试
+      console.error('PPT generation failed:', {
+        error,
+        message: errMsg,
+        stack: errStack,
+        method: generationMethod,
+        outputFormat,
+        projectId: project?.id,
+        projectName: project?.name,
+        workstationCount: projectWorkstations.length,
+        moduleCount: selectedModules.length,
+      });
       addLog('error', `生成失败: ${errMsg}`);
       setErrorMessage(errMsg);
       setStage('error');
       setIsGenerating(false);
-      toast.error('PPT生成失败');
+      toast.error('文档生成失败');
     }
   };
 
@@ -1029,22 +1065,17 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   className="grid grid-cols-2 gap-2"
                 >
                   <Label className={cn(
-                    "flex items-center gap-2 p-3 border rounded-lg transition-colors",
-                    !templateHasFile ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-                    generationMethod === 'template' && templateHasFile ? "border-primary bg-primary/5" : "hover:bg-muted"
+                    "flex items-center gap-2 p-3 border rounded-lg transition-colors cursor-not-allowed opacity-50",
+                    generationMethod === 'template' ? "border-primary bg-primary/5" : ""
                   )}>
-                    <RadioGroupItem value="template" disabled={!templateHasFile} />
+                    <RadioGroupItem value="template" disabled />
                     <div className="flex-1">
                       <div className="text-sm font-medium flex items-center gap-2">
                         基于模板
-                        {templateHasFile && (
-                          <Badge variant="secondary" className="text-xs">推荐</Badge>
-                        )}
+                        <Badge variant="outline" className="text-xs">开发中</Badge>
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {templateHasFile 
-                          ? '使用您上传的PPTX母版样式' 
-                          : '需要先上传PPTX文件'}
+                        需要后端服务支持
                       </div>
                     </div>
                   </Label>
@@ -1054,21 +1085,18 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   )}>
                     <RadioGroupItem value="scratch" />
                     <div className="flex-1">
-                      <div className="text-sm font-medium">从零生成</div>
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        从零生成
+                        <Badge variant="secondary" className="text-xs">推荐</Badge>
+                      </div>
                       <div className="text-xs text-muted-foreground">使用内置标准样式</div>
                     </div>
                   </Label>
                 </RadioGroup>
-                {generationMethod === 'template' && templateHasFile && (
+                {generationMethod === 'scratch' && selectedTemplate?.file_url && (
                   <p className="text-xs text-primary flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" />
-                    将使用 "{selectedTemplate?.name}" 的母版样式
-                  </p>
-                )}
-                {generationMethod === 'template' && !templateHasFile && selectedTemplateId && (
-                  <p className="text-xs text-warning flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    该模板未上传PPTX文件，请在管理中心上传或切换为"从零生成"
+                    将提取 "{selectedTemplate?.name}" 的样式并应用到生成的PPT
                   </p>
                 )}
               </div>
