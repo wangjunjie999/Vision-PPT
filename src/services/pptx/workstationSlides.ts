@@ -34,14 +34,14 @@ const row = (cells: string[]): TableRow => cells.map(t => cell(t));
 
 /**
  * Unified slide title with Tech-Shine corporate style
- * Orange accent bar on left + dark text
+ * Deep blue accent bar on left + dark gray text
  */
 function addSlideTitle(
   slide: ReturnType<PptxGenJS['addSlide']>,
   ctx: SlideContext,
   subtitle: string
 ): void {
-  // Orange accent bar on left
+  // Deep blue accent bar on left
   slide.addShape('rect', {
     x: 0.5, y: 0.55, w: 0.08, h: 0.35,
     fill: { color: COLORS.primary },
