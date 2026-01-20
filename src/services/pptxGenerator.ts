@@ -1034,7 +1034,91 @@ export async function generatePPTX(
     }
   }
 
-  // ========== SLIDE 5: Project Overview (16:9) ==========
+  // ========== SLIDE 5: Project Description (项目描述) - NEW ==========
+  progress = 14;
+  onProgress(progress, isZh ? '生成项目描述页...' : 'Generating project description...', isZh ? '项目描述页' : 'Project description');
+
+  const descSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+  
+  descSlide.addText(isZh ? '项目描述' : 'Project Description', {
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+    fontSize: 18, color: COLORS.dark, bold: true,
+  });
+
+  // Project basic info table
+  // Access project fields safely
+  const projectExt = project as ProjectData & { production_line?: string; description?: string };
+  
+  const projectInfoRows: TableRow[] = [
+    row([isZh ? '项目编号' : 'Project Code', project.code]),
+    row([isZh ? '项目名称' : 'Project Name', project.name]),
+    row([isZh ? '客户名称' : 'Customer', project.customer]),
+    row([isZh ? '产线名称' : 'Production Line', projectExt.production_line || '-']),
+    row([isZh ? '负责人' : 'Responsible', project.responsible || '-']),
+    row([isZh ? '项目日期' : 'Date', project.date || '-']),
+  ];
+
+  descSlide.addTable(projectInfoRows, {
+    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop + 0.45, w: SLIDE_LAYOUT.contentWidth,
+    fontFace: 'Arial',
+    fontSize: 9,
+    colW: [1.5, 7.7],
+    border: { pt: 0.5, color: COLORS.border },
+    fill: { color: COLORS.white },
+    valign: 'middle',
+  });
+
+  // Project description
+  const projectDesc = projectExt.description || '';
+  if (projectDesc) {
+    descSlide.addText(isZh ? '【项目简介】' : '[Project Overview]', {
+      x: SLIDE_LAYOUT.contentLeft, y: 2.55, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
+      fontSize: 11, color: COLORS.primary, bold: true,
+    });
+    descSlide.addShape('rect', {
+      x: SLIDE_LAYOUT.contentLeft, y: 2.88, w: SLIDE_LAYOUT.contentWidth, h: 0.9,
+      fill: { color: 'F5F5F5' },
+      line: { color: COLORS.border, width: 0.5 },
+    });
+    descSlide.addText(projectDesc, {
+      x: SLIDE_LAYOUT.contentLeft + 0.1, y: 2.95, w: SLIDE_LAYOUT.contentWidth - 0.2, h: 0.75,
+      fontSize: 9, color: COLORS.dark,
+    });
+  }
+
+  // Environment requirements
+  const projectEnv = project.environment as string | string[] | null;
+  const envText = Array.isArray(projectEnv) ? projectEnv.join('、') : (projectEnv || '');
+  if (envText) {
+    descSlide.addText(isZh ? '【环境要求】' : '[Environment Requirements]', {
+      x: SLIDE_LAYOUT.contentLeft, y: 3.9, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
+      fontSize: 11, color: COLORS.primary, bold: true,
+    });
+    descSlide.addText(envText, {
+      x: SLIDE_LAYOUT.contentLeft, y: 4.22, w: SLIDE_LAYOUT.contentWidth, h: 0.4,
+      fontSize: 9, color: COLORS.dark,
+    });
+  }
+
+  // Notes
+  const projectNotes = project.notes as string | null;
+  if (projectNotes) {
+    descSlide.addText(isZh ? '【备注说明】' : '[Notes]', {
+      x: SLIDE_LAYOUT.contentLeft, y: 4.7, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
+      fontSize: 11, color: COLORS.warning, bold: true,
+    });
+    descSlide.addShape('rect', {
+      x: SLIDE_LAYOUT.contentLeft, y: 5.02, w: SLIDE_LAYOUT.contentWidth, h: 0.65,
+      fill: { color: 'FFF8E1' },
+      line: { color: COLORS.warning, width: 0.5 },
+    });
+    descSlide.addText(projectNotes, {
+      x: SLIDE_LAYOUT.contentLeft + 0.1, y: 5.1, w: SLIDE_LAYOUT.contentWidth - 0.2, h: 0.5,
+      fontSize: 9, color: COLORS.dark,
+    });
+  }
+
+  // ========== SLIDE 6: Project Overview (16:9) ==========
   progress = 16;
   onProgress(progress, isZh ? '生成项目概览页...' : 'Generating project overview...', isZh ? '生成项目概览页' : 'Project overview');
 
@@ -1143,6 +1227,7 @@ export async function generatePPTX(
         shot_count: ws.shot_count,
         risk_notes: ws.risk_notes,
         action_script: ws.action_script,
+        description: (ws as unknown as Record<string, unknown>).description as string | null,
       },
       layout: wsLayout ? {
         workstation_id: wsLayout.workstation_id,
@@ -1165,12 +1250,17 @@ export async function generatePPTX(
         id: m.id,
         name: m.name,
         type: m.type,
+        description: m.description,
         trigger_type: m.trigger_type,
         processing_time_limit: m.processing_time_limit,
         schematic_image_url: m.schematic_image_url,
         positioning_config: m.positioning_config,
         defect_config: m.defect_config,
         measurement_config: m.measurement_config,
+        ocr_config: m.ocr_config,
+        deep_learning_config: m.deep_learning_config,
+        output_types: m.output_types,
+        roi_strategy: m.roi_strategy,
       })),
       annotation: wsAnnotation ? {
         snapshot_url: wsAnnotation.snapshot_url,

@@ -77,6 +77,7 @@ interface WorkstationSlideData {
     shot_count?: number | null;
     risk_notes?: string | null;
     action_script?: string | null;
+    description?: string | null;  // Added workstation description
   };
   layout: {
     workstation_id: string;
@@ -99,12 +100,17 @@ interface WorkstationSlideData {
     id: string;
     name: string;
     type: string;
+    description?: string | null;  // Added module description
     trigger_type: string | null;
     processing_time_limit: number | null;
     schematic_image_url?: string | null;
     positioning_config?: Record<string, unknown> | null;
     defect_config?: Record<string, unknown> | null;
     measurement_config?: Record<string, unknown> | null;
+    ocr_config?: Record<string, unknown> | null;  // Added OCR config
+    deep_learning_config?: Record<string, unknown> | null;  // Added deep learning config
+    output_types?: string[] | null;  // Added output types
+    roi_strategy?: string | null;  // Added ROI strategy
   }>;
   annotation?: {
     snapshot_url: string;
@@ -175,6 +181,20 @@ export function generateBasicInfoSlide(
   
   addSlideTitle(slide, ctx, ctx.isZh ? '基本信息' : 'Basic Info');
 
+  // Workstation description (NEW - shows workstation description if available)
+  if (ws.description) {
+    slide.addText(ctx.isZh ? '【工位描述】' : '[Workstation Description]', {
+      x: 0.5, y: 1.1, w: 9, h: 0.25,
+      fontSize: 10, color: COLORS.secondary, bold: true,
+    });
+    slide.addText(ws.description, {
+      x: 0.5, y: 1.38, w: 9, h: 0.35,
+      fontSize: 9, color: COLORS.dark,
+    });
+  }
+
+  const startY = ws.description ? 1.8 : 1.2;
+
   // Detection method summary
   const detectionMethods = modules.map(m => {
     const typeLabel = MODULE_TYPE_LABELS[m.type]?.[ctx.isZh ? 'zh' : 'en'] || m.type;
@@ -184,62 +204,61 @@ export function generateBasicInfoSlide(
   const methodSummary = `${cameraCount}${ctx.isZh ? '相机' : ' cameras'} - ${detectionMethods.join('/')}`;
   
   slide.addText(ctx.isZh ? '【检测方式】' : '[Detection Method]', {
-    x: 0.5, y: 1.2, w: 9, h: 0.3,
+    x: 0.5, y: startY, w: 9, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
   slide.addText(methodSummary, {
-    x: 0.5, y: 1.55, w: 9, h: 0.3,
-    fontSize: 12, color: COLORS.dark,
+    x: 0.5, y: startY + 0.28, w: 9, h: 0.25,
+    fontSize: 11, color: COLORS.dark,
   });
 
   // Compatible sizes / Key dimensions
   const dims = ws.product_dimensions;
   slide.addText(ctx.isZh ? '【兼容/蓝本尺寸】' : '[Compatible/Model Dimensions]', {
-    x: 0.5, y: 2.0, w: 4.3, h: 0.3,
+    x: 0.5, y: startY + 0.65, w: 4.3, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
   slide.addText(dims ? `${dims.length} × ${dims.width} × ${dims.height} mm` : '-', {
-    x: 0.5, y: 2.35, w: 4.3, h: 0.3,
+    x: 0.5, y: startY + 0.93, w: 4.3, h: 0.25,
     fontSize: 10, color: COLORS.dark,
   });
 
-  // Detection requirements
+  // Detection requirements (show module names)
   slide.addText(ctx.isZh ? '【检测要求】' : '[Detection Requirements]', {
-    x: 5, y: 2.0, w: 4.5, h: 0.3,
+    x: 5, y: startY + 0.65, w: 4.5, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
-  const detectionReq = detectionMethods.length > 0 
-    ? detectionMethods.join('、') 
-    : (ws.observation_target || '-');
+  const moduleNames = modules.map(m => m.name).join('、');
+  const detectionReq = moduleNames || detectionMethods.join('、') || (ws.observation_target || '-');
   slide.addText(detectionReq, {
-    x: 5, y: 2.35, w: 4.5, h: 0.3,
+    x: 5, y: startY + 0.93, w: 4.5, h: 0.25,
     fontSize: 10, color: COLORS.dark,
   });
 
   // Precision/Resolution/Pixels
   const accuracy = ws.acceptance_criteria?.accuracy || '±0.1mm';
   slide.addText(ctx.isZh ? '【精度/分辨率/像素】' : '[Accuracy/Resolution/Pixels]', {
-    x: 0.5, y: 2.85, w: 4.3, h: 0.3,
+    x: 0.5, y: startY + 1.3, w: 4.3, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
   slide.addText(accuracy, {
-    x: 0.5, y: 3.2, w: 4.3, h: 0.3,
+    x: 0.5, y: startY + 1.58, w: 4.3, h: 0.25,
     fontSize: 10, color: COLORS.dark,
   });
 
   // Cycle time
   slide.addText(ctx.isZh ? '【节拍】' : '[Cycle Time]', {
-    x: 5, y: 2.85, w: 4.5, h: 0.3,
+    x: 5, y: startY + 1.3, w: 4.5, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
   slide.addText(ws.cycle_time ? `${ws.cycle_time} s/pcs` : '-', {
-    x: 5, y: 3.2, w: 4.5, h: 0.3,
+    x: 5, y: startY + 1.58, w: 4.5, h: 0.25,
     fontSize: 10, color: COLORS.dark,
   });
 
   // Key notes
   slide.addText(ctx.isZh ? '【关键备注】' : '[Key Notes]', {
-    x: 0.5, y: 3.7, w: 9, h: 0.3,
+    x: 0.5, y: startY + 2.0, w: 9, h: 0.25,
     fontSize: 11, color: COLORS.warning, bold: true,
   });
   
@@ -248,12 +267,12 @@ export function generateBasicInfoSlide(
     : '• Accuracy to be verified with samples\n• FOV evaluation on-site');
   
   slide.addShape('rect', {
-    x: 0.5, y: 4.05, w: 9, h: 1.1,
+    x: 0.5, y: startY + 2.28, w: 9, h: 0.95,
     fill: { color: 'FFF8E1' },
     line: { color: COLORS.warning, width: 0.5 },
   });
   slide.addText(notes, {
-    x: 0.7, y: 4.15, w: 8.6, h: 0.9,
+    x: 0.7, y: startY + 2.35, w: 8.6, h: 0.8,
     fontSize: 9, color: COLORS.dark,
   });
 }
@@ -341,6 +360,7 @@ export async function generateProductSchematicSlide(
 
 /**
  * Slide 3: Technical Requirements (技术要求)
+ * Enhanced to show all module configuration parameters
  */
 export function generateTechnicalRequirementsSlide(
   ctx: SlideContext,
@@ -351,18 +371,75 @@ export function generateTechnicalRequirementsSlide(
   
   addSlideTitle(slide, ctx, ctx.isZh ? '技术要求' : 'Technical Requirements');
 
-  // Detection items
+  // Detection items with module description
   slide.addText(ctx.isZh ? '【检测项/缺陷项】' : '[Detection/Defect Items]', {
-    x: 0.5, y: 1.15, w: 9, h: 0.28,
+    x: 0.5, y: 1.15, w: 4.3, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
 
   const detectionItems: TableRow[] = [];
   modules.forEach(mod => {
-    detectionItems.push(row([
-      MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type,
-      mod.name
-    ]));
+    const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
+    // Include module description if available
+    const modDesc = mod.description ? ` - ${mod.description.slice(0, 30)}...` : '';
+    detectionItems.push(row([typeLabel, mod.name + (modDesc ? '' : '')]));
+    
+    // Add specific config details based on module type
+    const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config || mod.ocr_config || mod.deep_learning_config) as Record<string, unknown> | null;
+    if (cfg) {
+      // Defect detection specific
+      if (mod.defect_config) {
+        const defCfg = mod.defect_config as Record<string, unknown>;
+        if (defCfg.defectClasses && Array.isArray(defCfg.defectClasses)) {
+          detectionItems.push(row([ctx.isZh ? '缺陷类别' : 'Defect Types', (defCfg.defectClasses as string[]).slice(0, 3).join('、')]));
+        }
+      }
+      // OCR specific
+      if (mod.ocr_config) {
+        const ocrCfg = mod.ocr_config as Record<string, unknown>;
+        if (ocrCfg.charType) {
+          const charTypeLabels: Record<string, string> = {
+            printed: ctx.isZh ? '印刷字符' : 'Printed',
+            laser: ctx.isZh ? '激光雕刻' : 'Laser Engraved',
+            engraved: ctx.isZh ? '雕刻字符' : 'Engraved',
+            dotMatrix: ctx.isZh ? '点阵字符' : 'Dot Matrix',
+          };
+          detectionItems.push(row([ctx.isZh ? '字符类型' : 'Char Type', charTypeLabels[ocrCfg.charType as string] || String(ocrCfg.charType)]));
+        }
+        if (ocrCfg.charCount) {
+          detectionItems.push(row([ctx.isZh ? '字符数量' : 'Char Count', String(ocrCfg.charCount)]));
+        }
+      }
+      // Measurement specific
+      if (mod.measurement_config) {
+        const measCfg = mod.measurement_config as Record<string, unknown>;
+        if (measCfg.systemAccuracy) {
+          detectionItems.push(row([ctx.isZh ? '系统精度' : 'System Acc.', `±${measCfg.systemAccuracy} mm`]));
+        }
+        if (measCfg.measurementItems && Array.isArray(measCfg.measurementItems)) {
+          const items = measCfg.measurementItems as Array<{ name: string }>;
+          items.slice(0, 2).forEach(item => {
+            detectionItems.push(row([ctx.isZh ? '测量项' : 'Measure Item', item.name || '-']));
+          });
+        }
+      }
+      // Deep learning specific
+      if (mod.deep_learning_config) {
+        const dlCfg = mod.deep_learning_config as Record<string, unknown>;
+        if (dlCfg.taskType) {
+          const taskLabels: Record<string, string> = {
+            classification: ctx.isZh ? '分类' : 'Classification',
+            detection: ctx.isZh ? '目标检测' : 'Detection',
+            segmentation: ctx.isZh ? '语义分割' : 'Segmentation',
+            anomaly: ctx.isZh ? '异常检测' : 'Anomaly',
+          };
+          detectionItems.push(row([ctx.isZh ? 'AI任务类型' : 'AI Task', taskLabels[dlCfg.taskType as string] || String(dlCfg.taskType)]));
+        }
+        if (dlCfg.targetClasses && Array.isArray(dlCfg.targetClasses)) {
+          detectionItems.push(row([ctx.isZh ? '目标类别' : 'Target Classes', (dlCfg.targetClasses as string[]).slice(0, 3).join('、')]));
+        }
+      }
+    }
   });
 
   // Add detection requirements from product asset
@@ -374,28 +451,59 @@ export function generateTechnicalRequirementsSlide(
     detectionItems.push(row(['-', '-']));
   }
 
-  slide.addTable(detectionItems.slice(0, 6), {
-    x: 0.5, y: 1.48, w: 4.3, h: Math.min(detectionItems.length * 0.32 + 0.1, 2),
+  slide.addTable(detectionItems.slice(0, 8), {
+    x: 0.5, y: 1.45, w: 4.3, h: Math.min(detectionItems.length * 0.28 + 0.1, 2.2),
     fontFace: 'Arial',
-    fontSize: 9,
-    colW: [1.5, 2.8],
+    fontSize: 8,
+    colW: [1.4, 2.9],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   });
 
-  // Minimum defect / Tolerance
-  slide.addText(ctx.isZh ? '【最小缺陷/允许偏差】' : '[Min Defect/Tolerance]', {
-    x: 5, y: 1.15, w: 4.5, h: 0.28,
+  // Minimum defect / Tolerance / Configuration details
+  slide.addText(ctx.isZh ? '【配置参数/允许偏差】' : '[Config Parameters/Tolerance]', {
+    x: 5, y: 1.15, w: 4.5, h: 0.25,
     fontSize: 11, color: COLORS.primary, bold: true,
   });
 
   const toleranceRows: TableRow[] = [];
   modules.forEach(mod => {
-    const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config) as Record<string, unknown> | null;
+    const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config || mod.ocr_config) as Record<string, unknown> | null;
     if (cfg) {
+      // Common imaging config
+      const imaging = cfg.imaging as Record<string, unknown> | undefined;
+      
       if (cfg.minDefectSize) toleranceRows.push(row([ctx.isZh ? '最小缺陷' : 'Min Defect', `${cfg.minDefectSize} mm`]));
       if (cfg.targetAccuracy) toleranceRows.push(row([ctx.isZh ? '目标精度' : 'Target Acc.', `±${cfg.targetAccuracy} mm`]));
       if (cfg.accuracyRequirement) toleranceRows.push(row([ctx.isZh ? '定位精度' : 'Position Acc.', `±${cfg.accuracyRequirement} mm`]));
+      if (cfg.systemAccuracy) toleranceRows.push(row([ctx.isZh ? '系统精度' : 'System Acc.', `±${cfg.systemAccuracy} mm`]));
+      if (cfg.allowedMissRate) toleranceRows.push(row([ctx.isZh ? '允许漏检率' : 'Miss Rate', String(cfg.allowedMissRate)]));
+      if (cfg.allowedFalseRate) toleranceRows.push(row([ctx.isZh ? '允许误检率' : 'False Rate', String(cfg.allowedFalseRate)]));
+      if (cfg.confidenceThreshold) toleranceRows.push(row([ctx.isZh ? '置信度阈值' : 'Confidence', String(cfg.confidenceThreshold)]));
+      if (cfg.lineSpeed) toleranceRows.push(row([ctx.isZh ? '线速度' : 'Line Speed', `${cfg.lineSpeed} m/min`]));
+      if (cfg.detectionAreaLength && cfg.detectionAreaWidth) {
+        toleranceRows.push(row([ctx.isZh ? '检测区域' : 'Detection Area', `${cfg.detectionAreaLength}×${cfg.detectionAreaWidth} mm`]));
+      }
+      
+      // Imaging parameters
+      if (imaging) {
+        if (imaging.workingDistance) toleranceRows.push(row([ctx.isZh ? '工作距离' : 'WD', `${imaging.workingDistance} mm`]));
+        if (imaging.fieldOfView) toleranceRows.push(row([ctx.isZh ? '视场' : 'FOV', `${imaging.fieldOfView}`]));
+        if (imaging.resolutionPerPixel) toleranceRows.push(row([ctx.isZh ? '分辨率' : 'Resolution', `${imaging.resolutionPerPixel} mm/px`]));
+        if (imaging.exposure) toleranceRows.push(row([ctx.isZh ? '曝光' : 'Exposure', `${imaging.exposure} μs`]));
+      }
+    }
+    
+    // Output types
+    if (mod.output_types && mod.output_types.length > 0) {
+      const outputLabels: Record<string, string> = {
+        '报警': ctx.isZh ? '报警' : 'Alarm',
+        '停机': ctx.isZh ? '停机' : 'Stop',
+        '分拣': ctx.isZh ? '分拣' : 'Sort',
+        '标记': ctx.isZh ? '标记' : 'Mark',
+      };
+      const outputs = mod.output_types.map(o => outputLabels[o] || o).join('、');
+      toleranceRows.push(row([ctx.isZh ? '输出动作' : 'Output Action', outputs]));
     }
   });
 
@@ -403,18 +511,18 @@ export function generateTechnicalRequirementsSlide(
     toleranceRows.push(row([ctx.isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria?.accuracy || '±0.1mm']));
   }
 
-  slide.addTable(toleranceRows.slice(0, 6), {
-    x: 5, y: 1.48, w: 4.5, h: Math.min(toleranceRows.length * 0.32 + 0.1, 2),
+  slide.addTable(toleranceRows.slice(0, 10), {
+    x: 5, y: 1.45, w: 4.5, h: Math.min(toleranceRows.length * 0.26 + 0.1, 2.4),
     fontFace: 'Arial',
-    fontSize: 9,
-    colW: [2, 2.5],
+    fontSize: 8,
+    colW: [1.8, 2.7],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   });
 
   // Risk notes section
   slide.addText(ctx.isZh ? '【风险口径/备注】' : '[Risk Notes / Remarks]', {
-    x: 0.5, y: 3.7, w: 9, h: 0.28,
+    x: 0.5, y: 3.95, w: 9, h: 0.25,
     fontSize: 11, color: COLORS.warning, bold: true,
   });
 
@@ -423,12 +531,12 @@ export function generateTechnicalRequirementsSlide(
     : '• Detection capability subject to actual sample testing\n• Accuracy acceptance to be confirmed after on-site commissioning');
 
   slide.addShape('rect', {
-    x: 0.5, y: 4.03, w: 9, h: 1.1,
+    x: 0.5, y: 4.25, w: 9, h: 0.9,
     fill: { color: 'FFF3CD' },
     line: { color: COLORS.warning, width: 1 },
   });
   slide.addText(riskText, {
-    x: 0.7, y: 4.13, w: 8.6, h: 0.95,
+    x: 0.7, y: 4.32, w: 8.6, h: 0.75,
     fontSize: 9, color: COLORS.dark,
   });
 }
