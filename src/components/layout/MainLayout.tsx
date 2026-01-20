@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store/useAppStore';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { TopToolbar } from './TopToolbar';
 import { ProjectTree } from './ProjectTree';
 import { CanvasArea } from './CanvasArea';
@@ -93,7 +94,9 @@ export function MainLayout() {
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
-                  <ProjectTree />
+                  <ErrorBoundary fallbackTitle="项目树加载失败" compact>
+                    <ProjectTree />
+                  </ErrorBoundary>
                 </SheetContent>
               </Sheet>
               
@@ -183,7 +186,9 @@ export function MainLayout() {
                       >
                         <ChevronLeft className="h-3 w-3" />
                       </Button>
-                      <ProjectTree />
+                      <ErrorBoundary fallbackTitle="项目树加载失败" compact>
+                        <ProjectTree />
+                      </ErrorBoundary>
                     </>
                   )}
                 </motion.aside>
@@ -221,7 +226,9 @@ export function MainLayout() {
                       >
                         <ChevronRight className="h-3 w-3" />
                       </Button>
-                      <FormPanel />
+                      <ErrorBoundary fallbackTitle="表单加载失败" compact>
+                        <FormPanel />
+                      </ErrorBoundary>
                     </>
                   )}
                 </motion.aside>
@@ -299,7 +306,9 @@ export function MainLayout() {
                     className="h-full bg-card/90 backdrop-blur-md flex flex-col overflow-hidden shadow-xl relative"
                   >
                     <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent" />
-                    <ProjectTree />
+                    <ErrorBoundary fallbackTitle="项目树加载失败" compact>
+                      <ProjectTree />
+                    </ErrorBoundary>
                   </motion.aside>
                 </ResizablePanel>
                 
@@ -353,7 +362,9 @@ export function MainLayout() {
                     className="h-full bg-card/90 backdrop-blur-md flex flex-col overflow-hidden shadow-xl relative"
                   >
                     <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent" />
-                    <FormPanel />
+                    <ErrorBoundary fallbackTitle="表单加载失败" compact>
+                      <FormPanel />
+                    </ErrorBoundary>
                   </motion.aside>
                 </ResizablePanel>
               </ResizablePanelGroup>

@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useData } from '@/contexts/DataContext';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { EmptyFormState } from '../forms/EmptyFormState';
 import { ProjectForm } from '../forms/ProjectForm';
 import { WorkstationForm } from '../forms/WorkstationForm';
@@ -14,15 +15,39 @@ export function FormPanel() {
   const { selectedProjectId, selectedWorkstationId, selectedModuleId } = useData();
 
   if (selectedModuleId) {
-    return <MemoizedModuleForm key={selectedModuleId} />;
+    return (
+      <ErrorBoundary
+        fallbackTitle="模块表单加载失败"
+        context={{ moduleId: selectedModuleId }}
+        compact
+      >
+        <MemoizedModuleForm key={selectedModuleId} />
+      </ErrorBoundary>
+    );
   }
   
   if (selectedWorkstationId) {
-    return <MemoizedWorkstationForm key={selectedWorkstationId} />;
+    return (
+      <ErrorBoundary
+        fallbackTitle="工位表单加载失败"
+        context={{ workstationId: selectedWorkstationId }}
+        compact
+      >
+        <MemoizedWorkstationForm key={selectedWorkstationId} />
+      </ErrorBoundary>
+    );
   }
   
   if (selectedProjectId) {
-    return <MemoizedProjectForm key={selectedProjectId} />;
+    return (
+      <ErrorBoundary
+        fallbackTitle="项目表单加载失败"
+        context={{ projectId: selectedProjectId }}
+        compact
+      >
+        <MemoizedProjectForm key={selectedProjectId} />
+      </ErrorBoundary>
+    );
   }
   
   return <EmptyFormState />;
