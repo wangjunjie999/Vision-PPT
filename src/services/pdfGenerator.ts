@@ -1514,6 +1514,87 @@ export async function generatePDF(
     helper.addTable(ctrlHeaders, ctrlRows, [25, 35, 35, 25, 25, 25]);
   }
 
+  // ==================== 4. 附录：额外字段 ====================
+  // 检查是否有extra_fields需要输出
+  const hasExtraFields = (obj: any): boolean => {
+    if (!obj || typeof obj !== 'object') return false;
+    if ('extra_fields' in obj && obj.extra_fields) {
+      return Object.keys(obj.extra_fields).length > 0;
+    }
+    return false;
+  };
+
+  const projectHasExtra = hasExtraFields(project);
+  const wsWithExtra = workstations.filter(ws => hasExtraFields(ws));
+  const layoutsWithExtra = layouts.filter(l => hasExtraFields(l));
+  const modulesWithExtra = modules.filter(m => hasExtraFields(m));
+
+  if (projectHasExtra || wsWithExtra.length > 0 || layoutsWithExtra.length > 0 || modulesWithExtra.length > 0) {
+    pdf.addPage();
+    helper.y = margin;
+    onProgress?.(90, isZh ? '生成附录' : 'Creating appendix', '');
+
+    helper.addSectionTitle(isZh ? '附录：补充字段' : 'Appendix: Additional Fields');
+    helper.addSpace(5);
+
+    // 项目附录
+    if (projectHasExtra && (project as any).extra_fields) {
+      helper.addSubtitle(isZh ? '项目补充信息' : 'Project Additional Information');
+      const extraFields = (project as any).extra_fields as Record<string, { key: string; label: string; value: string }>;
+      const rows = Object.values(extraFields).map(f => [f.label, f.value]);
+      if (rows.length > 0) {
+        helper.addTable([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows, [60, 110]);
+      }
+      helper.addSpace(8);
+    }
+
+    // 工位附录
+    for (const ws of wsWithExtra) {
+      helper.addNewPageIfNeeded(40);
+      const wsAny = ws as any;
+      helper.addSubtitle(`${isZh ? '工位' : 'Workstation'}: ${wsAny.name || wsAny.code}`);
+      if (wsAny.extra_fields) {
+        const rows = Object.values(wsAny.extra_fields as Record<string, { key: string; label: string; value: string }>)
+          .map(f => [f.label, f.value]);
+        if (rows.length > 0) {
+          helper.addTable([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows, [60, 110]);
+        }
+      }
+      helper.addSpace(5);
+    }
+
+    // 布局附录
+    for (const layout of layoutsWithExtra) {
+      helper.addNewPageIfNeeded(40);
+      const layoutAny = layout as any;
+      const ws = workstations.find(w => w.id === layoutAny.workstation_id);
+      helper.addSubtitle(`${isZh ? '布局' : 'Layout'}: ${(ws as any)?.name || layoutAny.name || 'N/A'}`);
+      if (layoutAny.extra_fields) {
+        const rows = Object.values(layoutAny.extra_fields as Record<string, { key: string; label: string; value: string }>)
+          .map(f => [f.label, f.value]);
+        if (rows.length > 0) {
+          helper.addTable([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows, [60, 110]);
+        }
+      }
+      helper.addSpace(5);
+    }
+
+    // 模块附录
+    for (const mod of modulesWithExtra) {
+      helper.addNewPageIfNeeded(40);
+      const modAny = mod as any;
+      helper.addSubtitle(`${isZh ? '模块' : 'Module'}: ${modAny.name}`);
+      if (modAny.extra_fields) {
+        const rows = Object.values(modAny.extra_fields as Record<string, { key: string; label: string; value: string }>)
+          .map(f => [f.label, f.value]);
+        if (rows.length > 0) {
+          helper.addTable([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows, [60, 110]);
+        }
+      }
+      helper.addSpace(5);
+    }
+  }
+
   // ==================== 页脚 ====================
   onProgress?.(95, isZh ? '添加页脚' : 'Adding footer', '');
   
