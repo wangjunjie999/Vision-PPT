@@ -10,6 +10,14 @@ import {
   normalizeLayouts, 
   normalizeModules 
 } from '@/services/dataNormalizer';
+import {
+  supabaseQuery,
+  LoadState,
+  createLoadState,
+  loadingState,
+  successState,
+  errorState,
+} from '@/services/fetchWithRetry';
 
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
@@ -30,6 +38,14 @@ type WorkstationUpdate = Database['public']['Tables']['workstations']['Update'];
 type LayoutUpdate = Database['public']['Tables']['mechanical_layouts']['Update'];
 type ModuleUpdate = Database['public']['Tables']['function_modules']['Update'];
 
+// Load states for partial loading
+export interface DataLoadStates {
+  projects: LoadState;
+  workstations: LoadState;
+  layouts: LoadState;
+  modules: LoadState;
+}
+
 interface DataContextType {
   // Data
   projects: DbProject[];
@@ -37,6 +53,15 @@ interface DataContextType {
   layouts: DbLayout[];
   modules: DbModule[];
   loading: boolean;
+  
+  // Load states for partial loading
+  loadStates: DataLoadStates;
+  
+  // Retry functions for partial loading
+  retryProjects: () => Promise<void>;
+  retryWorkstations: () => Promise<void>;
+  retryLayouts: () => Promise<void>;
+  retryModules: () => Promise<void>;
   
   // Selection state
   selectedProjectId: string | null;
@@ -78,6 +103,13 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | null>(null);
 
+const initialLoadStates: DataLoadStates = {
+  projects: createLoadState(),
+  workstations: createLoadState(),
+  layouts: createLoadState(),
+  modules: createLoadState(),
+};
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [projects, setProjects] = useState<DbProject[]>([]);
@@ -85,6 +117,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [layouts, setLayouts] = useState<DbLayout[]>([]);
   const [modules, setModules] = useState<DbModule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadStates, setLoadStates] = useState<DataLoadStates>(initialLoadStates);
   
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedWorkstationId, setSelectedWorkstationId] = useState<string | null>(null);
@@ -94,7 +127,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const claimOrphanProjects = useCallback(async () => {
     if (!user) return;
     try {
-      // Update projects with null user_id to be owned by current user
       await supabase
         .from('projects')
         .update({ user_id: user.id })
@@ -119,13 +151,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         offlineCache.get<DbModule[]>('modules'),
       ]);
 
-      // Load and normalize cached data
       if (cachedProjects) setProjects(normalizeProjects(cachedProjects));
       if (cachedWorkstations) setWorkstations(normalizeWorkstations(cachedWorkstations));
       if (cachedLayouts) setLayouts(normalizeLayouts(cachedLayouts));
       if (cachedModules) setModules(normalizeModules(cachedModules));
       
-      // If we have cached data, don't show loading state
       if (cachedProjects || cachedWorkstations) {
         setLoading(false);
         cacheLoadedRef.current = true;
@@ -135,7 +165,112 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Fetch all data from server
+  // Individual fetch functions for partial loading with retry
+  const fetchProjects = useCallback(async () => {
+    if (!user) return;
+    
+    setLoadStates(prev => ({ ...prev, projects: loadingState() }));
+    
+    const result = await supabaseQuery<DbProject[]>(
+      async () => {
+        const res = await supabase.from('projects').select('*').order('created_at', { ascending: false });
+        return res;
+      },
+      { timeout: 10000, retries: 2 }
+    );
+    
+    if (result.ok && result.data) {
+      const normalized = normalizeProjects(result.data);
+      setProjects(normalized);
+      setLoadStates(prev => ({ ...prev, projects: successState() }));
+      offlineCache.set('projects', normalized, CACHE_TTL).catch(console.error);
+    } else {
+      setLoadStates(prev => ({ ...prev, projects: errorState(result.error || '加载失败', result.retryCount) }));
+      console.error('Failed to fetch projects:', result.error);
+    }
+    
+    return result;
+  }, [user]);
+
+  const fetchWorkstations = useCallback(async () => {
+    if (!user) return;
+    
+    setLoadStates(prev => ({ ...prev, workstations: loadingState() }));
+    
+    const result = await supabaseQuery<DbWorkstation[]>(
+      async () => {
+        const res = await supabase.from('workstations').select('*').order('created_at', { ascending: true });
+        return res;
+      },
+      { timeout: 10000, retries: 2 }
+    );
+    
+    if (result.ok && result.data) {
+      const normalized = normalizeWorkstations(result.data);
+      setWorkstations(normalized);
+      setLoadStates(prev => ({ ...prev, workstations: successState() }));
+      offlineCache.set('workstations', normalized, CACHE_TTL).catch(console.error);
+    } else {
+      setLoadStates(prev => ({ ...prev, workstations: errorState(result.error || '加载失败', result.retryCount) }));
+      console.error('Failed to fetch workstations:', result.error);
+    }
+    
+    return result;
+  }, [user]);
+
+  const fetchLayouts = useCallback(async () => {
+    if (!user) return;
+    
+    setLoadStates(prev => ({ ...prev, layouts: loadingState() }));
+    
+    const result = await supabaseQuery<DbLayout[]>(
+      async () => {
+        const res = await supabase.from('mechanical_layouts').select('*');
+        return res;
+      },
+      { timeout: 10000, retries: 2 }
+    );
+    
+    if (result.ok && result.data) {
+      const normalized = normalizeLayouts(result.data);
+      setLayouts(normalized);
+      setLoadStates(prev => ({ ...prev, layouts: successState() }));
+      offlineCache.set('layouts', normalized, CACHE_TTL).catch(console.error);
+    } else {
+      setLoadStates(prev => ({ ...prev, layouts: errorState(result.error || '加载失败', result.retryCount) }));
+      console.error('Failed to fetch layouts:', result.error);
+    }
+    
+    return result;
+  }, [user]);
+
+  const fetchModules = useCallback(async () => {
+    if (!user) return;
+    
+    setLoadStates(prev => ({ ...prev, modules: loadingState() }));
+    
+    const result = await supabaseQuery<DbModule[]>(
+      async () => {
+        const res = await supabase.from('function_modules').select('*').order('created_at', { ascending: true });
+        return res;
+      },
+      { timeout: 10000, retries: 2 }
+    );
+    
+    if (result.ok && result.data) {
+      const normalized = normalizeModules(result.data);
+      setModules(normalized);
+      setLoadStates(prev => ({ ...prev, modules: successState() }));
+      offlineCache.set('modules', normalized, CACHE_TTL).catch(console.error);
+    } else {
+      setLoadStates(prev => ({ ...prev, modules: errorState(result.error || '加载失败', result.retryCount) }));
+      console.error('Failed to fetch modules:', result.error);
+    }
+    
+    return result;
+  }, [user]);
+
+  // Fetch all data - partial loading (each can fail independently)
   const fetchAll = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -143,55 +278,43 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      // Only show loading if no cached data
       if (!cacheLoadedRef.current) {
         setLoading(true);
       }
       
-      // First claim any orphan projects
       await claimOrphanProjects();
       
-      const [projectsRes, workstationsRes, layoutsRes, modulesRes] = await Promise.all([
-        supabase.from('projects').select('*').order('created_at', { ascending: false }),
-        supabase.from('workstations').select('*').order('created_at', { ascending: true }),
-        supabase.from('mechanical_layouts').select('*'),
-        supabase.from('function_modules').select('*').order('created_at', { ascending: true }),
+      // Fetch all in parallel - each handles its own errors
+      await Promise.all([
+        fetchProjects(),
+        fetchWorkstations(),
+        fetchLayouts(),
+        fetchModules(),
       ]);
-
-      if (projectsRes.error) throw projectsRes.error;
-      if (workstationsRes.error) throw workstationsRes.error;
-      if (layoutsRes.error) throw layoutsRes.error;
-      if (modulesRes.error) throw modulesRes.error;
-
-      // Normalize data before setting state
-      const projectsData = normalizeProjects(projectsRes.data || []);
-      const workstationsData = normalizeWorkstations(workstationsRes.data || []);
-      const layoutsData = normalizeLayouts(layoutsRes.data || []);
-      const modulesData = normalizeModules(modulesRes.data || []);
-
-      setProjects(projectsData);
-      setWorkstations(workstationsData);
-      setLayouts(layoutsData);
-      setModules(modulesData);
-
-      // Update cache in background
-      Promise.all([
-        offlineCache.set('projects', projectsData, CACHE_TTL),
-        offlineCache.set('workstations', workstationsData, CACHE_TTL),
-        offlineCache.set('layouts', layoutsData, CACHE_TTL),
-        offlineCache.set('modules', modulesData, CACHE_TTL),
-      ]).catch(console.error);
       
     } catch (err) {
       console.error('Failed to fetch data:', err);
-      // Only show error if we don't have cached data
-      if (!cacheLoadedRef.current) {
-        toast.error('数据加载失败');
-      }
     } finally {
       setLoading(false);
     }
-  }, [user, claimOrphanProjects]);
+  }, [user, claimOrphanProjects, fetchProjects, fetchWorkstations, fetchLayouts, fetchModules]);
+
+  // Retry functions exposed to UI
+  const retryProjects = useCallback(async () => {
+    await fetchProjects();
+  }, [fetchProjects]);
+
+  const retryWorkstations = useCallback(async () => {
+    await fetchWorkstations();
+  }, [fetchWorkstations]);
+
+  const retryLayouts = useCallback(async () => {
+    await fetchLayouts();
+  }, [fetchLayouts]);
+
+  const retryModules = useCallback(async () => {
+    await fetchModules();
+  }, [fetchModules]);
 
   // Load from cache first, then fetch fresh data
   useEffect(() => {
@@ -276,20 +399,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       name: `${original.name} (副本)`,
     });
     
-    // Duplicate workstations and their layouts/modules
     const projectWorkstations = workstations.filter(ws => ws.project_id === id);
     for (const ws of projectWorkstations) {
       const { id: wsId, created_at: wsCreated, updated_at: wsUpdated, project_id, ...wsRest } = ws;
       const newWs = await addWorkstation({ ...wsRest, project_id: newProject.id });
       
-      // Duplicate layout
       const layout = layouts.find(l => l.workstation_id === wsId);
       if (layout) {
         const { id: layoutId, created_at: lCreated, updated_at: lUpdated, workstation_id, ...layoutRest } = layout;
         await addLayout({ ...layoutRest, workstation_id: newWs.id });
       }
       
-      // Duplicate modules
       const wsModules = modules.filter(m => m.workstation_id === wsId);
       for (const mod of wsModules) {
         const { id: modId, created_at: mCreated, updated_at: mUpdated, workstation_id: modWsId, ...modRest } = mod;
@@ -339,14 +459,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       name: `${original.name} (副本)`,
     });
     
-    // Duplicate layout
     const layout = layouts.find(l => l.workstation_id === id);
     if (layout) {
       const { id: layoutId, created_at: lCreated, updated_at: lUpdated, workstation_id, ...layoutRest } = layout;
       await addLayout({ ...layoutRest, workstation_id: newWs.id });
     }
     
-    // Duplicate modules
     const wsModules = modules.filter(m => m.workstation_id === id);
     for (const mod of wsModules) {
       const { id: modId, created_at: mCreated, updated_at: mUpdated, workstation_id: modWsId, ...modRest } = mod;
@@ -437,6 +555,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       layouts,
       modules,
       loading,
+      loadStates,
+      retryProjects,
+      retryWorkstations,
+      retryLayouts,
+      retryModules,
       selectedProjectId,
       selectedWorkstationId,
       selectedModuleId,
