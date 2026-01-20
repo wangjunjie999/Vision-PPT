@@ -1397,12 +1397,24 @@ export async function generatePPTX(
   });
 
   // ========== APPENDIX: EXTRA FIELDS SLIDE (if any) ==========
+  // Safe helper to check if object has extra_fields
   const hasExtraFields = (obj: any): boolean => {
     if (!obj || typeof obj !== 'object') return false;
-    if ('extra_fields' in obj && obj.extra_fields) {
-      return Object.keys(obj.extra_fields).length > 0;
-    }
-    return false;
+    const extra = obj.extra_fields;
+    if (!extra || typeof extra !== 'object') return false;
+    return Object.keys(extra).length > 0;
+  };
+
+  // Safe helper to get extra fields with null checks
+  const safeGetExtraFields = (obj: any): Record<string, { key: string; label: string; value: string }> => {
+    if (!obj?.extra_fields || typeof obj.extra_fields !== 'object') return {};
+    return obj.extra_fields;
+  };
+
+  // Safe helper to truncate string
+  const safeTruncate = (val: any, maxLen: number = 50): string => {
+    const str = val != null ? String(val) : '';
+    return str.length > maxLen ? str.substring(0, maxLen - 3) + '...' : str;
   };
 
   const projectHasExtra = hasExtraFields(project);
@@ -1427,46 +1439,48 @@ export async function generatePPTX(
     const allExtraRows: TableRow[] = [];
 
     // Project extra fields
-    if (projectHasExtra && (project as any).extra_fields) {
+    if (projectHasExtra) {
       allExtraRows.push(row([isZh ? '【项目】' : '[Project]', '', '']));
-      const extraFields = (project as any).extra_fields as Record<string, { key: string; label: string; value: string }>;
+      const extraFields = safeGetExtraFields(project);
       Object.values(extraFields).forEach(f => {
-        allExtraRows.push(row(['', f.label, f.value.length > 50 ? f.value.substring(0, 47) + '...' : f.value]));
+        if (f?.label && f?.value != null) {
+          allExtraRows.push(row(['', f.label || '', safeTruncate(f.value)]));
+        }
       });
     }
 
     // Workstation extra fields
     for (const ws of wsWithExtra) {
-      const wsAny = ws as any;
-      allExtraRows.push(row([`${isZh ? '【工位】' : '[WS]'} ${ws.name}`, '', '']));
-      if (wsAny.extra_fields) {
-        Object.values(wsAny.extra_fields as Record<string, { key: string; label: string; value: string }>).forEach(f => {
-          allExtraRows.push(row(['', f.label, f.value.length > 50 ? f.value.substring(0, 47) + '...' : f.value]));
-        });
-      }
+      allExtraRows.push(row([`${isZh ? '【工位】' : '[WS]'} ${ws.name || ''}`, '', '']));
+      const extraFields = safeGetExtraFields(ws);
+      Object.values(extraFields).forEach(f => {
+        if (f?.label && f?.value != null) {
+          allExtraRows.push(row(['', f.label || '', safeTruncate(f.value)]));
+        }
+      });
     }
 
     // Layout extra fields
     for (const layout of layoutsWithExtra) {
-      const layoutAny = layout as any;
-      const ws = workstations.find(w => w.id === layoutAny.workstation_id);
+      const ws = workstations.find(w => w.id === (layout as any).workstation_id);
       allExtraRows.push(row([`${isZh ? '【布局】' : '[Layout]'} ${ws?.name || 'N/A'}`, '', '']));
-      if (layoutAny.extra_fields) {
-        Object.values(layoutAny.extra_fields as Record<string, { key: string; label: string; value: string }>).forEach(f => {
-          allExtraRows.push(row(['', f.label, f.value.length > 50 ? f.value.substring(0, 47) + '...' : f.value]));
-        });
-      }
+      const extraFields = safeGetExtraFields(layout);
+      Object.values(extraFields).forEach(f => {
+        if (f?.label && f?.value != null) {
+          allExtraRows.push(row(['', f.label || '', safeTruncate(f.value)]));
+        }
+      });
     }
 
     // Module extra fields
     for (const mod of modulesWithExtra) {
-      const modAny = mod as any;
-      allExtraRows.push(row([`${isZh ? '【模块】' : '[Module]'} ${mod.name}`, '', '']));
-      if (modAny.extra_fields) {
-        Object.values(modAny.extra_fields as Record<string, { key: string; label: string; value: string }>).forEach(f => {
-          allExtraRows.push(row(['', f.label, f.value.length > 50 ? f.value.substring(0, 47) + '...' : f.value]));
-        });
-      }
+      allExtraRows.push(row([`${isZh ? '【模块】' : '[Module]'} ${mod.name || ''}`, '', '']));
+      const extraFields = safeGetExtraFields(mod);
+      Object.values(extraFields).forEach(f => {
+        if (f?.label && f?.value != null) {
+          allExtraRows.push(row(['', f.label || '', safeTruncate(f.value)]));
+        }
+      });
     }
 
     if (allExtraRows.length > 0) {
