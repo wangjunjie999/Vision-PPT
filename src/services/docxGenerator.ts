@@ -853,6 +853,90 @@ export async function generateDOCX(
     sections.push(createTableFromData(ctrlHeaders, ctrlRows));
   }
 
+  // ==================== APPENDIX: EXTRA FIELDS ====================
+  const hasExtraFields = (obj: any): boolean => {
+    if (!obj || typeof obj !== 'object') return false;
+    if ('extra_fields' in obj && obj.extra_fields) {
+      return Object.keys(obj.extra_fields).length > 0;
+    }
+    return false;
+  };
+
+  const projectHasExtra = hasExtraFields(project);
+  const wsWithExtra = workstations.filter(ws => hasExtraFields(ws));
+  const layoutsWithExtra = layouts.filter(l => hasExtraFields(l));
+  const modulesWithExtra = modules.filter(m => hasExtraFields(m));
+
+  if (projectHasExtra || wsWithExtra.length > 0 || layoutsWithExtra.length > 0 || modulesWithExtra.length > 0) {
+    sections.push(
+      new Paragraph({ text: '', spacing: { before: 300 } }),
+      createHeading(isZh ? '5. 附录：补充字段' : '5. Appendix: Additional Fields'),
+    );
+
+    // Project extra fields
+    if (projectHasExtra && (project as any).extra_fields) {
+      sections.push(
+        createHeading(isZh ? '5.1 项目补充信息' : '5.1 Project Additional Info', HeadingLevel.HEADING_2),
+      );
+      const extraFields = (project as any).extra_fields as Record<string, { key: string; label: string; value: string }>;
+      const rows = Object.values(extraFields).map(f => [f.label, f.value]);
+      if (rows.length > 0) {
+        sections.push(createTableFromData([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows));
+      }
+    }
+
+    // Workstation extra fields
+    let wsExtraIdx = 1;
+    for (const ws of wsWithExtra) {
+      const wsAny = ws as any;
+      sections.push(
+        new Paragraph({ text: '', spacing: { before: 100 } }),
+        createHeading(`${isZh ? '工位' : 'Workstation'}: ${ws.name || ws.code}`, HeadingLevel.HEADING_3),
+      );
+      if (wsAny.extra_fields) {
+        const rows = Object.values(wsAny.extra_fields as Record<string, { key: string; label: string; value: string }>)
+          .map(f => [f.label, f.value]);
+        if (rows.length > 0) {
+          sections.push(createTableFromData([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows));
+        }
+      }
+      wsExtraIdx++;
+    }
+
+    // Layout extra fields
+    for (const layout of layoutsWithExtra) {
+      const layoutAny = layout as any;
+      const ws = workstations.find(w => w.id === layoutAny.workstation_id);
+      sections.push(
+        new Paragraph({ text: '', spacing: { before: 100 } }),
+        createHeading(`${isZh ? '布局' : 'Layout'}: ${(ws as any)?.name || 'N/A'}`, HeadingLevel.HEADING_3),
+      );
+      if (layoutAny.extra_fields) {
+        const rows = Object.values(layoutAny.extra_fields as Record<string, { key: string; label: string; value: string }>)
+          .map(f => [f.label, f.value]);
+        if (rows.length > 0) {
+          sections.push(createTableFromData([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows));
+        }
+      }
+    }
+
+    // Module extra fields
+    for (const mod of modulesWithExtra) {
+      const modAny = mod as any;
+      sections.push(
+        new Paragraph({ text: '', spacing: { before: 100 } }),
+        createHeading(`${isZh ? '模块' : 'Module'}: ${mod.name}`, HeadingLevel.HEADING_3),
+      );
+      if (modAny.extra_fields) {
+        const rows = Object.values(modAny.extra_fields as Record<string, { key: string; label: string; value: string }>)
+          .map(f => [f.label, f.value]);
+        if (rows.length > 0) {
+          sections.push(createTableFromData([isZh ? '字段' : 'Field', isZh ? '值' : 'Value'], rows));
+        }
+      }
+    }
+  }
+
   onProgress?.(90, isZh ? '生成文档' : 'Generating document', '');
 
   // ==================== CREATE DOCUMENT ====================

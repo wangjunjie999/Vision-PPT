@@ -38,6 +38,7 @@ import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePPTTemplates } from '@/hooks/usePPTTemplates';
+import { buildReportData, type HardwareLibrary, type ProductAssetInput, type AnnotationInput } from '@/services/reportDataBuilder';
 import {
   Collapsible,
   CollapsibleContent,
@@ -309,84 +310,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         wsToProcess.some(ws => ws.id === l.workstation_id)
       );
 
-      // Prepare data for generator - cast to any to access extended properties
-      const proj = project as any;
-      const projectData = {
-        id: proj.id,
-        code: proj.code,
-        name: proj.name,
-        customer: proj.customer,
-        date: proj.date,
-        responsible: proj.responsible,
-        product_process: proj.product_process,
-        quality_strategy: proj.quality_strategy,
-        environment: proj.environment,
-        notes: proj.notes,
-      };
-
-      const workstationData = wsToProcess.map(ws => {
-        const wsData = ws as any;
-        return {
-          id: wsData.id,
-          code: wsData.code,
-          name: wsData.name,
-          type: wsData.type,
-          cycle_time: wsData.cycle_time,
-          product_dimensions: wsData.product_dimensions as { length: number; width: number; height: number } | null,
-          enclosed: wsData.enclosed,
-          process_stage: wsData.process_stage,
-          observation_target: wsData.observation_target,
-          motion_description: wsData.motion_description,
-          risk_notes: wsData.risk_notes,
-          shot_count: wsData.shot_count,
-          acceptance_criteria: wsData.acceptance_criteria,
-        };
-      });
-
-      const layoutData = layoutsToProcess.map(l => {
-        const layoutItem = l as any;
-        return {
-          workstation_id: layoutItem.workstation_id,
-          conveyor_type: layoutItem.conveyor_type,
-          camera_count: layoutItem.camera_count,
-          lens_count: layoutItem.lens_count ?? 1,
-          light_count: layoutItem.light_count ?? 1,
-          camera_mounts: layoutItem.camera_mounts,
-          mechanisms: layoutItem.mechanisms,
-          selected_cameras: layoutItem.selected_cameras || null,
-          selected_lenses: layoutItem.selected_lenses || null,
-          selected_lights: layoutItem.selected_lights || null,
-          selected_controller: layoutItem.selected_controller || null,
-        };
-      });
-
-      const moduleData = modsToProcess.map(m => {
-        const modItem = m as any;
-        return {
-          id: modItem.id,
-          name: modItem.name,
-          type: modItem.type,
-          description: modItem.description,
-          workstation_id: modItem.workstation_id,
-          trigger_type: modItem.trigger_type,
-          roi_strategy: modItem.roi_strategy,
-          processing_time_limit: modItem.processing_time_limit,
-          output_types: modItem.output_types,
-          selected_camera: modItem.selected_camera,
-          selected_lens: modItem.selected_lens,
-          selected_light: modItem.selected_light,
-          selected_controller: modItem.selected_controller,
-          schematic_image_url: modItem.schematic_image_url || null,
-          positioning_config: modItem.positioning_config as Record<string, unknown> | null,
-          defect_config: modItem.defect_config as Record<string, unknown> | null,
-          ocr_config: modItem.ocr_config as Record<string, unknown> | null,
-          deep_learning_config: modItem.deep_learning_config as Record<string, unknown> | null,
-          measurement_config: modItem.measurement_config as Record<string, unknown> | null,
-        };
-      });
-
-      // Prepare hardware data
-      const hardwareData = {
+      // ===================== 使用统一数据构建器 =====================
+      // Build hardware library
+      const hardwareLibrary: HardwareLibrary = {
         cameras: cameras.map(c => ({
           id: c.id,
           brand: c.brand,
@@ -420,13 +346,157 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           brand: c.brand,
           model: c.model,
           cpu: c.cpu,
-          gpu: c.gpu,
+          gpu: c.gpu || null,
           memory: c.memory,
           storage: c.storage,
           performance: c.performance,
           image_url: c.image_url,
         })),
       };
+
+      // Prepare product assets input
+      const productAssetInputs: ProductAssetInput[] = productAssets.map(a => ({
+        id: a.id,
+        workstation_id: a.workstation_id,
+        module_id: a.module_id,
+        scope_type: a.scope_type,
+        model_file_url: a.model_file_url,
+        preview_images: a.preview_images,
+        detection_method: a.detection_method,
+        product_models: a.product_models,
+        detection_requirements: a.detection_requirements,
+      }));
+
+      // Prepare annotation inputs
+      const annotationInputs: AnnotationInput[] = annotations.map(a => ({
+        id: a.id,
+        asset_id: a.asset_id,
+        snapshot_url: a.snapshot_url,
+        remark: a.remark,
+        annotations_json: a.annotations_json,
+        scope_type: a.scope_type,
+        workstation_id: a.workstation_id,
+        module_id: a.module_id,
+      }));
+
+      // 使用统一数据构建器构建报告数据
+      const reportData = buildReportData({
+        project: project as any,
+        workstations: wsToProcess as any[],
+        layouts: layoutsToProcess as any[],
+        modules: modsToProcess as any[],
+        hardware: hardwareLibrary,
+        productAssets: productAssetInputs,
+        annotations: annotationInputs,
+        language,
+      });
+
+      // 为兼容现有生成器，保留原有数据结构
+      const projectData = {
+        id: reportData.project.id,
+        code: reportData.project.code,
+        name: reportData.project.name,
+        customer: reportData.project.customer,
+        date: reportData.project.date,
+        responsible: reportData.project.responsible,
+        sales_responsible: reportData.project.sales_responsible,
+        vision_responsible: reportData.project.vision_responsible,
+        product_process: reportData.project.product_process,
+        quality_strategy: reportData.project.quality_strategy,
+        environment: reportData.project.environment,
+        notes: reportData.project.notes,
+        revision_history: reportData.project.revision_history,
+        spec_version: reportData.project.spec_version,
+        production_line: reportData.project.production_line,
+        main_camera_brand: reportData.project.main_camera_brand,
+        use_ai: reportData.project.use_ai,
+        use_3d: reportData.project.use_3d,
+        cycle_time_target: reportData.project.cycle_time_target,
+        extra_fields: reportData.project.extra_fields,
+      };
+
+      const workstationData = reportData.workstations.map(ws => ({
+        id: ws.id,
+        code: ws.code,
+        name: ws.name,
+        type: ws.type,
+        type_label: ws.type_label,
+        cycle_time: ws.cycle_time,
+        product_dimensions: ws.product_dimensions,
+        product_dimensions_label: ws.product_dimensions_label,
+        enclosed: ws.enclosed,
+        enclosed_label: ws.enclosed_label,
+        process_stage: ws.process_stage,
+        process_stage_label: ws.process_stage_label,
+        observation_target: ws.observation_target,
+        motion_description: ws.motion_description,
+        risk_notes: ws.risk_notes,
+        shot_count: ws.shot_count,
+        acceptance_criteria: ws.acceptance_criteria,
+        action_script: ws.action_script,
+        description: ws.description,
+        install_space: ws.install_space,
+        install_space_label: ws.install_space_label,
+        extra_fields: ws.extra_fields,
+      }));
+
+      const layoutData = reportData.layouts.map(l => ({
+        workstation_id: l.workstation_id,
+        name: l.name,
+        conveyor_type: l.conveyor_type,
+        conveyor_type_label: l.conveyor_type_label,
+        camera_count: l.camera_count,
+        lens_count: l.lens_count,
+        light_count: l.light_count,
+        camera_mounts: l.camera_mounts,
+        camera_mounts_labels: l.camera_mounts_labels,
+        mechanisms: l.mechanisms,
+        mechanisms_labels: l.mechanisms_labels,
+        selected_cameras: l.selected_cameras,
+        selected_lenses: l.selected_lenses,
+        selected_lights: l.selected_lights,
+        selected_controller: l.selected_controller,
+        front_view_image_url: l.front_view_image_url,
+        side_view_image_url: l.side_view_image_url,
+        top_view_image_url: l.top_view_image_url,
+        width: l.width,
+        height: l.height,
+        depth: l.depth,
+        extra_fields: l.extra_fields,
+      }));
+
+      const moduleData = reportData.modules.map(m => ({
+        id: m.id,
+        name: m.name,
+        type: m.type,
+        type_label: m.type_label,
+        description: m.description,
+        workstation_id: m.workstation_id,
+        trigger_type: m.trigger_type,
+        trigger_type_label: m.trigger_type_label,
+        roi_strategy: m.roi_strategy,
+        roi_strategy_label: m.roi_strategy_label,
+        processing_time_limit: m.processing_time_limit,
+        output_types: m.output_types,
+        output_types_labels: m.output_types_labels,
+        selected_camera: m.selected_camera,
+        selected_camera_info: m.selected_camera_info,
+        selected_lens: m.selected_lens,
+        selected_lens_info: m.selected_lens_info,
+        selected_light: m.selected_light,
+        selected_light_info: m.selected_light_info,
+        selected_controller: m.selected_controller,
+        selected_controller_info: m.selected_controller_info,
+        schematic_image_url: m.schematic_image_url,
+        positioning_config: m.positioning_config,
+        defect_config: m.defect_config,
+        ocr_config: m.ocr_config,
+        measurement_config: m.measurement_config,
+        deep_learning_config: m.deep_learning_config,
+        extra_fields: m.extra_fields,
+      }));
+
+      const hardwareData = hardwareLibrary;
 
       // ==================== 根据输出格式选择不同的生成逻辑 ====================
       
