@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { LayoutObject } from './ObjectPropertyPanel';
+import { safeArray, safeNumber, safeText, safeMap } from '@/utils/safe';
 
 type ViewType = 'front' | 'side' | 'top';
 
@@ -56,24 +57,29 @@ export const ObjectListPanel = memo(function ObjectListPanel({
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   
-  const cameras = objects.filter(o => o.type === 'camera');
-  const mechanisms = objects.filter(o => o.type === 'mechanism');
+  // Use safeArray to protect against undefined/null objects
+  const safeObjects = safeArray<LayoutObject>(objects);
+  const cameras = safeObjects.filter(o => o.type === 'camera');
+  const mechanisms = safeObjects.filter(o => o.type === 'mechanism');
   
-  const allSelected = objects.length > 0 && selectedIds.length === objects.length;
-  const someSelected = selectedIds.length > 0 && selectedIds.length < objects.length;
+  const allSelected = safeObjects.length > 0 && selectedIds.length === safeObjects.length;
+  const someSelected = selectedIds.length > 0 && selectedIds.length < safeObjects.length;
 
   const exportToCSV = () => {
     const headers = ['设备名称', '类型', 'X (mm)', 'Y (mm)', 'Z (mm)', '距中心 (mm)'];
-    const rows = objects.map(obj => {
+    const rows = safeMap<LayoutObject, (string | number)[]>(safeObjects, (obj) => {
+      const posX = safeNumber(obj.posX) ?? 0;
+      const posY = safeNumber(obj.posY) ?? 0;
+      const posZ = safeNumber(obj.posZ) ?? 0;
       const distanceToCenter = Math.round(
-        Math.sqrt((obj.posX ?? 0) ** 2 + (obj.posY ?? 0) ** 2 + (obj.posZ ?? 0) ** 2)
+        Math.sqrt(posX ** 2 + posY ** 2 + posZ ** 2)
       );
       return [
-        obj.name,
+        safeText(obj.name, '未命名'),
         obj.type === 'camera' ? '相机' : '机构',
-        obj.posX ?? 0,
-        obj.posY ?? 0,
-        obj.posZ ?? 0,
+        posX,
+        posY,
+        posZ,
         distanceToCenter,
       ];
     });
@@ -294,7 +300,7 @@ export const ObjectListPanel = memo(function ObjectListPanel({
           <Layers className="h-4 w-4 text-primary" />
           <span className="text-sm font-semibold">对象清单</span>
           <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
-            {objects.length}
+            {safeObjects.length}
           </Badge>
         </div>
         <div className="flex items-center gap-1">
@@ -393,7 +399,7 @@ export const ObjectListPanel = memo(function ObjectListPanel({
             </div>
           )}
           
-          {objects.length === 0 && (
+          {safeObjects.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <div className="text-3xl mb-2">📦</div>
               <div className="text-sm">暂无对象</div>
