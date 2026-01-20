@@ -730,21 +730,28 @@ export async function generatePPTX(
     console.log(`Added template logo at (${logoX}, ${logoY}), size: ${logoW}x${logoH}`);
   }
   
-  // Only add default footer elements if no template background is set
+  // Tech-Shine corporate style: Clean header with orange accent line, light footer
   if (!templateBackground) {
     masterObjects.push(
-      // Header bar - subtle (use active primary color)
-      { rect: { x: 0, y: 0, w: '100%', h: 0.45, fill: { color: activeColors.primary } } },
-      // Footer bar
-      { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: activeColors.dark } } },
+      // Header: thin orange accent line at top
+      { rect: { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: activeColors.primary } } },
+      // Header: light gray bar with company branding area
+      { rect: { x: 0, y: 0.06, w: '100%', h: 0.4, fill: { color: 'E8EBEF' } } },
+      // Footer: light gray bar
+      { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: 'E8EBEF' } } },
+      // Footer: thin orange accent line
+      { rect: { x: 0, y: footerY, w: '100%', h: 0.02, fill: { color: activeColors.primary } } },
+      // Company name in header (left)
+      { text: { text: isZh ? '德星云智能' : 'TECH-SHINE', options: { x: 0.3, y: 0.12, w: 2.5, h: 0.28, fontSize: 12, bold: true, color: activeColors.primary } } },
+      // Tagline in header
+      { text: { text: isZh ? '新能源 | 智能制造 | 解决方案' : 'NEW ENERGY | INTELLIGENT MANUFACTURING | SOLUTION', options: { x: 2.9, y: 0.16, w: 5, h: 0.2, fontSize: 8, color: activeColors.secondary } } },
       // Company name in footer
-      { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: footerY + 0.05, w: 4, h: 0.2, fontSize: 7, color: activeColors.white } } },
+      { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: footerY + 0.06, w: 4, h: 0.18, fontSize: 7, color: activeColors.dark } } },
       // Customer name in footer (right aligned)
-      { text: { text: project.customer, options: { x: SLIDE_LAYOUT.width - 2.5, y: footerY + 0.05, w: 2.2, h: 0.2, fontSize: 7, color: activeColors.white, align: 'right' } } },
+      { text: { text: project.customer, options: { x: SLIDE_LAYOUT.width - 2.5, y: footerY + 0.06, w: 2.2, h: 0.18, fontSize: 7, color: activeColors.dark, align: 'right' } } },
     );
   } else if (templateFooter) {
     // Template has its own design, but we can add page numbers if template expects them
-    // This is handled per-slide for page numbers
     console.log(`Template footer config: pageNum=${templateFooter.hasPageNumber}, date=${templateFooter.hasDate}`);
   }
 
