@@ -32,6 +32,28 @@ type TableRow = TableCell[];
 const cell = (text: string, opts?: Partial<TableCell>): TableCell => ({ text, options: opts });
 const row = (cells: string[]): TableRow => cells.map(t => cell(t));
 
+/**
+ * Unified slide title with Tech-Shine corporate style
+ * Orange accent bar on left + dark text
+ */
+function addSlideTitle(
+  slide: ReturnType<PptxGenJS['addSlide']>,
+  ctx: SlideContext,
+  subtitle: string
+): void {
+  // Orange accent bar on left
+  slide.addShape('rect', {
+    x: 0.5, y: 0.55, w: 0.08, h: 0.35,
+    fill: { color: COLORS.primary },
+  });
+  
+  // Title text
+  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${subtitle}`, {
+    x: 0.7, y: 0.55, w: 8.5, h: 0.4,
+    fontSize: 18, color: COLORS.dark, bold: true,
+  });
+}
+
 interface SlideContext {
   pptx: PptxGenJS;
   isZh: boolean;
@@ -100,6 +122,7 @@ interface WorkstationSlideData {
 /**
  * Slide 0: Workstation Title
  * DB号 + 工位名 + 负责人
+ * Tech-Shine corporate style: Clean with orange accent
  */
 export function generateWorkstationTitleSlide(
   ctx: SlideContext,
@@ -107,28 +130,35 @@ export function generateWorkstationTitleSlide(
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   
-  // Large title with workstation code and name
+  // Large title with workstation code - using primary orange color
   slide.addText(ctx.wsCode, {
-    x: 0.5, y: 1.8, w: 9, h: 0.6,
+    x: 0.5, y: 1.6, w: 9, h: 0.6,
     fontSize: 36, color: COLORS.primary, bold: true, align: 'center',
   });
   
+  // Workstation name - dark text
   slide.addText(ctx.wsName, {
-    x: 0.5, y: 2.5, w: 9, h: 0.5,
+    x: 0.5, y: 2.3, w: 9, h: 0.5,
     fontSize: 24, color: COLORS.dark, bold: true, align: 'center',
   });
   
-  // Responsible person
+  // Responsible person - secondary gray
   if (ctx.responsible) {
     slide.addText(`${ctx.isZh ? '负责人' : 'Responsible'}: ${ctx.responsible}`, {
-      x: 0.5, y: 3.3, w: 9, h: 0.4,
+      x: 0.5, y: 3.0, w: 9, h: 0.4,
       fontSize: 14, color: COLORS.secondary, align: 'center',
     });
   }
   
-  // Decorative line
+  // Decorative elements - orange accent line
   slide.addShape('rect', {
-    x: 3.5, y: 3.9, w: 3, h: 0.02,
+    x: 4, y: 3.6, w: 2, h: 0.04,
+    fill: { color: COLORS.primary },
+  });
+  
+  // Subtle side decorations (optional - adds visual interest)
+  slide.addShape('rect', {
+    x: 0, y: 1.4, w: 0.08, h: 1.6,
     fill: { color: COLORS.primary },
   });
 }
@@ -143,10 +173,7 @@ export function generateBasicInfoSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { ws, layout, modules } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '基本信息' : 'Basic Info'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.45,
-    fontSize: 20, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '基本信息' : 'Basic Info');
 
   // Detection method summary
   const detectionMethods = modules.map(m => {
@@ -241,10 +268,7 @@ export async function generateProductSchematicSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { annotation, productAsset } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '产品示意图' : 'Product Schematic'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.45,
-    fontSize: 18, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '产品示意图' : 'Product Schematic');
 
   // Main image area
   const imageUrl = annotation?.snapshot_url || productAsset?.preview_images?.[0]?.url;
@@ -325,10 +349,7 @@ export function generateTechnicalRequirementsSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { ws, modules, productAsset } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '技术要求' : 'Technical Requirements'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.45,
-    fontSize: 18, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '技术要求' : 'Technical Requirements');
 
   // Detection items
   slide.addText(ctx.isZh ? '【检测项/缺陷项】' : '[Detection/Defect Items]', {
@@ -423,10 +444,7 @@ export async function generateThreeViewSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { layout } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '机械布局三视图' : 'Mechanical Layout Views'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '机械布局三视图' : 'Mechanical Layout Views');
 
   // Calculate three-view layout positions
   const viewContainers = calculateThreeViewLayout(1.1, 3.2, 0.5, 9.0, 0.15);
@@ -523,10 +541,7 @@ export async function generateDiagramSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { modules, layout } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '示意图/布置图' : 'Schematic Diagram'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '示意图/布置图' : 'Schematic Diagram');
 
   // Main schematic image (from first module with schematic)
   const schematicModule = modules.find(m => m.schematic_image_url);
@@ -610,10 +625,7 @@ export function generateMotionMethodSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { ws, layout, modules } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '运动方式/检测方式' : 'Motion/Detection Method'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '运动方式/检测方式' : 'Motion/Detection Method');
 
   slide.addText(ctx.isZh ? '本页为"落地核心"，现场最看这一页' : 'Core execution page for on-site implementation', {
     x: 0.5, y: 1.0, w: 9, h: 0.25,
@@ -720,10 +732,7 @@ export function generateOpticalSolutionSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { layout, modules } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '光学方案' : 'Optical Solution'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '光学方案' : 'Optical Solution');
 
   // Camera configuration
   slide.addText(ctx.isZh ? '【相机型号/像素/靶面】' : '[Camera Model/Resolution/Sensor]', {
@@ -808,10 +817,7 @@ export function generateVisionListSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { layout, modules } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? '测量方法及视觉清单' : 'Measurement & Vision List'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? '测量方法及视觉清单' : 'Measurement & Vision List');
 
   // Light source configuration
   slide.addText(ctx.isZh ? '【光源型号/数量】' : '[Light Model/Quantity]', {
@@ -900,10 +906,7 @@ export function generateBOMSlide(
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { layout } = data;
   
-  slide.addText(`${ctx.wsCode} ${ctx.wsName} - ${ctx.isZh ? 'BOM清单与审核' : 'BOM List & Review'}`, {
-    x: 0.5, y: 0.6, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.dark, bold: true,
-  });
+  addSlideTitle(slide, ctx, ctx.isZh ? 'BOM清单与审核' : 'BOM List & Review');
 
   // BOM table
   const bomHeader: TableRow = row([

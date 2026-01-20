@@ -42,17 +42,21 @@ export const PROCESS_STAGE_LABELS: Record<string, { zh: string; en: string }> = 
 export const COMPANY_NAME_ZH = '苏州德星云智能装备有限公司';
 export const COMPANY_NAME_EN = 'SuZhou DXY Intelligent Solution Co.,Ltd';
 
-// Color scheme
+// Color scheme - Tech-Shine corporate style (德星云智能企业风格)
+// Orange accent + Dark gray text + Light gray background
 export const COLORS = {
-  primary: '2563EB',
-  secondary: '64748B',
-  accent: '10B981',
-  warning: 'F59E0B',
-  destructive: 'EF4444',
-  background: 'F8FAFC',
-  dark: '1E293B',
-  white: 'FFFFFF',
-  border: 'E2E8F0',
+  primary: 'E85A1C',      // Tech-Shine orange (橙色主色)
+  secondary: '5A6A7A',    // Medium gray (中灰色)
+  accent: '0066B3',       // Blue accent (蓝色点缀)
+  warning: 'F5A623',      // Warm orange (暖橙色)
+  destructive: 'D93025',  // Red (红色)
+  background: 'F5F5F5',   // Light gray background (浅灰背景)
+  dark: '2D3A4A',         // Dark gray/blue (深灰蓝)
+  white: 'FFFFFF',        // White
+  border: 'D0D5DD',       // Border gray (边框灰)
+  lightGray: 'E8EBEF',    // Light gray for cards (卡片背景)
+  textPrimary: '1A1A1A',  // Primary text (主文字)
+  textSecondary: '6B7280', // Secondary text (次要文字)
 };
 
 // 16:9 Slide Layout Constants
