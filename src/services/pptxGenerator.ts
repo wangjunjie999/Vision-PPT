@@ -710,7 +710,30 @@ export async function generatePPTX(
   // Master objects can be customized based on parsed template structure
   const masterObjects: MasterObject[] = [];
   
-  // Add logo if extracted from template
+  // Load company logo for watermark
+  let companyLogoData: string | null = null;
+  const logoUrl = `${window.location.origin}/ppt-covers/tech-shine-logo.png`;
+  try {
+    companyLogoData = await fetchImageAsDataUri(logoUrl);
+    console.log('Company logo loaded for PPT watermark');
+  } catch (err) {
+    console.warn('Failed to load company logo:', err);
+  }
+  
+  // Add company logo to top-right corner if loaded
+  if (companyLogoData && !templateBackground) {
+    masterObjects.push({
+      image: { 
+        x: SLIDE_LAYOUT.width - 1.8,  // Right side with margin
+        y: 0.08,  // Aligned with header
+        w: 1.5,   // Logo width
+        h: 0.35,  // Logo height
+        data: companyLogoData,
+      }
+    });
+  }
+  
+  // Add logo if extracted from template (override company logo)
   if (templateLogo?.data) {
     const logoX = templateLogo.position?.x ?? 0.2;
     const logoY = templateLogo.position?.y ?? 0.1;
