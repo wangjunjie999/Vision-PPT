@@ -773,31 +773,51 @@ export async function generatePPTX(
   
   const coverSlide = pptx.addSlide();
   
-  // Full slide background - blue top, dark bottom
-  coverSlide.addShape('rect', {
-    x: 0, y: 0, w: '100%', h: '100%',
-    fill: { color: COLORS.primary },
-  });
-  coverSlide.addShape('rect', {
-    x: 0, y: 3.2, w: '100%', h: 2.425,
-    fill: { color: COLORS.dark },
-  });
+  // Use Tech-Shine cover background image
+  const coverBgUrl = `${window.location.origin}/ppt-covers/tech-shine-cover.png`;
+  let coverBgData: string | null = null;
+  try {
+    coverBgData = await fetchImageAsDataUri(coverBgUrl);
+  } catch (err) {
+    console.warn('Failed to load cover background image:', err);
+  }
+  
+  if (coverBgData) {
+    // Full slide background with company cover image
+    coverSlide.addImage({
+      data: coverBgData,
+      x: 0, y: 0, w: '100%', h: '100%',
+      sizing: { type: 'cover', w: 10, h: 5.625 },
+    });
+  } else {
+    // Fallback: original blue/dark background
+    coverSlide.addShape('rect', {
+      x: 0, y: 0, w: '100%', h: '100%',
+      fill: { color: COLORS.primary },
+    });
+    coverSlide.addShape('rect', {
+      x: 0, y: 3.2, w: '100%', h: 2.425,
+      fill: { color: COLORS.dark },
+    });
+    
+    coverSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
+      x: 0.5, y: 0.5, w: 9, h: 0.35,
+      fontSize: 12, color: COLORS.white, align: 'center',
+    });
+  }
 
-  coverSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
-    x: 0.5, y: 0.5, w: 9, h: 0.35,
-    fontSize: 12, color: COLORS.white, align: 'center',
-  });
-
+  // Project title - positioned for visibility on the cover image
   coverSlide.addText(project.name, {
-    x: 0.5, y: 1.1, w: 9, h: 0.8,
-    fontSize: 32, color: COLORS.white, bold: true, align: 'center',
+    x: 0.5, y: 2.8, w: 9, h: 0.6,
+    fontSize: 28, color: COLORS.dark, bold: true, align: 'left',
   });
 
   coverSlide.addText(isZh ? '机器视觉系统技术方案' : 'Machine Vision System Technical Proposal', {
-    x: 0.5, y: 2.1, w: 9, h: 0.4,
-    fontSize: 16, color: COLORS.white, align: 'center',
+    x: 0.5, y: 3.45, w: 9, h: 0.35,
+    fontSize: 14, color: COLORS.secondary, align: 'left',
   });
 
+  // Project info table - positioned at bottom
   const infoRows: TableRow[] = [
     row([isZh ? '项目编号' : 'Project Code', project.code]),
     row([isZh ? '客户' : 'Customer', project.customer]),
@@ -806,13 +826,13 @@ export async function generatePPTX(
   ];
 
   coverSlide.addTable(infoRows, {
-    x: 2.5, y: 3.5, w: 5, h: 1.4,
+    x: 0.5, y: 4.0, w: 4.5, h: 1.2,
     fontFace: 'Arial',
-    fontSize: 10,
-    color: COLORS.white,
-    fill: { color: COLORS.dark },
+    fontSize: 9,
+    color: COLORS.dark,
+    fill: { color: 'FFFFFF80' }, // Semi-transparent white
     border: { type: 'none' },
-    colW: [1.5, 3.5],
+    colW: [1.3, 3.2],
   });
 
   // ========== SLIDE 2: Revision History (16:9 with auto-page) ==========
