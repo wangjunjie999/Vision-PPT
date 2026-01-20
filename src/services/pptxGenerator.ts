@@ -797,13 +797,13 @@ export async function generatePPTX(
   let progress = 5;
   onProgress(progress, isZh ? '初始化生成器...' : 'Initializing generator...', isZh ? '开始PPT生成' : 'Starting PPT generation');
 
-  // ========== SLIDE 1: Cover (16:9 optimized) ==========
+  // ========== SLIDE 1: Cover - Full image, no modifications ==========
   progress = 8;
   onProgress(progress, isZh ? '生成封面页...' : 'Generating cover slide...', isZh ? '生成封面页' : 'Cover slide');
   
   const coverSlide = pptx.addSlide();
   
-  // Use Tech-Shine cover background image
+  // Use Tech-Shine cover background image - display as-is, no text overlay
   const coverBgUrl = `${window.location.origin}/ppt-covers/tech-shine-cover.png`;
   let coverBgData: string | null = null;
   try {
@@ -813,57 +813,29 @@ export async function generatePPTX(
   }
   
   if (coverBgData) {
-    // Full slide background with company cover image
+    // Full slide background with company cover image - no modifications
     coverSlide.addImage({
       data: coverBgData,
       x: 0, y: 0, w: '100%', h: '100%',
       sizing: { type: 'cover', w: 10, h: 5.625 },
     });
   } else {
-    // Fallback: original blue/dark background
+    // Fallback: simple cover with company name if image fails to load
     coverSlide.addShape('rect', {
       x: 0, y: 0, w: '100%', h: '100%',
-      fill: { color: COLORS.primary },
+      fill: { color: COLORS.background },
     });
-    coverSlide.addShape('rect', {
-      x: 0, y: 3.2, w: '100%', h: 2.425,
-      fill: { color: COLORS.dark },
+    
+    coverSlide.addText(isZh ? '德星云智能' : 'TECH-SHINE', {
+      x: 0.5, y: 1.5, w: 9, h: 0.6,
+      fontSize: 36, color: COLORS.primary, bold: true, align: 'center',
     });
     
     coverSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
-      x: 0.5, y: 0.5, w: 9, h: 0.35,
-      fontSize: 12, color: COLORS.white, align: 'center',
+      x: 0.5, y: 2.2, w: 9, h: 0.4,
+      fontSize: 14, color: COLORS.dark, align: 'center',
     });
   }
-
-  // Project title - positioned for visibility on the cover image
-  coverSlide.addText(project.name, {
-    x: 0.5, y: 2.8, w: 9, h: 0.6,
-    fontSize: 28, color: COLORS.dark, bold: true, align: 'left',
-  });
-
-  coverSlide.addText(isZh ? '机器视觉系统技术方案' : 'Machine Vision System Technical Proposal', {
-    x: 0.5, y: 3.45, w: 9, h: 0.35,
-    fontSize: 14, color: COLORS.secondary, align: 'left',
-  });
-
-  // Project info table - positioned at bottom
-  const infoRows: TableRow[] = [
-    row([isZh ? '项目编号' : 'Project Code', project.code]),
-    row([isZh ? '客户' : 'Customer', project.customer]),
-    row([isZh ? '日期' : 'Date', project.date || '-']),
-    row([isZh ? '负责人' : 'Responsible', project.responsible || '-']),
-  ];
-
-  coverSlide.addTable(infoRows, {
-    x: 0.5, y: 4.0, w: 4.5, h: 1.2,
-    fontFace: 'Arial',
-    fontSize: 9,
-    color: COLORS.dark,
-    fill: { color: 'FFFFFF80' }, // Semi-transparent white
-    border: { type: 'none' },
-    colW: [1.3, 3.2],
-  });
 
   // ========== SLIDE 2: Revision History (16:9 with auto-page) ==========
   progress = 10;
