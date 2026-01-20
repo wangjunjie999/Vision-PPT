@@ -12,11 +12,14 @@ import {
 } from '@/services/dataNormalizer';
 import {
   supabaseQuery,
-  LoadState,
+  PhaseLoadStates,
+  LoadPhase,
   createLoadState,
   loadingState,
   successState,
   errorState,
+  initialPhaseLoadStates,
+  createAbortController,
 } from '@/services/fetchWithRetry';
 
 // Cache TTL in milliseconds (5 minutes)
@@ -38,14 +41,6 @@ type WorkstationUpdate = Database['public']['Tables']['workstations']['Update'];
 type LayoutUpdate = Database['public']['Tables']['mechanical_layouts']['Update'];
 type ModuleUpdate = Database['public']['Tables']['function_modules']['Update'];
 
-// Load states for partial loading
-export interface DataLoadStates {
-  projects: LoadState;
-  workstations: LoadState;
-  layouts: LoadState;
-  modules: LoadState;
-}
-
 interface DataContextType {
   // Data
   projects: DbProject[];
@@ -54,14 +49,17 @@ interface DataContextType {
   modules: DbModule[];
   loading: boolean;
   
-  // Load states for partial loading
-  loadStates: DataLoadStates;
+  // 3-Phase load states
+  phaseLoadStates: PhaseLoadStates;
+  currentPhase: LoadPhase;
   
-  // Retry functions for partial loading
-  retryProjects: () => Promise<void>;
-  retryWorkstations: () => Promise<void>;
-  retryLayouts: () => Promise<void>;
-  retryModules: () => Promise<void>;
+  // Retry functions for each phase
+  retryProjectPhase: () => Promise<void>;
+  retryWorkstationsPhase: () => Promise<void>;
+  retryDetailsPhase: () => Promise<void>;
+  
+  // Cancel loading
+  cancelLoading: () => void;
   
   // Selection state
   selectedProjectId: string | null;
@@ -103,13 +101,6 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | null>(null);
 
-const initialLoadStates: DataLoadStates = {
-  projects: createLoadState(),
-  workstations: createLoadState(),
-  layouts: createLoadState(),
-  modules: createLoadState(),
-};
-
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [projects, setProjects] = useState<DbProject[]>([]);
@@ -117,11 +108,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [layouts, setLayouts] = useState<DbLayout[]>([]);
   const [modules, setModules] = useState<DbModule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadStates, setLoadStates] = useState<DataLoadStates>(initialLoadStates);
+  const [phaseLoadStates, setPhaseLoadStates] = useState<PhaseLoadStates>(initialPhaseLoadStates);
+  const [currentPhase, setCurrentPhase] = useState<LoadPhase>('idle');
   
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedWorkstationId, setSelectedWorkstationId] = useState<string | null>(null);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+
+  // Abort controller refs for cancellation
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Cancel all loading operations
+  const cancelLoading = useCallback(() => {
+    abortControllerRef.current?.abort();
+    cleanupRef.current?.();
+    abortControllerRef.current = null;
+    cleanupRef.current = null;
+    setLoading(false);
+    setCurrentPhase('idle');
+  }, []);
 
   // Claim orphan projects (projects with null user_id) for the current user
   const claimOrphanProjects = useCallback(async () => {
@@ -159,123 +165,159 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (cachedProjects || cachedWorkstations) {
         setLoading(false);
         cacheLoadedRef.current = true;
+        // Mark phases as success if we have cached data
+        setPhaseLoadStates({
+          project: successState(),
+          workstations: successState(),
+          details: successState(),
+        });
       }
     } catch (err) {
       console.error('Cache load error:', err);
     }
   }, []);
 
-  // Individual fetch functions for partial loading with retry
-  const fetchProjects = useCallback(async () => {
-    if (!user) return;
+  // Phase 1: Fetch Projects (full data for compatibility)
+  const fetchProjectPhase = useCallback(async (signal?: AbortSignal) => {
+    if (!user) return false;
     
-    setLoadStates(prev => ({ ...prev, projects: loadingState() }));
+    setCurrentPhase('project');
+    setPhaseLoadStates(prev => ({ ...prev, project: loadingState() }));
     
     const result = await supabaseQuery<DbProject[]>(
       async () => {
-        const res = await supabase.from('projects').select('*').order('created_at', { ascending: false });
+        const res = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false });
         return res;
       },
-      { timeout: 10000, retries: 2 }
+      { timeout: 10000, retries: 2, signal }
     );
+    
+    if (result.cancelled) return false;
     
     if (result.ok && result.data) {
       const normalized = normalizeProjects(result.data);
       setProjects(normalized);
-      setLoadStates(prev => ({ ...prev, projects: successState() }));
+      setPhaseLoadStates(prev => ({ ...prev, project: successState(result.elapsedMs) }));
       offlineCache.set('projects', normalized, CACHE_TTL).catch(console.error);
+      return true;
     } else {
-      setLoadStates(prev => ({ ...prev, projects: errorState(result.error || '加载失败', result.retryCount) }));
-      console.error('Failed to fetch projects:', result.error);
+      setPhaseLoadStates(prev => ({ ...prev, project: errorState(result.error || '加载项目失败', result.retryCount) }));
+      return false;
     }
-    
-    return result;
   }, [user]);
 
-  const fetchWorkstations = useCallback(async () => {
-    if (!user) return;
+  // Phase 2: Fetch Workstations (full data for compatibility)
+  const fetchWorkstationsPhase = useCallback(async (signal?: AbortSignal) => {
+    if (!user) return false;
     
-    setLoadStates(prev => ({ ...prev, workstations: loadingState() }));
+    setCurrentPhase('workstations');
+    setPhaseLoadStates(prev => ({ ...prev, workstations: loadingState() }));
     
     const result = await supabaseQuery<DbWorkstation[]>(
       async () => {
-        const res = await supabase.from('workstations').select('*').order('created_at', { ascending: true });
+        const res = await supabase
+          .from('workstations')
+          .select('*')
+          .order('created_at', { ascending: true });
         return res;
       },
-      { timeout: 10000, retries: 2 }
+      { timeout: 10000, retries: 2, signal }
     );
+    
+    if (result.cancelled) return false;
     
     if (result.ok && result.data) {
       const normalized = normalizeWorkstations(result.data);
       setWorkstations(normalized);
-      setLoadStates(prev => ({ ...prev, workstations: successState() }));
+      setPhaseLoadStates(prev => ({ ...prev, workstations: successState(result.elapsedMs) }));
       offlineCache.set('workstations', normalized, CACHE_TTL).catch(console.error);
+      return true;
     } else {
-      setLoadStates(prev => ({ ...prev, workstations: errorState(result.error || '加载失败', result.retryCount) }));
-      console.error('Failed to fetch workstations:', result.error);
+      setPhaseLoadStates(prev => ({ ...prev, workstations: errorState(result.error || '加载工位失败', result.retryCount) }));
+      return false;
     }
-    
-    return result;
   }, [user]);
 
-  const fetchLayouts = useCallback(async () => {
-    if (!user) return;
+  // Phase 3: Fetch Details (layouts + modules for selected workstation)
+  const fetchDetailsPhase = useCallback(async (signal?: AbortSignal) => {
+    if (!user) return false;
     
-    setLoadStates(prev => ({ ...prev, layouts: loadingState() }));
+    setCurrentPhase('details');
+    setPhaseLoadStates(prev => ({ ...prev, details: loadingState() }));
     
-    const result = await supabaseQuery<DbLayout[]>(
-      async () => {
-        const res = await supabase.from('mechanical_layouts').select('*');
-        return res;
-      },
-      { timeout: 10000, retries: 2 }
-    );
+    // Fetch layouts and modules in parallel
+    const [layoutResult, moduleResult] = await Promise.all([
+      supabaseQuery<DbLayout[]>(
+        async () => {
+          const res = await supabase.from('mechanical_layouts').select('*');
+          return res;
+        },
+        { timeout: 10000, retries: 2, signal }
+      ),
+      supabaseQuery<DbModule[]>(
+        async () => {
+          const res = await supabase.from('function_modules').select('*').order('created_at', { ascending: true });
+          return res;
+        },
+        { timeout: 10000, retries: 2, signal }
+      )
+    ]);
     
-    if (result.ok && result.data) {
-      const normalized = normalizeLayouts(result.data);
+    if (layoutResult.cancelled || moduleResult.cancelled) return false;
+    
+    let hasError = false;
+    let errorMsg = '';
+    
+    if (layoutResult.ok && layoutResult.data) {
+      const normalized = normalizeLayouts(layoutResult.data);
       setLayouts(normalized);
-      setLoadStates(prev => ({ ...prev, layouts: successState() }));
       offlineCache.set('layouts', normalized, CACHE_TTL).catch(console.error);
     } else {
-      setLoadStates(prev => ({ ...prev, layouts: errorState(result.error || '加载失败', result.retryCount) }));
-      console.error('Failed to fetch layouts:', result.error);
+      hasError = true;
+      errorMsg = layoutResult.error || '加载布局失败';
     }
     
-    return result;
-  }, [user]);
-
-  const fetchModules = useCallback(async () => {
-    if (!user) return;
-    
-    setLoadStates(prev => ({ ...prev, modules: loadingState() }));
-    
-    const result = await supabaseQuery<DbModule[]>(
-      async () => {
-        const res = await supabase.from('function_modules').select('*').order('created_at', { ascending: true });
-        return res;
-      },
-      { timeout: 10000, retries: 2 }
-    );
-    
-    if (result.ok && result.data) {
-      const normalized = normalizeModules(result.data);
+    if (moduleResult.ok && moduleResult.data) {
+      const normalized = normalizeModules(moduleResult.data);
       setModules(normalized);
-      setLoadStates(prev => ({ ...prev, modules: successState() }));
       offlineCache.set('modules', normalized, CACHE_TTL).catch(console.error);
     } else {
-      setLoadStates(prev => ({ ...prev, modules: errorState(result.error || '加载失败', result.retryCount) }));
-      console.error('Failed to fetch modules:', result.error);
+      hasError = true;
+      errorMsg = errorMsg ? `${errorMsg}; ${moduleResult.error}` : (moduleResult.error || '加载模块失败');
     }
     
-    return result;
+    if (hasError) {
+      setPhaseLoadStates(prev => ({ 
+        ...prev, 
+        details: errorState(errorMsg, Math.max(layoutResult.retryCount, moduleResult.retryCount)) 
+      }));
+      return false;
+    } else {
+      setPhaseLoadStates(prev => ({ 
+        ...prev, 
+        details: successState(Math.max(layoutResult.elapsedMs, moduleResult.elapsedMs)) 
+      }));
+      return true;
+    }
   }, [user]);
 
-  // Fetch all data - partial loading (each can fail independently)
-  const fetchAll = useCallback(async () => {
+  // Main 3-phase fetch flow
+  const fetchAllPhased = useCallback(async () => {
     if (!user) {
       setLoading(false);
       return;
     }
+    
+    // Cancel any existing requests
+    cancelLoading();
+    
+    // Create new abort controller
+    const { controller, cleanup } = createAbortController();
+    abortControllerRef.current = controller;
+    cleanupRef.current = cleanup;
     
     try {
       if (!cacheLoadedRef.current) {
@@ -284,37 +326,72 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       
       await claimOrphanProjects();
       
-      // Fetch all in parallel - each handles its own errors
-      await Promise.all([
-        fetchProjects(),
-        fetchWorkstations(),
-        fetchLayouts(),
-        fetchModules(),
-      ]);
+      // Phase 1: Projects
+      const projectSuccess = await fetchProjectPhase(controller.signal);
+      if (!projectSuccess && phaseLoadStates.project.status !== 'success') {
+        // Phase 1 failed - page can still show header with error
+        setLoading(false);
+        return;
+      }
+      
+      // Page is now usable after Phase 1 success
+      setLoading(false);
+      
+      // Phase 2: Workstations
+      const wsSuccess = await fetchWorkstationsPhase(controller.signal);
+      if (!wsSuccess) {
+        // Phase 2 failed - continue to show project header, tree shows error
+        return;
+      }
+      
+      // Phase 3: Details
+      await fetchDetailsPhase(controller.signal);
       
     } catch (err) {
-      console.error('Failed to fetch data:', err);
+      console.error('Phased fetch error:', err);
     } finally {
-      setLoading(false);
+      setCurrentPhase('idle');
+      cleanup();
     }
-  }, [user, claimOrphanProjects, fetchProjects, fetchWorkstations, fetchLayouts, fetchModules]);
+  }, [user, cancelLoading, claimOrphanProjects, fetchProjectPhase, fetchWorkstationsPhase, fetchDetailsPhase, phaseLoadStates.project.status]);
 
-  // Retry functions exposed to UI
-  const retryProjects = useCallback(async () => {
-    await fetchProjects();
-  }, [fetchProjects]);
+  // Retry functions for each phase
+  const retryProjectPhase = useCallback(async () => {
+    const { controller, cleanup } = createAbortController();
+    abortControllerRef.current = controller;
+    cleanupRef.current = cleanup;
+    
+    const success = await fetchProjectPhase(controller.signal);
+    cleanup();
+    
+    if (success) {
+      // Continue with subsequent phases
+      await fetchWorkstationsPhase(controller.signal);
+      await fetchDetailsPhase(controller.signal);
+    }
+  }, [fetchProjectPhase, fetchWorkstationsPhase, fetchDetailsPhase]);
 
-  const retryWorkstations = useCallback(async () => {
-    await fetchWorkstations();
-  }, [fetchWorkstations]);
+  const retryWorkstationsPhase = useCallback(async () => {
+    const { controller, cleanup } = createAbortController();
+    abortControllerRef.current = controller;
+    cleanupRef.current = cleanup;
+    
+    const success = await fetchWorkstationsPhase(controller.signal);
+    cleanup();
+    
+    if (success) {
+      await fetchDetailsPhase(controller.signal);
+    }
+  }, [fetchWorkstationsPhase, fetchDetailsPhase]);
 
-  const retryLayouts = useCallback(async () => {
-    await fetchLayouts();
-  }, [fetchLayouts]);
-
-  const retryModules = useCallback(async () => {
-    await fetchModules();
-  }, [fetchModules]);
+  const retryDetailsPhase = useCallback(async () => {
+    const { controller, cleanup } = createAbortController();
+    abortControllerRef.current = controller;
+    cleanupRef.current = cleanup;
+    
+    await fetchDetailsPhase(controller.signal);
+    cleanup();
+  }, [fetchDetailsPhase]);
 
   // Load from cache first, then fetch fresh data
   useEffect(() => {
@@ -322,8 +399,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [loadFromCache]);
 
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll, user]);
+    fetchAllPhased();
+    
+    return () => {
+      // Cleanup on unmount
+      cancelLoading();
+    };
+  }, [fetchAllPhased, cancelLoading, user]);
 
   // Selection functions
   const selectProject = useCallback((id: string | null) => {
@@ -555,11 +637,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       layouts,
       modules,
       loading,
-      loadStates,
-      retryProjects,
-      retryWorkstations,
-      retryLayouts,
-      retryModules,
+      phaseLoadStates,
+      currentPhase,
+      retryProjectPhase,
+      retryWorkstationsPhase,
+      retryDetailsPhase,
+      cancelLoading,
       selectedProjectId,
       selectedWorkstationId,
       selectedModuleId,
@@ -584,7 +667,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       duplicateModule,
       getProjectWorkstations,
       getWorkstationModules,
-      refetch: fetchAll,
+      refetch: fetchAllPhased,
     }}>
       {children}
     </DataContext.Provider>

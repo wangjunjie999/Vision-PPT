@@ -242,9 +242,11 @@ export function ProjectTree() {
     modules,
     layouts,
     loading,
-    loadStates,
-    retryWorkstations,
-    retryModules,
+    phaseLoadStates,
+    currentPhase,
+    retryWorkstationsPhase,
+    retryDetailsPhase,
+    cancelLoading,
     selectedProjectId,
     selectedWorkstationId,
     selectedModuleId,
@@ -599,7 +601,7 @@ export function ProjectTree() {
                   {isExpanded && (
                     <div className="relative ml-4 pl-2 border-l-2 border-border/50">
                       {/* Workstations loading state */}
-                      {loadStates.workstations.status === 'loading' && displayWorkstations.length === 0 && (
+                      {phaseLoadStates.workstations.status === 'loading' && displayWorkstations.length === 0 && (
                         <div className="flex items-center gap-2 py-2 pl-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span>加载工位...</span>
@@ -607,7 +609,7 @@ export function ProjectTree() {
                       )}
                       
                       {/* Workstations error state with retry */}
-                      {loadStates.workstations.status === 'error' && displayWorkstations.length === 0 && (
+                      {phaseLoadStates.workstations.status === 'error' && displayWorkstations.length === 0 && (
                         <div className="py-2 pl-2">
                           <div className="flex items-center gap-2 text-sm text-destructive mb-1">
                             <AlertCircle className="h-4 w-4" />
@@ -616,7 +618,7 @@ export function ProjectTree() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={retryWorkstations}
+                            onClick={retryWorkstationsPhase}
                             className="h-7 text-xs gap-1"
                           >
                             <RefreshCw className="h-3 w-3" />
@@ -706,8 +708,8 @@ export function ProjectTree() {
                             {/* Modules */}
                             {wsExpanded && (
                               <div className="relative ml-4 pl-2 border-l-2 border-border/30">
-                                {/* Modules loading state */}
-                                {loadStates.modules.status === 'loading' && displayModules.length === 0 && (
+                              {/* Modules loading state */}
+                                {phaseLoadStates.details.status === 'loading' && displayModules.length === 0 && (
                                   <div className="flex items-center gap-2 py-2 pl-2 text-sm text-muted-foreground">
                                     <Loader2 className="h-3 w-3 animate-spin" />
                                     <span className="text-xs">加载模块...</span>
@@ -715,7 +717,7 @@ export function ProjectTree() {
                                 )}
                                 
                                 {/* Modules error state with retry */}
-                                {loadStates.modules.status === 'error' && displayModules.length === 0 && (
+                                {phaseLoadStates.details.status === 'error' && displayModules.length === 0 && (
                                   <div className="py-1 pl-2">
                                     <div className="flex items-center gap-2 text-xs text-destructive mb-1">
                                       <AlertCircle className="h-3 w-3" />
@@ -724,7 +726,7 @@ export function ProjectTree() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      onClick={retryModules}
+                                      onClick={retryDetailsPhase}
                                       className="h-6 text-[10px] gap-1"
                                     >
                                       <RefreshCw className="h-3 w-3" />

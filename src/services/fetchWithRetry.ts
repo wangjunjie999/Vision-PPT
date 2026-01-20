@@ -1,5 +1,5 @@
 /**
- * Fetch with retry, timeout, and structured response
+ * Fetch with retry, timeout, cancellation, and structured response
  * Supports both generic fetch and Supabase queries
  */
 
@@ -9,6 +9,7 @@ export interface FetchResult<T> {
   error: string | null;
   elapsedMs: number;
   retryCount: number;
+  cancelled?: boolean;
 }
 
 export interface FetchOptions {
@@ -16,16 +17,34 @@ export interface FetchOptions {
   retries?: number;      // Default 2
   retryDelayMs?: number; // Initial delay, default 500ms
   onRetry?: (attempt: number, error: string) => void;
+  signal?: AbortSignal;  // For cancellation
 }
 
 const DEFAULT_TIMEOUT = 10000;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_RETRY_DELAY = 500;
+const MAX_LOADING_TIME = 30000; // 30s max to prevent infinite spinning
 
 /**
- * Sleep helper
+ * Sleep helper with abort support
  */
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    
+    const timeoutId = setTimeout(resolve, ms);
+    
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timeoutId);
+        reject(new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    }
+  });
+};
 
 /**
  * Calculate exponential backoff delay
@@ -35,7 +54,7 @@ const getBackoffDelay = (attempt: number, baseDelay: number): number => {
 };
 
 /**
- * Generic fetch with retry and timeout
+ * Generic fetch with retry, timeout, and cancellation support
  */
 export async function fetchWithRetry<T>(
   fetchFn: () => Promise<T>,
@@ -45,7 +64,8 @@ export async function fetchWithRetry<T>(
     timeout = DEFAULT_TIMEOUT,
     retries = DEFAULT_RETRIES,
     retryDelayMs = DEFAULT_RETRY_DELAY,
-    onRetry
+    onRetry,
+    signal
   } = options;
 
   const startTime = Date.now();
@@ -53,10 +73,41 @@ export async function fetchWithRetry<T>(
   let attempt = 0;
 
   while (attempt <= retries) {
+    // Check for cancellation
+    if (signal?.aborted) {
+      return {
+        ok: false,
+        data: null,
+        error: '操作已取消',
+        elapsedMs: Date.now() - startTime,
+        retryCount: attempt,
+        cancelled: true
+      };
+    }
+
+    // Check for max loading time exceeded
+    if (Date.now() - startTime > MAX_LOADING_TIME) {
+      return {
+        ok: false,
+        data: null,
+        error: '加载超时，请刷新重试',
+        elapsedMs: Date.now() - startTime,
+        retryCount: attempt
+      };
+    }
+
     try {
       // Create timeout promise
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Request timeout after ${timeout}ms`)), timeout);
+        const timeoutId = setTimeout(() => reject(new Error(`请求超时 (${timeout / 1000}s)`)), timeout);
+        
+        // Clear timeout if aborted
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            clearTimeout(timeoutId);
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        }
       });
 
       // Race between fetch and timeout
@@ -70,13 +121,38 @@ export async function fetchWithRetry<T>(
         retryCount: attempt
       };
     } catch (err) {
+      // Handle abort
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return {
+          ok: false,
+          data: null,
+          error: '操作已取消',
+          elapsedMs: Date.now() - startTime,
+          retryCount: attempt,
+          cancelled: true
+        };
+      }
+
       lastError = err instanceof Error ? err.message : String(err);
       
       if (attempt < retries) {
         const delay = getBackoffDelay(attempt, retryDelayMs);
         onRetry?.(attempt + 1, lastError);
-        console.warn(`[fetchWithRetry] Attempt ${attempt + 1} failed: ${lastError}. Retrying in ${delay}ms...`);
-        await sleep(delay);
+        console.warn(`[fetchWithRetry] 第${attempt + 1}次尝试失败: ${lastError}. ${delay}ms后重试...`);
+        
+        try {
+          await sleep(delay, signal);
+        } catch {
+          // Aborted during sleep
+          return {
+            ok: false,
+            data: null,
+            error: '操作已取消',
+            elapsedMs: Date.now() - startTime,
+            retryCount: attempt,
+            cancelled: true
+          };
+        }
       }
       
       attempt++;
@@ -129,12 +205,27 @@ export async function batchQueries<T extends Record<string, () => Promise<{ data
 }
 
 /**
+ * Load phase types for 3-phase loading
+ */
+export type LoadPhase = 'idle' | 'project' | 'workstations' | 'details';
+
+/**
  * Load state tracking for UI
  */
 export interface LoadState {
   status: 'idle' | 'loading' | 'success' | 'error';
   error: string | null;
   retryCount: number;
+  elapsedMs?: number;
+}
+
+/**
+ * 3-Phase load state structure
+ */
+export interface PhaseLoadStates {
+  project: LoadState;      // Phase 1: Project header (lightweight)
+  workstations: LoadState; // Phase 2: Workstation list
+  details: LoadState;      // Phase 3: Selected workstation details (layouts/modules/assets)
 }
 
 export const createLoadState = (): LoadState => ({
@@ -149,10 +240,11 @@ export const loadingState = (): LoadState => ({
   retryCount: 0
 });
 
-export const successState = (): LoadState => ({
+export const successState = (elapsedMs?: number): LoadState => ({
   status: 'success',
   error: null,
-  retryCount: 0
+  retryCount: 0,
+  elapsedMs
 });
 
 export const errorState = (error: string, retryCount = 0): LoadState => ({
@@ -160,3 +252,25 @@ export const errorState = (error: string, retryCount = 0): LoadState => ({
   error,
   retryCount
 });
+
+export const initialPhaseLoadStates: PhaseLoadStates = {
+  project: createLoadState(),
+  workstations: createLoadState(),
+  details: createLoadState(),
+};
+
+/**
+ * Create an AbortController with automatic cleanup after timeout
+ */
+export function createAbortController(timeoutMs = MAX_LOADING_TIME): {
+  controller: AbortController;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  return {
+    controller,
+    cleanup: () => clearTimeout(timeoutId)
+  };
+}
