@@ -753,21 +753,17 @@ export async function generatePPTX(
     console.log(`Added template logo at (${logoX}, ${logoY}), size: ${logoW}x${logoH}`);
   }
   
-  // Tech-Shine corporate style: Clean header with orange accent line, light footer
+  // Tech-Shine corporate style: Clean header with deep blue accent line, white background
   if (!templateBackground) {
     masterObjects.push(
-      // Header: thin orange accent line at top
-      { rect: { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: activeColors.primary } } },
-      // Header: light gray bar with company branding area
-      { rect: { x: 0, y: 0.06, w: '100%', h: 0.4, fill: { color: 'E8EBEF' } } },
-      // Footer: light gray bar
-      { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: 'E8EBEF' } } },
-      // Footer: thin orange accent line
+      // Header: thin deep blue accent line at top
+      { rect: { x: 0, y: 0, w: '100%', h: 0.04, fill: { color: activeColors.primary } } },
+      // Header: white bar with company branding area
+      { rect: { x: 0, y: 0.04, w: '100%', h: 0.42, fill: { color: activeColors.white } } },
+      // Footer: white bar
+      { rect: { x: 0, y: footerY, w: '100%', h: SLIDE_LAYOUT.margin.bottom, fill: { color: activeColors.white } } },
+      // Footer: thin deep blue accent line
       { rect: { x: 0, y: footerY, w: '100%', h: 0.02, fill: { color: activeColors.primary } } },
-      // Company name in header (left)
-      { text: { text: isZh ? '德星云智能' : 'TECH-SHINE', options: { x: 0.3, y: 0.12, w: 2.5, h: 0.28, fontSize: 12, bold: true, color: activeColors.primary } } },
-      // Tagline in header
-      { text: { text: isZh ? '新能源 | 智能制造 | 解决方案' : 'NEW ENERGY | INTELLIGENT MANUFACTURING | SOLUTION', options: { x: 2.9, y: 0.16, w: 5, h: 0.2, fontSize: 8, color: activeColors.secondary } } },
       // Company name in footer
       { text: { text: isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, options: { x: 0.3, y: footerY + 0.06, w: 4, h: 0.18, fontSize: 7, color: activeColors.dark } } },
       // Customer name in footer (right aligned)
