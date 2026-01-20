@@ -26,7 +26,6 @@ import { CircularProgress } from '@/components/ui/circular-progress';
 import { motion } from 'framer-motion';
 import { StaggerList, StaggerItem } from '@/components/transitions/AnimatedLayout';
 import { BatchImageSaveButton } from './BatchImageSaveButton';
-import { safeText, safeArray, safeMap } from '@/utils/safe';
 
 export function ProjectDashboard() {
   const { 
@@ -151,28 +150,28 @@ export function ProjectDashboard() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <p className="text-xs text-muted-foreground">项目编号</p>
-                  <p className="font-medium">{safeText(project.code)}</p>
+                  <p className="font-medium">{project.code}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">客户名称</p>
-                  <p className="font-medium">{safeText(project.customer)}</p>
+                  <p className="font-medium">{project.customer}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">方案日期</p>
-                  <p className="font-medium">{safeText(project.date)}</p>
+                  <p className="font-medium">{project.date}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">负责人</p>
-                  <p className="font-medium">{safeText(project.responsible)}</p>
+                  <p className="font-medium">{project.responsible}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">产品/工艺段</p>
-                  <p className="font-medium">{safeText(project.product_process)}</p>
+                  <p className="font-medium">{project.product_process}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">PPT母版</p>
                   <p className="font-medium">
-                    {safeText(selectedTemplate?.name, project.template_id && templatesLoading ? '加载中...' : '未选择')}
+                    {selectedTemplate?.name || (project.template_id && templatesLoading ? '加载中...' : '未选择')}
                     {selectedTemplate?.is_default && <span className="text-xs text-muted-foreground ml-1">(默认)</span>}
                   </p>
                 </div>
@@ -352,7 +351,7 @@ export function ProjectDashboard() {
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-3">请完成以下事项后方可生成PPT：</p>
                 <ul className="space-y-2">
-                  {safeMap(missingItems, (item: string, i: number) => (
+                  {missingItems.map((item, i) => (
                     <motion.li 
                       key={i} 
                       className="flex items-center gap-2 text-sm"
@@ -400,14 +399,14 @@ export function ProjectDashboard() {
                     <SelectValue placeholder={templatesLoading ? '加载中...' : (templates.length === 0 ? '暂无模板' : '选择母版')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {safeArray(templates).length === 0 ? (
+                    {templates.length === 0 ? (
                       <SelectItem value="__none__" disabled>
                         暂无模板，请先在管理中心创建
                       </SelectItem>
                     ) : (
-                      safeMap(templates, (tpl: typeof templates[number]) => (
+                      templates.map(tpl => (
                         <SelectItem key={tpl.id} value={tpl.id}>
-                          {safeText(tpl.name)} {tpl.is_default && '(默认)'}
+                          {tpl.name} {tpl.is_default && '(默认)'}
                         </SelectItem>
                       ))
                     )}

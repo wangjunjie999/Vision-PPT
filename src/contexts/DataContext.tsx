@@ -4,23 +4,6 @@ import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { offlineCache } from '@/services/offlineCache';
-import { 
-  normalizeProjects, 
-  normalizeWorkstations, 
-  normalizeLayouts, 
-  normalizeModules 
-} from '@/services/dataNormalizer';
-import {
-  supabaseQuery,
-  PhaseLoadStates,
-  LoadPhase,
-  createLoadState,
-  loadingState,
-  successState,
-  errorState,
-  initialPhaseLoadStates,
-  createAbortController,
-} from '@/services/fetchWithRetry';
 
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
@@ -48,18 +31,6 @@ interface DataContextType {
   layouts: DbLayout[];
   modules: DbModule[];
   loading: boolean;
-  
-  // 3-Phase load states
-  phaseLoadStates: PhaseLoadStates;
-  currentPhase: LoadPhase;
-  
-  // Retry functions for each phase
-  retryProjectPhase: () => Promise<void>;
-  retryWorkstationsPhase: () => Promise<void>;
-  retryDetailsPhase: () => Promise<void>;
-  
-  // Cancel loading
-  cancelLoading: () => void;
   
   // Selection state
   selectedProjectId: string | null;
@@ -108,31 +79,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [layouts, setLayouts] = useState<DbLayout[]>([]);
   const [modules, setModules] = useState<DbModule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [phaseLoadStates, setPhaseLoadStates] = useState<PhaseLoadStates>(initialPhaseLoadStates);
-  const [currentPhase, setCurrentPhase] = useState<LoadPhase>('idle');
   
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedWorkstationId, setSelectedWorkstationId] = useState<string | null>(null);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
 
-  // Abort controller refs for cancellation
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
-
-  // Cancel all loading operations
-  const cancelLoading = useCallback(() => {
-    abortControllerRef.current?.abort();
-    cleanupRef.current?.();
-    abortControllerRef.current = null;
-    cleanupRef.current = null;
-    setLoading(false);
-    setCurrentPhase('idle');
-  }, []);
-
   // Claim orphan projects (projects with null user_id) for the current user
   const claimOrphanProjects = useCallback(async () => {
     if (!user) return;
     try {
+      // Update projects with null user_id to be owned by current user
       await supabase
         .from('projects')
         .update({ user_id: user.id })
@@ -157,241 +113,77 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         offlineCache.get<DbModule[]>('modules'),
       ]);
 
-      if (cachedProjects) setProjects(normalizeProjects(cachedProjects));
-      if (cachedWorkstations) setWorkstations(normalizeWorkstations(cachedWorkstations));
-      if (cachedLayouts) setLayouts(normalizeLayouts(cachedLayouts));
-      if (cachedModules) setModules(normalizeModules(cachedModules));
+      if (cachedProjects) setProjects(cachedProjects);
+      if (cachedWorkstations) setWorkstations(cachedWorkstations);
+      if (cachedLayouts) setLayouts(cachedLayouts);
+      if (cachedModules) setModules(cachedModules);
       
+      // If we have cached data, don't show loading state
       if (cachedProjects || cachedWorkstations) {
         setLoading(false);
         cacheLoadedRef.current = true;
-        // Mark phases as success if we have cached data
-        setPhaseLoadStates({
-          project: successState(),
-          workstations: successState(),
-          details: successState(),
-        });
       }
     } catch (err) {
       console.error('Cache load error:', err);
     }
   }, []);
 
-  // Phase 1: Fetch Projects (full data for compatibility)
-  const fetchProjectPhase = useCallback(async (signal?: AbortSignal) => {
-    if (!user) return false;
-    
-    setCurrentPhase('project');
-    setPhaseLoadStates(prev => ({ ...prev, project: loadingState() }));
-    
-    const result = await supabaseQuery<DbProject[]>(
-      async () => {
-        const res = await supabase
-          .from('projects')
-          .select('*')
-          .order('created_at', { ascending: false });
-        return res;
-      },
-      { timeout: 10000, retries: 2, signal }
-    );
-    
-    if (result.cancelled) return false;
-    
-    if (result.ok && result.data) {
-      const normalized = normalizeProjects(result.data);
-      setProjects(normalized);
-      setPhaseLoadStates(prev => ({ ...prev, project: successState(result.elapsedMs) }));
-      offlineCache.set('projects', normalized, CACHE_TTL).catch(console.error);
-      return true;
-    } else {
-      setPhaseLoadStates(prev => ({ ...prev, project: errorState(result.error || '加载项目失败', result.retryCount) }));
-      return false;
-    }
-  }, [user]);
-
-  // Phase 2: Fetch Workstations (full data for compatibility)
-  const fetchWorkstationsPhase = useCallback(async (signal?: AbortSignal) => {
-    if (!user) return false;
-    
-    setCurrentPhase('workstations');
-    setPhaseLoadStates(prev => ({ ...prev, workstations: loadingState() }));
-    
-    const result = await supabaseQuery<DbWorkstation[]>(
-      async () => {
-        const res = await supabase
-          .from('workstations')
-          .select('*')
-          .order('created_at', { ascending: true });
-        return res;
-      },
-      { timeout: 10000, retries: 2, signal }
-    );
-    
-    if (result.cancelled) return false;
-    
-    if (result.ok && result.data) {
-      const normalized = normalizeWorkstations(result.data);
-      setWorkstations(normalized);
-      setPhaseLoadStates(prev => ({ ...prev, workstations: successState(result.elapsedMs) }));
-      offlineCache.set('workstations', normalized, CACHE_TTL).catch(console.error);
-      return true;
-    } else {
-      setPhaseLoadStates(prev => ({ ...prev, workstations: errorState(result.error || '加载工位失败', result.retryCount) }));
-      return false;
-    }
-  }, [user]);
-
-  // Phase 3: Fetch Details (layouts + modules for selected workstation)
-  const fetchDetailsPhase = useCallback(async (signal?: AbortSignal) => {
-    if (!user) return false;
-    
-    setCurrentPhase('details');
-    setPhaseLoadStates(prev => ({ ...prev, details: loadingState() }));
-    
-    // Fetch layouts and modules in parallel
-    const [layoutResult, moduleResult] = await Promise.all([
-      supabaseQuery<DbLayout[]>(
-        async () => {
-          const res = await supabase.from('mechanical_layouts').select('*');
-          return res;
-        },
-        { timeout: 10000, retries: 2, signal }
-      ),
-      supabaseQuery<DbModule[]>(
-        async () => {
-          const res = await supabase.from('function_modules').select('*').order('created_at', { ascending: true });
-          return res;
-        },
-        { timeout: 10000, retries: 2, signal }
-      )
-    ]);
-    
-    if (layoutResult.cancelled || moduleResult.cancelled) return false;
-    
-    let hasError = false;
-    let errorMsg = '';
-    
-    if (layoutResult.ok && layoutResult.data) {
-      const normalized = normalizeLayouts(layoutResult.data);
-      setLayouts(normalized);
-      offlineCache.set('layouts', normalized, CACHE_TTL).catch(console.error);
-    } else {
-      hasError = true;
-      errorMsg = layoutResult.error || '加载布局失败';
-    }
-    
-    if (moduleResult.ok && moduleResult.data) {
-      const normalized = normalizeModules(moduleResult.data);
-      setModules(normalized);
-      offlineCache.set('modules', normalized, CACHE_TTL).catch(console.error);
-    } else {
-      hasError = true;
-      errorMsg = errorMsg ? `${errorMsg}; ${moduleResult.error}` : (moduleResult.error || '加载模块失败');
-    }
-    
-    if (hasError) {
-      setPhaseLoadStates(prev => ({ 
-        ...prev, 
-        details: errorState(errorMsg, Math.max(layoutResult.retryCount, moduleResult.retryCount)) 
-      }));
-      return false;
-    } else {
-      setPhaseLoadStates(prev => ({ 
-        ...prev, 
-        details: successState(Math.max(layoutResult.elapsedMs, moduleResult.elapsedMs)) 
-      }));
-      return true;
-    }
-  }, [user]);
-
-  // Main 3-phase fetch flow
-  const fetchAllPhased = useCallback(async () => {
+  // Fetch all data from server
+  const fetchAll = useCallback(async () => {
     if (!user) {
       setLoading(false);
       return;
     }
     
-    // Cancel any existing requests
-    cancelLoading();
-    
-    // Create new abort controller
-    const { controller, cleanup } = createAbortController();
-    abortControllerRef.current = controller;
-    cleanupRef.current = cleanup;
-    
     try {
+      // Only show loading if no cached data
       if (!cacheLoadedRef.current) {
         setLoading(true);
       }
       
+      // First claim any orphan projects
       await claimOrphanProjects();
       
-      // Phase 1: Projects
-      const projectSuccess = await fetchProjectPhase(controller.signal);
-      if (!projectSuccess && phaseLoadStates.project.status !== 'success') {
-        // Phase 1 failed - page can still show header with error
-        setLoading(false);
-        return;
-      }
-      
-      // Page is now usable after Phase 1 success
-      setLoading(false);
-      
-      // Phase 2: Workstations
-      const wsSuccess = await fetchWorkstationsPhase(controller.signal);
-      if (!wsSuccess) {
-        // Phase 2 failed - continue to show project header, tree shows error
-        return;
-      }
-      
-      // Phase 3: Details
-      await fetchDetailsPhase(controller.signal);
+      const [projectsRes, workstationsRes, layoutsRes, modulesRes] = await Promise.all([
+        supabase.from('projects').select('*').order('created_at', { ascending: false }),
+        supabase.from('workstations').select('*').order('created_at', { ascending: true }),
+        supabase.from('mechanical_layouts').select('*'),
+        supabase.from('function_modules').select('*').order('created_at', { ascending: true }),
+      ]);
+
+      if (projectsRes.error) throw projectsRes.error;
+      if (workstationsRes.error) throw workstationsRes.error;
+      if (layoutsRes.error) throw layoutsRes.error;
+      if (modulesRes.error) throw modulesRes.error;
+
+      const projectsData = projectsRes.data || [];
+      const workstationsData = workstationsRes.data || [];
+      const layoutsData = layoutsRes.data || [];
+      const modulesData = modulesRes.data || [];
+
+      setProjects(projectsData);
+      setWorkstations(workstationsData);
+      setLayouts(layoutsData);
+      setModules(modulesData);
+
+      // Update cache in background
+      Promise.all([
+        offlineCache.set('projects', projectsData, CACHE_TTL),
+        offlineCache.set('workstations', workstationsData, CACHE_TTL),
+        offlineCache.set('layouts', layoutsData, CACHE_TTL),
+        offlineCache.set('modules', modulesData, CACHE_TTL),
+      ]).catch(console.error);
       
     } catch (err) {
-      console.error('Phased fetch error:', err);
+      console.error('Failed to fetch data:', err);
+      // Only show error if we don't have cached data
+      if (!cacheLoadedRef.current) {
+        toast.error('数据加载失败');
+      }
     } finally {
-      setCurrentPhase('idle');
-      cleanup();
+      setLoading(false);
     }
-  }, [user, cancelLoading, claimOrphanProjects, fetchProjectPhase, fetchWorkstationsPhase, fetchDetailsPhase, phaseLoadStates.project.status]);
-
-  // Retry functions for each phase
-  const retryProjectPhase = useCallback(async () => {
-    const { controller, cleanup } = createAbortController();
-    abortControllerRef.current = controller;
-    cleanupRef.current = cleanup;
-    
-    const success = await fetchProjectPhase(controller.signal);
-    cleanup();
-    
-    if (success) {
-      // Continue with subsequent phases
-      await fetchWorkstationsPhase(controller.signal);
-      await fetchDetailsPhase(controller.signal);
-    }
-  }, [fetchProjectPhase, fetchWorkstationsPhase, fetchDetailsPhase]);
-
-  const retryWorkstationsPhase = useCallback(async () => {
-    const { controller, cleanup } = createAbortController();
-    abortControllerRef.current = controller;
-    cleanupRef.current = cleanup;
-    
-    const success = await fetchWorkstationsPhase(controller.signal);
-    cleanup();
-    
-    if (success) {
-      await fetchDetailsPhase(controller.signal);
-    }
-  }, [fetchWorkstationsPhase, fetchDetailsPhase]);
-
-  const retryDetailsPhase = useCallback(async () => {
-    const { controller, cleanup } = createAbortController();
-    abortControllerRef.current = controller;
-    cleanupRef.current = cleanup;
-    
-    await fetchDetailsPhase(controller.signal);
-    cleanup();
-  }, [fetchDetailsPhase]);
+  }, [user, claimOrphanProjects]);
 
   // Load from cache first, then fetch fresh data
   useEffect(() => {
@@ -399,13 +191,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [loadFromCache]);
 
   useEffect(() => {
-    fetchAllPhased();
-    
-    return () => {
-      // Cleanup on unmount
-      cancelLoading();
-    };
-  }, [fetchAllPhased, cancelLoading, user]);
+    fetchAll();
+  }, [fetchAll, user]);
 
   // Selection functions
   const selectProject = useCallback((id: string | null) => {
@@ -481,17 +268,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       name: `${original.name} (副本)`,
     });
     
+    // Duplicate workstations and their layouts/modules
     const projectWorkstations = workstations.filter(ws => ws.project_id === id);
     for (const ws of projectWorkstations) {
       const { id: wsId, created_at: wsCreated, updated_at: wsUpdated, project_id, ...wsRest } = ws;
       const newWs = await addWorkstation({ ...wsRest, project_id: newProject.id });
       
+      // Duplicate layout
       const layout = layouts.find(l => l.workstation_id === wsId);
       if (layout) {
         const { id: layoutId, created_at: lCreated, updated_at: lUpdated, workstation_id, ...layoutRest } = layout;
         await addLayout({ ...layoutRest, workstation_id: newWs.id });
       }
       
+      // Duplicate modules
       const wsModules = modules.filter(m => m.workstation_id === wsId);
       for (const mod of wsModules) {
         const { id: modId, created_at: mCreated, updated_at: mUpdated, workstation_id: modWsId, ...modRest } = mod;
@@ -541,12 +331,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       name: `${original.name} (副本)`,
     });
     
+    // Duplicate layout
     const layout = layouts.find(l => l.workstation_id === id);
     if (layout) {
       const { id: layoutId, created_at: lCreated, updated_at: lUpdated, workstation_id, ...layoutRest } = layout;
       await addLayout({ ...layoutRest, workstation_id: newWs.id });
     }
     
+    // Duplicate modules
     const wsModules = modules.filter(m => m.workstation_id === id);
     for (const mod of wsModules) {
       const { id: modId, created_at: mCreated, updated_at: mUpdated, workstation_id: modWsId, ...modRest } = mod;
@@ -637,12 +429,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       layouts,
       modules,
       loading,
-      phaseLoadStates,
-      currentPhase,
-      retryProjectPhase,
-      retryWorkstationsPhase,
-      retryDetailsPhase,
-      cancelLoading,
       selectedProjectId,
       selectedWorkstationId,
       selectedModuleId,
@@ -667,7 +453,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       duplicateModule,
       getProjectWorkstations,
       getWorkstationModules,
-      refetch: fetchAllPhased,
+      refetch: fetchAll,
     }}>
       {children}
     </DataContext.Provider>

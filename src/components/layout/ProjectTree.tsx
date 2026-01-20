@@ -16,8 +16,7 @@ import {
   Layers,
   Zap,
   Search,
-  X,
-  RefreshCw
+  X
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
@@ -242,11 +241,6 @@ export function ProjectTree() {
     modules,
     layouts,
     loading,
-    phaseLoadStates,
-    currentPhase,
-    retryWorkstationsPhase,
-    retryDetailsPhase,
-    cancelLoading,
     selectedProjectId,
     selectedWorkstationId,
     selectedModuleId,
@@ -600,33 +594,6 @@ export function ProjectTree() {
                   {/* Workstations - with connecting line */}
                   {isExpanded && (
                     <div className="relative ml-4 pl-2 border-l-2 border-border/50">
-                      {/* Workstations loading state */}
-                      {phaseLoadStates.workstations.status === 'loading' && displayWorkstations.length === 0 && (
-                        <div className="flex items-center gap-2 py-2 pl-2 text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>加载工位...</span>
-                        </div>
-                      )}
-                      
-                      {/* Workstations error state with retry */}
-                      {phaseLoadStates.workstations.status === 'error' && displayWorkstations.length === 0 && (
-                        <div className="py-2 pl-2">
-                          <div className="flex items-center gap-2 text-sm text-destructive mb-1">
-                            <AlertCircle className="h-4 w-4" />
-                            <span>工位加载失败</span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={retryWorkstationsPhase}
-                            className="h-7 text-xs gap-1"
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                            重试加载
-                          </Button>
-                        </div>
-                      )}
-                      
                       {displayWorkstations.map((ws, wsIndex) => {
                         const wsModules = getWorkstationModules(ws.id);
                         // Filter modules if searching
@@ -706,35 +673,8 @@ export function ProjectTree() {
                             />
                             
                             {/* Modules */}
-                            {wsExpanded && (
+                            {wsExpanded && displayModules.length > 0 && (
                               <div className="relative ml-4 pl-2 border-l-2 border-border/30">
-                              {/* Modules loading state */}
-                                {phaseLoadStates.details.status === 'loading' && displayModules.length === 0 && (
-                                  <div className="flex items-center gap-2 py-2 pl-2 text-sm text-muted-foreground">
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                    <span className="text-xs">加载模块...</span>
-                                  </div>
-                                )}
-                                
-                                {/* Modules error state with retry */}
-                                {phaseLoadStates.details.status === 'error' && displayModules.length === 0 && (
-                                  <div className="py-1 pl-2">
-                                    <div className="flex items-center gap-2 text-xs text-destructive mb-1">
-                                      <AlertCircle className="h-3 w-3" />
-                                      <span>模块加载失败</span>
-                                    </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={retryDetailsPhase}
-                                      className="h-6 text-[10px] gap-1"
-                                    >
-                                      <RefreshCw className="h-3 w-3" />
-                                      重试
-                                    </Button>
-                                  </div>
-                                )}
-                                
                                 {displayModules.map((mod, modIndex) => {
                                   const modSelected = selectedModuleId === mod.id;
                                   const modStatus = getModuleStatus(mod.id);
