@@ -37,7 +37,7 @@ export function CameraMountPoints({
     const draggingCamera = cameras.find(c => c.id === draggingCameraId);
     if (!draggingCamera) return [];
 
-    const snapThreshold = 30; // pixels
+    const snapThreshold = 70; // pixels - increased for easier interaction
     
     return mountPoints.map(mp => {
       const mountWorldX = mechanismObject.x + mp.position.x * (mechanismObject.width / 2);
@@ -95,32 +95,66 @@ export function CameraMountPoints({
             onClick={() => handleMountPointClick(mp)}
             style={{ cursor: draggingCameraId ? 'pointer' : 'default' }}
           >
-            {/* Mount point circle */}
+            {/* Larger transparent click area for easier interaction */}
             <circle
-              r={isNearby ? 12 : hasMountedCamera ? 8 : 6}
-              fill={isNearby ? 'rgba(34, 197, 94, 0.3)' : hasMountedCamera ? 'rgba(59, 130, 246, 0.2)' : 'transparent'}
-              stroke={isNearby ? '#22c55e' : hasMountedCamera ? '#3b82f6' : '#f97316'}
-              strokeWidth={isNearby ? 3 : 2}
-              strokeDasharray={hasMountedCamera ? 'none' : '4 2'}
-              className={isNearby ? 'animate-pulse' : ''}
+              r={40}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
             />
             
-            {/* Mount type indicator */}
+            {/* Outer glow ring */}
+            <circle
+              r={isNearby ? 40 : 28}
+              fill="none"
+              stroke={isNearby ? '#22c55e' : '#f97316'}
+              strokeWidth={2}
+              strokeDasharray="8 4"
+              opacity={isNearby ? 0.8 : 0.4}
+              style={{ 
+                animation: isNearby ? 'spin 8s linear infinite' : undefined,
+                transformOrigin: 'center'
+              }}
+            />
+            
+            {/* Main mount point circle - enlarged */}
+            <circle
+              r={isNearby ? 28 : hasMountedCamera ? 20 : 16}
+              fill={isNearby ? 'rgba(34, 197, 94, 0.4)' : hasMountedCamera ? 'rgba(59, 130, 246, 0.3)' : 'rgba(249, 115, 22, 0.2)'}
+              stroke={isNearby ? '#22c55e' : hasMountedCamera ? '#3b82f6' : '#f97316'}
+              strokeWidth={isNearby ? 4 : 3}
+              strokeDasharray={hasMountedCamera ? 'none' : '6 3'}
+              className={isNearby ? 'animate-pulse' : ''}
+              style={{
+                filter: isNearby ? 'drop-shadow(0 0 12px rgba(34, 197, 94, 0.7))' : 
+                        hasMountedCamera ? 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.5))' : 
+                        'drop-shadow(0 0 6px rgba(249, 115, 22, 0.4))'
+              }}
+            />
+            
+            {/* Mount type indicator - enlarged */}
             <text
               textAnchor="middle"
-              dy={3}
+              dy={6}
               fill={isNearby ? '#22c55e' : hasMountedCamera ? '#3b82f6' : '#f97316'}
-              fontSize={10}
+              fontSize={18}
               style={{ pointerEvents: 'none' }}
             >
               {hasMountedCamera ? '🔗' : '📷'}
             </text>
             
-            {/* Snap hint when dragging near */}
+            {/* Snap hint when dragging near - enlarged */}
             {isNearby && (
-              <g transform="translate(0, -20)">
-                <rect x={-35} y={-10} width={70} height={16} rx={4} fill="rgba(34, 197, 94, 0.9)" />
-                <text x={0} y={2} textAnchor="middle" fill="#fff" fontSize={9} fontWeight="bold">
+              <g transform="translate(0, -38)">
+                <rect 
+                  x={-55} 
+                  y={-16} 
+                  width={110} 
+                  height={28} 
+                  rx={6} 
+                  fill="rgba(34, 197, 94, 0.95)"
+                  style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}
+                />
+                <text x={0} y={2} textAnchor="middle" fill="#fff" fontSize={13} fontWeight="bold">
                   释放吸附
                 </text>
               </g>
@@ -172,7 +206,7 @@ export function findNearestMountPoint(
   cameraY: number,
   mechanisms: LayoutObject[],
   currentView: 'front' | 'side' | 'top',
-  snapThreshold: number = 30
+  snapThreshold: number = 70
 ): { mechanism: LayoutObject; mountPoint: CameraMountPoint; distance: number } | null {
   let nearest: { mechanism: LayoutObject; mountPoint: CameraMountPoint; distance: number } | null = null;
   

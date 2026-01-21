@@ -540,7 +540,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     
     // Check for camera snap to mechanism mount points
     if (currentObj?.type === 'camera') {
-      const nearestMount = findNearestMountPoint(newX, newY, objects, currentView, 25);
+      const nearestMount = findNearestMountPoint(newX, newY, objects, currentView, 70);
       if (nearestMount) {
         const mountPos = getMountPointWorldPosition(nearestMount.mechanism, nearestMount.mountPoint.id, currentView);
         if (mountPos) {
@@ -575,7 +575,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           currentObj.y, 
           objects, 
           currentView, 
-          30 // snap threshold
+          70 // snap threshold - increased for easier interaction
         );
         
         if (nearestMount) {
