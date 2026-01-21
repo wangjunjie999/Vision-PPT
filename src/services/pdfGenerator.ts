@@ -965,11 +965,16 @@ export async function generatePDF(
       helper.addSubtitle(isZh ? '布局配置' : 'Layout Configuration');
       helper.addLabelValue(isZh ? '输送类型' : 'Conveyor Type', CONVEYOR_LABELS[layout.conveyor_type || '']?.[isZh ? 'zh' : 'en'] || layout.conveyor_type || '');
       helper.addLabelValue(isZh ? '相机数量' : 'Camera Count', String(layout.camera_count || 0));
-      if (layout.camera_mounts && layout.camera_mounts.length > 0) {
-        helper.addLabelValue(isZh ? '相机安装方式' : 'Camera Mounts', layout.camera_mounts.join(', '));
+      // Defensive array checks for JSON fields
+      const cameraMounts = Array.isArray(layout.camera_mounts) ? layout.camera_mounts : [];
+      const mechanisms = Array.isArray(layout.mechanisms) ? layout.mechanisms : [];
+      const selectedCameras = Array.isArray(layout.selected_cameras) ? layout.selected_cameras : [];
+      
+      if (cameraMounts.length > 0) {
+        helper.addLabelValue(isZh ? '相机安装方式' : 'Camera Mounts', cameraMounts.join(', '));
       }
-      if (layout.mechanisms && layout.mechanisms.length > 0) {
-        helper.addLabelValue(isZh ? '机构配置' : 'Mechanisms', layout.mechanisms.join(', '));
+      if (mechanisms.length > 0) {
+        helper.addLabelValue(isZh ? '机构配置' : 'Mechanisms', mechanisms.join(', '));
       }
       if (layout.width && layout.height && layout.depth) {
         helper.addLabelValue(isZh ? '布局尺寸' : 'Layout Size', `${layout.width} × ${layout.depth} × ${layout.height} mm`);
@@ -977,10 +982,10 @@ export async function generatePDF(
       helper.addSpace(5);
 
       // ========== 选用硬件详情（相机、镜头、光源、控制器） ==========
-      // 选用相机
-      if (layout.selected_cameras && layout.selected_cameras.length > 0) {
+      // 选用相机 - with defensive array check
+      if (selectedCameras.length > 0) {
         helper.addSubtitle(isZh ? '选用相机' : 'Selected Cameras');
-        for (const cam of layout.selected_cameras) {
+        for (const cam of selectedCameras) {
           if (cam) {
             const camInfo = `${cam.brand} ${cam.model}${cam.resolution ? ` | ${cam.resolution}` : ''}${cam.frame_rate ? ` @ ${cam.frame_rate}fps` : ''}${cam.interface ? ` | ${cam.interface}` : ''}`;
             helper.addLabelValue(isZh ? '相机' : 'Camera', camInfo, 5);
@@ -994,10 +999,11 @@ export async function generatePDF(
         helper.addSpace(5);
       }
 
-      // 选用镜头
-      if (layout.selected_lenses && layout.selected_lenses.length > 0) {
+      // 选用镜头 - with defensive array check
+      const selectedLenses = Array.isArray(layout.selected_lenses) ? layout.selected_lenses : [];
+      if (selectedLenses.length > 0) {
         helper.addSubtitle(isZh ? '选用镜头' : 'Selected Lenses');
-        for (const lens of layout.selected_lenses) {
+        for (const lens of selectedLenses) {
           if (lens) {
             const lensInfo = `${lens.brand} ${lens.model}${lens.focal_length ? ` | ${lens.focal_length}` : ''}${lens.aperture ? ` ${lens.aperture}` : ''}${lens.mount ? ` | ${lens.mount}` : ''}`;
             helper.addLabelValue(isZh ? '镜头' : 'Lens', lensInfo, 5);
@@ -1010,10 +1016,11 @@ export async function generatePDF(
         helper.addSpace(5);
       }
 
-      // 选用光源
-      if (layout.selected_lights && layout.selected_lights.length > 0) {
+      // 选用光源 - with defensive array check
+      const selectedLights = Array.isArray(layout.selected_lights) ? layout.selected_lights : [];
+      if (selectedLights.length > 0) {
         helper.addSubtitle(isZh ? '选用光源' : 'Selected Lights');
-        for (const light of layout.selected_lights) {
+        for (const light of selectedLights) {
           if (light) {
             const lightInfo = `${light.brand} ${light.model}${light.type ? ` | ${light.type}` : ''}${light.color ? ` ${light.color}` : ''}${light.power ? ` | ${light.power}` : ''}`;
             helper.addLabelValue(isZh ? '光源' : 'Light', lightInfo, 5);

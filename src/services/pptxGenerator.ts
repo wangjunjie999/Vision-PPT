@@ -917,8 +917,11 @@ export async function generatePPTX(
     });
   });
 
-  // Project mount summary
-  const allMounts = layouts.flatMap(l => l.camera_mounts || []);
+  // Project mount summary - with defensive array checks
+  const allMounts = layouts.flatMap(l => {
+    const mounts = l.camera_mounts;
+    return Array.isArray(mounts) ? mounts : [];
+  });
   const mountCounts = {
     top: allMounts.filter(m => m === 'top').length,
     side: allMounts.filter(m => m === 'side').length,
@@ -1475,9 +1478,19 @@ export async function generatePPTX(
   const moduleLightCount = modules.filter(m => m.selected_light).length;
   const moduleControllerIds = new Set(modules.filter(m => m.selected_controller).map(m => m.selected_controller));
   
-  const layoutCameraCount = layouts.reduce((sum, l) => sum + (l.selected_cameras?.filter(c => c)?.length || 0), 0);
-  const layoutLensCount = layouts.reduce((sum, l) => sum + (l.selected_lenses?.filter(c => c)?.length || 0), 0);
-  const layoutLightCount = layouts.reduce((sum, l) => sum + (l.selected_lights?.filter(c => c)?.length || 0), 0);
+  // Defensive array checks for selected hardware
+  const layoutCameraCount = layouts.reduce((sum, l) => {
+    const cameras = Array.isArray(l.selected_cameras) ? l.selected_cameras : [];
+    return sum + cameras.filter(c => c).length;
+  }, 0);
+  const layoutLensCount = layouts.reduce((sum, l) => {
+    const lenses = Array.isArray(l.selected_lenses) ? l.selected_lenses : [];
+    return sum + lenses.filter(c => c).length;
+  }, 0);
+  const layoutLightCount = layouts.reduce((sum, l) => {
+    const lights = Array.isArray(l.selected_lights) ? l.selected_lights : [];
+    return sum + lights.filter(c => c).length;
+  }, 0);
   const layoutControllerCount = layouts.filter(l => l.selected_controller).length;
   
   const totalCameraCount = layoutCameraCount > 0 ? layoutCameraCount : moduleCameraCount;

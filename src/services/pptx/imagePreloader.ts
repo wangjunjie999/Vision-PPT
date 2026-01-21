@@ -89,14 +89,18 @@ export function collectAllImageUrls(
     if (layout.side_view_image_url) urls.push(layout.side_view_image_url);
     if (layout.top_view_image_url) urls.push(layout.top_view_image_url);
     
-    // Selected hardware images from layout
-    layout.selected_cameras?.forEach(cam => {
+    // Selected hardware images from layout - with defensive array checks
+    const selectedCameras = Array.isArray(layout.selected_cameras) ? layout.selected_cameras : [];
+    const selectedLenses = Array.isArray(layout.selected_lenses) ? layout.selected_lenses : [];
+    const selectedLights = Array.isArray(layout.selected_lights) ? layout.selected_lights : [];
+    
+    selectedCameras.forEach(cam => {
       if (cam?.image_url) urls.push(cam.image_url);
     });
-    layout.selected_lenses?.forEach(lens => {
+    selectedLenses.forEach(lens => {
       if (lens?.image_url) urls.push(lens.image_url);
     });
-    layout.selected_lights?.forEach(light => {
+    selectedLights.forEach(light => {
       if (light?.image_url) urls.push(light.image_url);
     });
     if (layout.selected_controller?.image_url) {

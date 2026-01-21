@@ -31,17 +31,21 @@ export function ModuleStep4Output({
   const handleInheritHardware = () => {
     if (!workstationLayout) return;
     
-    const selectedCameras = workstationLayout?.selected_cameras || [];
-    const selectedLenses = workstationLayout?.selected_lenses || [];
-    const selectedLights = workstationLayout?.selected_lights || [];
+    // Defensive checks - ensure arrays even if data is malformed
+    const rawCameras = workstationLayout?.selected_cameras;
+    const rawLenses = workstationLayout?.selected_lenses;
+    const rawLights = workstationLayout?.selected_lights;
+    const selectedCameras = Array.isArray(rawCameras) ? rawCameras : [];
+    const selectedLenses = Array.isArray(rawLenses) ? rawLenses : [];
+    const selectedLights = Array.isArray(rawLights) ? rawLights : [];
     const selectedController = workstationLayout?.selected_controller;
     
     setForm(p => ({
       ...p,
-      selectedCamera: selectedCameras.length > 0 ? selectedCameras[0].id : '',
-      selectedLens: selectedLenses.length > 0 ? selectedLenses[0].id : '',
-      selectedLight: selectedLights.length > 0 ? selectedLights[0].id : '',
-      selectedController: selectedController ? selectedController.id : '',
+      selectedCamera: selectedCameras.length > 0 && selectedCameras[0]?.id ? selectedCameras[0].id : '',
+      selectedLens: selectedLenses.length > 0 && selectedLenses[0]?.id ? selectedLenses[0].id : '',
+      selectedLight: selectedLights.length > 0 && selectedLights[0]?.id ? selectedLights[0].id : '',
+      selectedController: selectedController && selectedController.id ? selectedController.id : '',
     }));
     toast.success('已套用工位硬件配置');
   };
