@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Camera, CircleDot, Lightbulb, Monitor, FileText, Cog } from 'lucide-react';
+import { Camera, CircleDot, Lightbulb, Monitor, FileText, Cog, CloudUpload } from 'lucide-react';
 import { HardwareResourceManager } from '../admin/HardwareResourceManager';
 import { PPTTemplateManager } from '../admin/PPTTemplateManager';
 import { MechanismResourceManager } from '../admin/MechanismResourceManager';
+import { HardwareImageMigration } from '../admin/HardwareImageMigration';
 
 export function AdminCenter() {
   const [activeTab, setActiveTab] = useState('cameras');
@@ -19,7 +20,7 @@ export function AdminCenter() {
         </div>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-          <TabsList className="grid w-full max-w-3xl grid-cols-6">
+          <TabsList className="grid w-full max-w-4xl grid-cols-7">
             <TabsTrigger value="cameras" className="gap-2">
               <Camera className="h-4 w-4" />
               相机
@@ -44,6 +45,10 @@ export function AdminCenter() {
               <FileText className="h-4 w-4" />
               PPT母版
             </TabsTrigger>
+            <TabsTrigger value="migration" className="gap-2">
+              <CloudUpload className="h-4 w-4" />
+              图片迁移
+            </TabsTrigger>
           </TabsList>
           
           <div className="mt-6">
@@ -64,6 +69,9 @@ export function AdminCenter() {
             </TabsContent>
             <TabsContent value="templates">
               <PPTTemplateManager />
+            </TabsContent>
+            <TabsContent value="migration">
+              <HardwareImageMigration />
             </TabsContent>
           </div>
         </Tabs>
