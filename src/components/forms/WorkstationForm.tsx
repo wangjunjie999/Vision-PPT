@@ -182,8 +182,9 @@ export function WorkstationForm() {
         }
       }
       
-      // Parse mount counts from camera_mounts array
-      const mounts = (layout.camera_mounts || ['top']) as CameraMount[];
+      // Parse mount counts from camera_mounts array - with defensive check for legacy object data
+      const rawMounts = layout.camera_mounts;
+      const mounts = (Array.isArray(rawMounts) ? rawMounts : ['top']) as CameraMount[];
       const mountCounts = { top: 0, side: 0, angled: 0 };
       mounts.forEach((m: CameraMount) => {
         if (mountCounts[m] !== undefined) mountCounts[m]++;
