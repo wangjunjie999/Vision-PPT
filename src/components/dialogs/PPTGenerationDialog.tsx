@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Loader2,
   FileStack,
+  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
@@ -124,6 +125,11 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   // 默认使用"从零生成"，因为模板生成需要Edge Function支持
   const [generationMethod, setGenerationMethod] = useState<GenerationMethod>('scratch');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('ppt'); // 输出格式
+  
+  // 详细进度追踪状态
+  const [currentWorkstation, setCurrentWorkstation] = useState<string>('');
+  const [currentSlideInfo, setCurrentSlideInfo] = useState<string>('');
+  const [workstationProgress, setWorkstationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
 
   // Get current project and workstations
   const project = projects.find(p => p.id === selectedProjectId);
@@ -292,6 +298,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     setStage('generating');
     setLogs([]);
     setProgress(0);
+    // 重置详细进度追踪状态
+    setCurrentWorkstation('');
+    setCurrentSlideInfo('');
+    setWorkstationProgress({ current: 0, total: projectWorkstations.length });
 
     try {
       // Determine which workstations and modules to include
@@ -825,6 +835,23 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             // Adjust progress to start from 10%
             setProgress(10 + prog * 0.9);
             setCurrentStep(step);
+            
+            // 解析详细日志以提取工位和页面信息
+            // 格式: [WORKSTATION:名称:当前/总数] 或 [SLIDE:工位名:页码/总页]
+            if (log.includes('[WORKSTATION:')) {
+              const match = log.match(/\[WORKSTATION:(.+?):(\d+)\/(\d+)\]/);
+              if (match) {
+                setCurrentWorkstation(match[1]);
+                setWorkstationProgress({ current: parseInt(match[2]), total: parseInt(match[3]) });
+                setCurrentSlideInfo('');
+              }
+            } else if (log.includes('[SLIDE:')) {
+              const match = log.match(/\[SLIDE:(.+?):(\d+)\/(\d+)\]/);
+              if (match) {
+                setCurrentSlideInfo(`${match[1]} - 页面 ${match[2]}/${match[3]}`);
+              }
+            }
+            
             addLog('info', log);
           },
           hardwareData,
@@ -1309,11 +1336,13 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         {/* Generating Stage */}
         {stage === 'generating' && (
           <div className="flex flex-col gap-4 py-4">
+            {/* Current Step Header */}
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
               <span className="text-sm font-medium">{currentStep}</span>
             </div>
             
+            {/* Progress Bar */}
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>生成进度</span>
@@ -1322,28 +1351,74 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               <Progress value={progress} className="h-2" />
             </div>
 
-            {/* Log Output */}
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-muted/50 px-3 py-1.5 text-xs font-medium border-b">生成日志</div>
-              <ScrollArea className="h-40">
-                <div className="p-2 font-mono text-xs space-y-1">
-                  {logs.map((log, idx) => (
-                    <div key={idx} className={cn(
-                      "flex items-start gap-2",
-                      log.type === 'success' && "text-chart-2",
-                      log.type === 'warning' && "text-warning",
-                      log.type === 'error' && "text-destructive"
-                    )}>
-                      <span className="text-muted-foreground shrink-0">
-                        {log.timestamp.toLocaleTimeString()}
-                      </span>
-                      <ChevronRight className="h-3 w-3 mt-0.5 shrink-0" />
-                      <span>{log.message}</span>
-                    </div>
-                  ))}
+            {/* Detailed Progress Info - 工位和页面追踪 */}
+            {(currentWorkstation || workstationProgress.total > 0) && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Box className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">
+                      {currentWorkstation || '准备中...'}
+                    </span>
+                  </div>
+                  {workstationProgress.total > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      工位 {workstationProgress.current}/{workstationProgress.total}
+                    </Badge>
+                  )}
                 </div>
-              </ScrollArea>
-            </div>
+                
+                {currentSlideInfo && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground pl-6">
+                    <Layers className="h-3 w-3" />
+                    <span>{currentSlideInfo}</span>
+                  </div>
+                )}
+                
+                {/* 工位内部进度条 */}
+                {workstationProgress.total > 0 && (
+                  <div className="pl-6">
+                    <Progress 
+                      value={(workstationProgress.current / workstationProgress.total) * 100} 
+                      className="h-1" 
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Log Output - 可折叠 */}
+            <Collapsible defaultOpen={true}>
+              <div className="border rounded-lg overflow-hidden">
+                <CollapsibleTrigger className="w-full bg-muted/50 px-3 py-1.5 text-xs font-medium border-b flex items-center justify-between hover:bg-muted/70 transition-colors">
+                  <span>生成日志</span>
+                  <ChevronDown className="h-3 w-3" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <ScrollArea className="h-32">
+                    <div className="p-2 font-mono text-xs space-y-1">
+                      {logs.slice(-20).map((log, idx) => (
+                        <div key={idx} className={cn(
+                          "flex items-start gap-2",
+                          log.type === 'success' && "text-chart-2",
+                          log.type === 'warning' && "text-warning",
+                          log.type === 'error' && "text-destructive"
+                        )}>
+                          <span className="text-muted-foreground shrink-0">
+                            {log.timestamp.toLocaleTimeString()}
+                          </span>
+                          <ChevronRight className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span className="break-all">
+                            {/* 清理日志中的标记符号 */}
+                            {log.message.replace(/\[WORKSTATION:.*?\]|\[SLIDE:.*?\]/g, '').trim()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </CollapsibleContent>
+              </div>
+            </Collapsible>
           </div>
         )}
 
