@@ -25,6 +25,7 @@ import {
   Loader2,
   FileStack,
   Layers,
+  HardDrive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
@@ -52,6 +53,8 @@ import {
   type AccessibilityReport 
 } from '@/utils/imageAccessibilityCheck';
 import { resetFailedUrlsCache } from '@/services/pptx/imagePreloader';
+import { useBatchImageCache } from '@/hooks/useImageCache';
+import type { ImageCacheType } from '@/services/imageLocalCache';
 
 type GenerationScope = 'full' | 'workstations' | 'modules';
 type OutputLanguage = 'zh' | 'en';
@@ -141,6 +144,17 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   // 图片可访问性检查状态
   const [imageCheckResult, setImageCheckResult] = useState<AccessibilityReport | null>(null);
   const [isCheckingImages, setIsCheckingImages] = useState(false);
+  
+  // 图片本地缓存 hook
+  const { 
+    isDownloading: isCachingImages, 
+    progress: cacheProgress, 
+    stats: cacheStats,
+    downloadAll: downloadAllToCache,
+    findMissingCache,
+    refreshStats: refreshCacheStats,
+    formatFileSize,
+  } = useBatchImageCache();
 
   // Get current project and workstations
   const project = projects.find(p => p.id === selectedProjectId);
@@ -355,6 +369,97 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       toast.error('图片检查失败');
     } finally {
       setIsCheckingImages(false);
+    }
+  };
+
+  // 下载图片到本地缓存
+  const handleDownloadToCache = async () => {
+    if (!project) return;
+    
+    const wsToCheck = scope === 'full' 
+      ? projectWorkstations 
+      : allWorkstations.filter(ws => selectedWorkstations.includes(ws.id));
+    
+    const modsToCheck = scope === 'modules' 
+      ? allModules.filter(m => selectedModules.includes(m.id))
+      : allModules.filter(m => wsToCheck.some(ws => ws.id === m.workstation_id));
+    
+    const layoutsToCheck = allLayouts.filter(l => 
+      wsToCheck.some(ws => ws.id === l.workstation_id)
+    );
+
+    // 收集所有需要缓存的图片
+    const itemsToCache: Array<{
+      type: ImageCacheType;
+      relatedId: string;
+      url: string;
+      label?: string;
+    }> = [];
+
+    // 三视图
+    layoutsToCheck.forEach(layout => {
+      const ws = wsToCheck.find(w => w.id === layout.workstation_id);
+      const wsName = ws?.name || '工位';
+      
+      if (layout.front_view_image_url) {
+        itemsToCache.push({
+          type: 'layout_front_view',
+          relatedId: layout.workstation_id,
+          url: layout.front_view_image_url,
+          label: `${wsName} - 正视图`,
+        });
+      }
+      if (layout.side_view_image_url) {
+        itemsToCache.push({
+          type: 'layout_side_view',
+          relatedId: layout.workstation_id,
+          url: layout.side_view_image_url,
+          label: `${wsName} - 侧视图`,
+        });
+      }
+      if (layout.top_view_image_url) {
+        itemsToCache.push({
+          type: 'layout_top_view',
+          relatedId: layout.workstation_id,
+          url: layout.top_view_image_url,
+          label: `${wsName} - 俯视图`,
+        });
+      }
+    });
+
+    // 模块示意图
+    modsToCheck.forEach(mod => {
+      if (mod.schematic_image_url) {
+        itemsToCache.push({
+          type: 'module_schematic',
+          relatedId: mod.id,
+          url: mod.schematic_image_url,
+          label: `${mod.name} - 示意图`,
+        });
+      }
+    });
+
+    if (itemsToCache.length === 0) {
+      toast.info('没有找到需要缓存的图片，请先保存三视图和示意图');
+      return;
+    }
+
+    // 先检查缺失的缓存
+    const missingItems = await findMissingCache(itemsToCache);
+    
+    if (missingItems.length === 0) {
+      toast.success(`所有 ${itemsToCache.length} 张图片已在本地缓存中`);
+      return;
+    }
+
+    toast.info(`开始下载 ${missingItems.length} 张图片到本地缓存...`);
+    
+    const result = await downloadAllToCache(missingItems);
+    
+    if (result.failed === 0) {
+      toast.success(`✅ 成功缓存 ${result.success} 张图片`);
+    } else {
+      toast.warning(`缓存完成: ${result.success} 成功, ${result.failed} 失败`);
     }
   };
 
@@ -1252,29 +1357,68 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               </Collapsible>
             )}
 
-            {/* Image Accessibility Pre-Check */}
+            {/* Image Accessibility Pre-Check & Local Cache */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium flex items-center gap-2">
                   <ImageOff className="h-4 w-4" />
                   图片可访问性检查
                 </Label>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleImagePreCheck}
-                  disabled={isCheckingImages}
-                >
-                  {isCheckingImages ? (
-                    <>
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      检查中...
-                    </>
-                  ) : (
-                    '运行检查'
-                  )}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleDownloadToCache}
+                    disabled={isCachingImages || isCheckingImages}
+                  >
+                    {isCachingImages ? (
+                      <>
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        {cacheProgress.current}/{cacheProgress.total}
+                      </>
+                    ) : (
+                      <>
+                        <HardDrive className="h-3 w-3 mr-1" />
+                        下载到本地
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleImagePreCheck}
+                    disabled={isCheckingImages || isCachingImages}
+                  >
+                    {isCheckingImages ? (
+                      <>
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        检查中...
+                      </>
+                    ) : (
+                      '运行检查'
+                    )}
+                  </Button>
+                </div>
               </div>
+              
+              {/* 缓存统计 */}
+              {cacheStats && cacheStats.totalCount > 0 && (
+                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                  <HardDrive className="h-3 w-3" />
+                  本地缓存: {cacheStats.totalCount} 张图片 ({formatFileSize(cacheStats.totalSize)})
+                </div>
+              )}
+              
+              {/* 下载进度 */}
+              {isCachingImages && (
+                <div className="p-2 bg-muted/50 rounded-lg">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span>{cacheProgress.message}</span>
+                    <span>{cacheProgress.current}/{cacheProgress.total}</span>
+                  </div>
+                  <Progress value={(cacheProgress.current / cacheProgress.total) * 100} className="h-1" />
+                </div>
+              )}
               
               {imageCheckResult && (
                 <div className={cn(
@@ -1307,7 +1451,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         <div>• 标注截图: {imageCheckResult.failedByType.annotation} 张</div>
                       )}
                       <p className="mt-2 text-muted-foreground">
-                        提示: 本地部署时，Supabase存储的图片可能无法访问。建议确保网络连接正常。
+                        提示: 点击"下载到本地"可将图片缓存到浏览器，确保离线/本地部署时可用。
                       </p>
                     </div>
                   )}

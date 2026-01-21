@@ -3,20 +3,23 @@
  * Implements parallel batch loading with caching for optimal performance
  * 
  * Priority chain for image resolution:
- * 1. Local bundled assets (src/assets) - most reliable
- * 2. Supabase Storage URL - cloud resources (with CORS handling)
- * 3. Public directory relative path - legacy support
- * 4. Empty string (caller handles fallback) - prevents broken layout
+ * 1. Local IndexedDB cache - offline/local deployment support (NEW!)
+ * 2. Local bundled assets (src/assets) - most reliable for hardware
+ * 3. Supabase Storage URL - cloud resources (with CORS handling)
+ * 4. Public directory relative path - legacy support
+ * 5. Empty string (caller handles fallback) - prevents broken layout
  * 
  * Enhanced for local GitHub deployments with:
+ * - IndexedDB-first loading for three-views and schematics
  * - Multi-strategy fetch attempts
  * - CORS error detection and recovery
  * - Detailed logging for debugging
  */
 
 import { resolveHardwareImageUrl } from '@/utils/hardwareImageUrls';
+import { imageLocalCache } from '@/services/imageLocalCache';
 
-// Image cache for dataUri conversion
+// Image cache for dataUri conversion (memory cache for current session)
 const imageCache = new Map<string, string>();
 const MAX_CACHE_SIZE = 100;
 
@@ -25,12 +28,18 @@ const failedUrls = new Set<string>();
 
 /**
  * Fetch a single image and convert to dataUri with caching
- * Enhanced with local asset resolution and CORS handling
+ * Enhanced with local IndexedDB cache, local asset resolution and CORS handling
+ * 
+ * Priority:
+ * 1. Memory cache (current session)
+ * 2. IndexedDB cache (persistent, for offline/local deployment)
+ * 3. Local bundled assets (hardware images)
+ * 4. Network fetch with CORS fallback
  */
 export async function fetchImageAsDataUri(url: string): Promise<string> {
   if (!url || url.trim() === '') return '';
   
-  // Check cache first (using original URL as key)
+  // 1. Check memory cache first (using original URL as key)
   if (imageCache.has(url)) {
     return imageCache.get(url)!;
   }
@@ -47,7 +56,19 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
     return url;
   }
   
-  // 🔧 Key fix: Resolve hardware image paths to local bundled assets
+  // 2. 🆕 Check IndexedDB cache (for offline/local deployment support)
+  try {
+    const cachedDataUri = await imageLocalCache.getByUrl(url);
+    if (cachedDataUri) {
+      console.log(`[ImagePreloader] ✅ Loaded from IndexedDB cache: ${url.substring(0, 50)}...`);
+      addToCache(url, cachedDataUri);
+      return cachedDataUri;
+    }
+  } catch (cacheError) {
+    console.warn(`[ImagePreloader] IndexedDB cache read failed:`, cacheError);
+  }
+  
+  // 3. 🔧 Resolve hardware image paths to local bundled assets
   const resolvedUrl = resolveHardwareImageUrl(url);
   
   // If resolved URL is different and is a bundled asset (contains hash), use it
@@ -66,7 +87,7 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
     }
   }
   
-  // Build absolute URL for relative paths
+  // 4. Build absolute URL for relative paths
   let absoluteUrl = resolvedUrl || url;
   if (absoluteUrl.startsWith('/') && !absoluteUrl.startsWith('//')) {
     absoluteUrl = `${window.location.origin}${absoluteUrl}`;
