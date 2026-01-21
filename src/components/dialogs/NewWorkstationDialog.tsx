@@ -52,8 +52,8 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
           selected_lights: [],
           selected_controller: null,
           mechanisms: [],
-          camera_mounts: {},
-          camera_count: 0,
+          camera_mounts: ['top'],
+          camera_count: 1,
         });
       } catch (layoutError) {
         console.warn('Failed to create default layout:', layoutError);
