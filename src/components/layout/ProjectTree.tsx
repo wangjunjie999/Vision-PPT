@@ -1,4 +1,5 @@
 import { useData } from '@/contexts/DataContext';
+import { useGuide } from '@/contexts/GuideContext';
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -46,6 +47,7 @@ import {
 import { NewProjectDialog } from '../dialogs/NewProjectDialog';
 import { NewWorkstationDialog } from '../dialogs/NewWorkstationDialog';
 import { NewModuleDialog } from '../dialogs/NewModuleDialog';
+import { GuideTip, GuideHighlight } from '../guide';
 import { toast } from 'sonner';
 
 // Industrial-styled tree node component
@@ -259,6 +261,8 @@ export function ProjectTree() {
     getProjectWorkstations,
     getWorkstationModules,
   } = useData();
+  
+  const { currentStep, isGuideActive, dismissGuide } = useGuide();
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(projects.map(p => p.id)));
   const [expandedWorkstations, setExpandedWorkstations] = useState<Set<string>>(new Set());
@@ -411,14 +415,29 @@ export function ProjectTree() {
             {projects.length}
           </span>
         </div>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-7 w-7 hover:bg-primary/10 hover:text-primary active:animate-click-shake"
-          onClick={() => setShowNewProject(true)}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        <div className="relative">
+          <GuideHighlight 
+            active={isGuideActive && currentStep === 'project' && projects.length === 0}
+            pulseColor="primary"
+          >
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-7 w-7 hover:bg-primary/10 hover:text-primary active:animate-click-shake"
+              onClick={() => setShowNewProject(true)}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </GuideHighlight>
+          <GuideTip
+            message="点击这里创建您的第一个检测项目"
+            direction="left"
+            visible={isGuideActive && currentStep === 'project' && projects.length === 0}
+            onDismiss={dismissGuide}
+            stepNumber={1}
+            totalSteps={4}
+          />
+        </div>
       </div>
       
       {/* Search Bar */}
@@ -477,14 +496,21 @@ export function ProjectTree() {
               {searchQuery ? '尝试其他搜索词' : '创建您的第一个视觉检测项目'}
             </p>
             {!searchQuery && (
-              <Button 
-                size="sm" 
-                onClick={() => setShowNewProject(true)}
-                className="gap-2 btn-industrial"
-              >
-                <Plus className="h-4 w-4" />
-                新建项目
-              </Button>
+              <div className="relative inline-block">
+                <GuideHighlight 
+                  active={isGuideActive && currentStep === 'project'}
+                  pulseColor="primary"
+                >
+                  <Button 
+                    size="sm" 
+                    onClick={() => setShowNewProject(true)}
+                    className="gap-2 btn-industrial"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建项目
+                  </Button>
+                </GuideHighlight>
+              </div>
             )}
           </div>
         ) : (
