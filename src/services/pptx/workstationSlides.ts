@@ -81,6 +81,34 @@ interface FullControllerData {
 }
 
 /**
+ * Add image placeholder with emoji indicator
+ * Used when image fails to load or is missing
+ */
+function addImagePlaceholder(
+  slide: ReturnType<PptxGenJS['addSlide']>,
+  container: { x: number; y: number; width: number; height: number },
+  message: string,
+  emoji: string
+): void {
+  slide.addShape('rect', {
+    x: container.x, 
+    y: container.y, 
+    w: container.width, 
+    h: container.height,
+    fill: { color: COLORS.border },
+  });
+  slide.addText(`${emoji} ${message}`, {
+    x: container.x, 
+    y: container.y + container.height / 2 - 0.15,
+    w: container.width, 
+    h: 0.3,
+    fontSize: 9, 
+    color: COLORS.secondary, 
+    align: 'center',
+  });
+}
+
+/**
  * Unified slide title with Tech-Shine corporate style
  * Deep blue accent bar on left + dark gray text
  */
@@ -659,30 +687,19 @@ export async function generateThreeViewSlide(
           throw new Error('Failed to fetch image');
         }
       } catch (e) {
-        // Placeholder for failed load
-        slide.addShape('rect', {
-          x: imageContainer.x, y: imageContainer.y, 
-          w: imageContainer.width, h: imageContainer.height,
-          fill: { color: COLORS.border },
-        });
-        slide.addText(ctx.isZh ? '加载失败' : 'Load Failed', {
-          x: imageContainer.x, y: imageContainer.y + imageContainer.height / 2 - 0.15,
-          w: imageContainer.width, h: 0.3,
-          fontSize: 9, color: COLORS.secondary, align: 'center',
-        });
+        console.error(`[PPT] Failed to load view image: ${view.url}`, e);
+        // Enhanced placeholder for failed load with emoji indicator
+        addImagePlaceholder(slide, imageContainer, 
+          ctx.isZh ? '图片加载失败' : 'Image Load Failed', 
+          '❌'
+        );
       }
     } else {
-      // Placeholder for missing image
-      slide.addShape('rect', {
-        x: imageContainer.x, y: imageContainer.y, 
-        w: imageContainer.width, h: imageContainer.height,
-        fill: { color: COLORS.border },
-      });
-      slide.addText(ctx.isZh ? '未保存' : 'Not Saved', {
-        x: imageContainer.x, y: imageContainer.y + imageContainer.height / 2 - 0.15,
-        w: imageContainer.width, h: 0.3,
-        fontSize: 9, color: COLORS.secondary, align: 'center',
-      });
+      // Placeholder for missing image with helpful message
+      addImagePlaceholder(slide, imageContainer, 
+        ctx.isZh ? '请先保存三视图' : 'Please Save Views First', 
+        '🔲'
+      );
     }
   }
 
@@ -728,20 +745,17 @@ export async function generateDiagramSlide(
         });
       }
     } catch (e) {
-      slide.addShape('rect', {
-        x: 0.5, y: 1.1, w: 5.5, h: 3.8,
-        fill: { color: COLORS.border },
-      });
+      console.error(`[PPT] Failed to load schematic image`, e);
+      addImagePlaceholder(slide, { x: 0.5, y: 1.1, width: 5.5, height: 3.8 },
+        ctx.isZh ? '示意图加载失败' : 'Schematic Load Failed',
+        '❌'
+      );
     }
   } else {
-    slide.addShape('rect', {
-      x: 0.5, y: 1.1, w: 5.5, h: 3.8,
-      fill: { color: COLORS.border },
-    });
-    slide.addText(ctx.isZh ? '请保存视觉系统示意图' : 'Please save vision system diagram', {
-      x: 0.5, y: 2.8, w: 5.5, h: 0.4,
-      fontSize: 11, color: COLORS.secondary, align: 'center',
-    });
+    addImagePlaceholder(slide, { x: 0.5, y: 1.1, width: 5.5, height: 3.8 },
+      ctx.isZh ? '请保存视觉系统示意图' : 'Please save diagram',
+      '📐'
+    );
   }
 
   // Right side: Layout info
