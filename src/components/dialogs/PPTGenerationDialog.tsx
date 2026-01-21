@@ -1055,51 +1055,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               </div>
             )}
 
-            {/* Generation Method Selection - only for PPT */}
-            {outputFormat === 'ppt' && (
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">生成方法</Label>
-                <RadioGroup 
-                  value={generationMethod} 
-                  onValueChange={(v) => setGenerationMethod(v as GenerationMethod)} 
-                  className="grid grid-cols-2 gap-2"
-                >
-                  <Label className={cn(
-                    "flex items-center gap-2 p-3 border rounded-lg transition-colors cursor-not-allowed opacity-50",
-                    generationMethod === 'template' ? "border-primary bg-primary/5" : ""
-                  )}>
-                    <RadioGroupItem value="template" disabled />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium flex items-center gap-2">
-                        基于模板
-                        <Badge variant="outline" className="text-xs">开发中</Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        需要后端服务支持
-                      </div>
-                    </div>
-                  </Label>
-                  <Label className={cn(
-                    "flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors",
-                    generationMethod === 'scratch' ? "border-primary bg-primary/5" : "hover:bg-muted"
-                  )}>
-                    <RadioGroupItem value="scratch" />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium flex items-center gap-2">
-                        从零生成
-                        <Badge variant="secondary" className="text-xs">推荐</Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">使用内置标准样式</div>
-                    </div>
-                  </Label>
-                </RadioGroup>
-                {generationMethod === 'scratch' && selectedTemplate?.file_url && (
-                  <p className="text-xs text-primary flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" />
-                    将提取 "{selectedTemplate?.name}" 的样式并应用到生成的PPT
-                  </p>
-                )}
-              </div>
+            {/* 从零生成提示信息 - 仅当选择了模板文件时显示 */}
+            {outputFormat === 'ppt' && selectedTemplate?.file_url && (
+              <p className="text-xs text-primary flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                将提取 "{selectedTemplate?.name}" 的样式并应用到生成的PPT
+              </p>
             )}
 
             {/* Delivery Check Panel */}
