@@ -47,6 +47,7 @@ import {
 import { NewProjectDialog } from '../dialogs/NewProjectDialog';
 import { NewWorkstationDialog } from '../dialogs/NewWorkstationDialog';
 import { NewModuleDialog } from '../dialogs/NewModuleDialog';
+import { DeleteConfirmDialog, DeleteTargetType } from '../dialogs/DeleteConfirmDialog';
 import { GuideTip, GuideHighlight } from '../guide';
 import { toast } from 'sonner';
 
@@ -280,6 +281,63 @@ export function ProjectTree() {
   // Rename dialog state
   const [renameDialog, setRenameDialog] = useState<{ type: 'project' | 'workstation' | 'module'; id: string; name: string } | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  
+  // Delete confirmation dialog state
+  const [deleteDialog, setDeleteDialog] = useState<{
+    type: DeleteTargetType;
+    id: string;
+    name: string;
+    cascadeWarning?: string;
+  } | null>(null);
+
+  // Handle delete with confirmation
+  const handleDeleteProject = (project: { id: string; name: string }) => {
+    const wsCount = getProjectWorkstations(project.id).length;
+    setDeleteDialog({
+      type: 'project',
+      id: project.id,
+      name: project.name,
+      cascadeWarning: wsCount > 0 ? `此项目下有 ${wsCount} 个工位，将一并删除！` : undefined,
+    });
+  };
+
+  const handleDeleteWorkstation = (ws: { id: string; name: string }) => {
+    const modCount = getWorkstationModules(ws.id).length;
+    setDeleteDialog({
+      type: 'workstation',
+      id: ws.id,
+      name: ws.name,
+      cascadeWarning: modCount > 0 ? `此工位下有 ${modCount} 个功能模块，将一并删除！` : undefined,
+    });
+  };
+
+  const handleDeleteModule = (mod: { id: string; name: string }) => {
+    setDeleteDialog({
+      type: 'module',
+      id: mod.id,
+      name: mod.name,
+    });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteDialog) return;
+    try {
+      if (deleteDialog.type === 'project') {
+        await deleteProject(deleteDialog.id);
+        toast.success('项目已删除');
+      } else if (deleteDialog.type === 'workstation') {
+        await deleteWorkstation(deleteDialog.id);
+        toast.success('工位已删除');
+      } else if (deleteDialog.type === 'module') {
+        await deleteModule(deleteDialog.id);
+        toast.success('模块已删除');
+      }
+    } catch (error) {
+      console.error('Delete failed:', error);
+      toast.error('删除失败');
+      throw error; // Re-throw so dialog knows deletion failed
+    }
+  };
 
   // Filter results based on search
   const filteredData = useMemo(() => {
@@ -605,7 +663,7 @@ export function ProjectTree() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
                             className="text-destructive focus:text-destructive"
-                            onClick={() => deleteProject(project.id)}
+                            onClick={() => handleDeleteProject(project)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             删除
@@ -688,7 +746,7 @@ export function ProjectTree() {
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem 
                                       className="text-destructive focus:text-destructive"
-                                      onClick={() => deleteWorkstation(ws.id)}
+                                      onClick={() => handleDeleteWorkstation(ws)}
                                     >
                                       <Trash2 className="h-4 w-4 mr-2" />
                                       删除
@@ -741,7 +799,7 @@ export function ProjectTree() {
                                               <DropdownMenuSeparator />
                                               <DropdownMenuItem 
                                                 className="text-destructive focus:text-destructive"
-                                                onClick={() => deleteModule(mod.id)}
+                                                onClick={() => handleDeleteModule(mod)}
                                               >
                                                 <Trash2 className="h-4 w-4 mr-2" />
                                                 删除
@@ -835,7 +893,15 @@ export function ProjectTree() {
         </DialogContent>
       </Dialog>
 
-      {/* Add keyframe animation */}
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        open={!!deleteDialog}
+        onOpenChange={(open) => !open && setDeleteDialog(null)}
+        targetType={deleteDialog?.type || 'project'}
+        targetName={deleteDialog?.name || ''}
+        onConfirm={confirmDelete}
+        cascadeWarning={deleteDialog?.cascadeWarning}
+      />
       <style>{`
         @keyframes slideInFromLeft {
           from {

@@ -9,14 +9,29 @@ import { toast } from 'sonner';
 
 export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { addProject, selectProject } = useData();
+  // Generate default project code: DB + timestamp suffix
+  const generateDefaultCode = () => {
+    const now = new Date();
+    const suffix = `${now.getFullYear().toString().slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    return `DB${suffix}`;
+  };
+
   const [form, setForm] = useState({ 
-    code: '', 
+    code: generateDefaultCode(), 
     name: '', 
     customer: '', 
     product_process: '总装检测', 
     date: new Date().toISOString().split('T')[0], 
     responsible: '' 
   });
+  
+  // Reset form with new default code when dialog opens
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen) {
+      setForm(prev => ({ ...prev, code: generateDefaultCode() }));
+    }
+    onOpenChange(newOpen);
+  };
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
@@ -46,9 +61,9 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
         status: 'draft' 
       });
       selectProject(project.id);
-      onOpenChange(false);
+      handleOpenChange(false);
       setForm({ 
-        code: '', 
+        code: generateDefaultCode(), 
         name: '', 
         customer: '', 
         product_process: '总装检测', 
@@ -64,7 +79,7 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>新建项目</DialogTitle></DialogHeader>
         <div className="space-y-4 py-4">
