@@ -35,7 +35,7 @@ import { generatePDF } from '@/services/pdfGenerator';
 import { toast } from 'sonner';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { checkPPTReadiness } from '@/services/pptReadiness';
-import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, ImageOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePPTTemplates } from '@/hooks/usePPTTemplates';
@@ -45,6 +45,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { 
+  collectWorkstationImageUrls, 
+  checkMultipleImages, 
+  formatAccessibilityReport,
+  type AccessibilityReport 
+} from '@/utils/imageAccessibilityCheck';
+import { resetFailedUrlsCache } from '@/services/pptx/imagePreloader';
 
 type GenerationScope = 'full' | 'workstations' | 'modules';
 type OutputLanguage = 'zh' | 'en';
@@ -130,6 +137,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const [currentWorkstation, setCurrentWorkstation] = useState<string>('');
   const [currentSlideInfo, setCurrentSlideInfo] = useState<string>('');
   const [workstationProgress, setWorkstationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  
+  // 图片可访问性检查状态
+  const [imageCheckResult, setImageCheckResult] = useState<AccessibilityReport | null>(null);
+  const [isCheckingImages, setIsCheckingImages] = useState(false);
 
   // Get current project and workstations
   const project = projects.find(p => p.id === selectedProjectId);
@@ -291,6 +302,62 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId) || null;
   const templateHasFile = selectedTemplate?.file_url ? true : false;
 
+  // 图片可访问性预检查
+  const handleImagePreCheck = async () => {
+    if (!project) return;
+    
+    setIsCheckingImages(true);
+    try {
+      const wsToCheck = scope === 'full' 
+        ? projectWorkstations 
+        : allWorkstations.filter(ws => selectedWorkstations.includes(ws.id));
+      
+      const modsToCheck = scope === 'modules' 
+        ? allModules.filter(m => selectedModules.includes(m.id))
+        : allModules.filter(m => wsToCheck.some(ws => ws.id === m.workstation_id));
+      
+      const layoutsToCheck = allLayouts.filter(l => 
+        wsToCheck.some(ws => ws.id === l.workstation_id)
+      );
+
+      // Collect all image URLs
+      const imagesToCheck = collectWorkstationImageUrls(
+        layoutsToCheck.map(l => ({
+          name: l.name,
+          front_view_image_url: l.front_view_image_url,
+          side_view_image_url: l.side_view_image_url,
+          top_view_image_url: l.top_view_image_url,
+        })),
+        modsToCheck.map(m => ({
+          name: m.name,
+          schematic_image_url: m.schematic_image_url,
+        })),
+        annotations.map(a => ({ snapshot_url: a.snapshot_url })),
+        productAssets.map(a => ({ preview_images: a.preview_images }))
+      );
+
+      if (imagesToCheck.length === 0) {
+        toast.info('没有找到需要检查的图片');
+        setImageCheckResult(null);
+        return;
+      }
+
+      const result = await checkMultipleImages(imagesToCheck);
+      setImageCheckResult(result);
+      
+      if (result.failed > 0) {
+        toast.warning(formatAccessibilityReport(result));
+      } else {
+        toast.success(`✅ 所有 ${result.totalChecked} 张图片均可访问`);
+      }
+    } catch (error) {
+      console.error('Image pre-check failed:', error);
+      toast.error('图片检查失败');
+    } finally {
+      setIsCheckingImages(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!project) return;
     
@@ -302,6 +369,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     setCurrentWorkstation('');
     setCurrentSlideInfo('');
     setWorkstationProgress({ current: 0, total: projectWorkstations.length });
+    
+    // 重置失败URL缓存，允许重新尝试加载
+    resetFailedUrlsCache();
 
     try {
       // Determine which workstations and modules to include
@@ -1181,6 +1251,69 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                 </CollapsibleContent>
               </Collapsible>
             )}
+
+            {/* Image Accessibility Pre-Check */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium flex items-center gap-2">
+                  <ImageOff className="h-4 w-4" />
+                  图片可访问性检查
+                </Label>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleImagePreCheck}
+                  disabled={isCheckingImages}
+                >
+                  {isCheckingImages ? (
+                    <>
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      检查中...
+                    </>
+                  ) : (
+                    '运行检查'
+                  )}
+                </Button>
+              </div>
+              
+              {imageCheckResult && (
+                <div className={cn(
+                  "p-3 rounded-lg border text-sm",
+                  imageCheckResult.failed > 0 
+                    ? "bg-warning/10 border-warning/30 text-warning" 
+                    : "bg-primary/10 border-primary/30 text-primary"
+                )}>
+                  <div className="font-medium mb-1">
+                    {imageCheckResult.failed > 0 
+                      ? `⚠️ ${imageCheckResult.failed}/${imageCheckResult.totalChecked} 张图片无法访问`
+                      : `✅ 所有 ${imageCheckResult.totalChecked} 张图片均可访问`
+                    }
+                  </div>
+                  {imageCheckResult.failed > 0 && (
+                    <div className="text-xs space-y-1 mt-2">
+                      {imageCheckResult.failedByType.three_view && (
+                        <div>• 三视图: {imageCheckResult.failedByType.three_view} 张</div>
+                      )}
+                      {imageCheckResult.failedByType.schematic && (
+                        <div>• 视觉系统示意图: {imageCheckResult.failedByType.schematic} 张</div>
+                      )}
+                      {imageCheckResult.failedByType.hardware && (
+                        <div>• 硬件图片: {imageCheckResult.failedByType.hardware} 张</div>
+                      )}
+                      {imageCheckResult.failedByType.product && (
+                        <div>• 产品图片: {imageCheckResult.failedByType.product} 张</div>
+                      )}
+                      {imageCheckResult.failedByType.annotation && (
+                        <div>• 标注截图: {imageCheckResult.failedByType.annotation} 张</div>
+                      )}
+                      <p className="mt-2 text-muted-foreground">
+                        提示: 本地部署时，Supabase存储的图片可能无法访问。建议确保网络连接正常。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Generation Scope */}
             <div className="space-y-3">
