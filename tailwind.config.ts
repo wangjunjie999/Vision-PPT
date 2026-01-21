@@ -125,6 +125,12 @@ export default {
           filled: 'hsl(var(--slot-filled))',
           'filled-border': 'hsl(var(--slot-filled-border))',
           hover: 'hsl(var(--slot-hover))'
+        },
+        guide: {
+          primary: 'hsl(var(--guide-primary))',
+          secondary: 'hsl(var(--guide-secondary))',
+          success: 'hsl(var(--guide-success))',
+          accent: 'hsl(var(--guide-accent))'
         }
       },
       borderRadius: {
@@ -222,6 +228,14 @@ export default {
         'spin-slow': {
           from: { transform: 'rotate(0deg)' },
           to: { transform: 'rotate(360deg)' }
+        },
+        'bounce-arrow': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-4px)' }
+        },
+        'guide-pulse': {
+          '0%, 100%': { boxShadow: '0 0 0 0 hsl(var(--guide-primary) / 0.4)' },
+          '50%': { boxShadow: '0 0 0 12px hsl(var(--guide-primary) / 0)' }
         }
       },
       animation: {
@@ -245,7 +259,9 @@ export default {
         'float': 'float 3s ease-in-out infinite',
         'success-pop': 'success-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
         'progress-fill': 'progress-fill 0.5s ease-out forwards',
-        'spin-slow': 'spin-slow 3s linear infinite'
+        'spin-slow': 'spin-slow 3s linear infinite',
+        'bounce-arrow': 'bounce-arrow 1s ease-in-out infinite',
+        'guide-pulse': 'guide-pulse 2s ease-in-out infinite'
       },
       boxShadow: {
         '2xs': 'var(--shadow-2xs)',
@@ -256,7 +272,10 @@ export default {
         xl: 'var(--shadow-xl)',
         '2xl': 'var(--shadow-2xl)',
         glow: 'var(--shadow-glow)',
-        inset: 'var(--shadow-inset)'
+        inset: 'var(--shadow-inset)',
+        guide: '0 8px 24px -8px hsl(var(--guide-primary) / 0.4)',
+        'guide-success': '0 8px 24px -8px hsl(var(--guide-success) / 0.4)',
+        'guide-accent': '0 8px 24px -8px hsl(var(--guide-accent) / 0.4)'
       }
     }
   },

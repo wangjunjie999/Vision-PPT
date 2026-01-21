@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
+import { useGuide } from '@/contexts/GuideContext';
 import { useTheme } from 'next-themes';
 import { useAdminRole } from '@/hooks/useAdminRole';
 import { 
@@ -20,7 +21,8 @@ import {
   Moon,
   Sparkles,
   Zap,
-  ShieldAlert
+  ShieldAlert,
+  HelpCircle
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { PPTGenerationDialog } from '../dialogs/PPTGenerationDialog';
@@ -40,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { GuideSteps, GuideTip, GuideHighlight } from '../guide';
 
 interface TopToolbarProps {
   onAdminClick: () => void;
@@ -55,6 +58,7 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
   const { currentRole, setCurrentRole, isGeneratingPPT } = useAppStore();
   const { selectedProjectId, projects, workstations, layouts, modules, getProjectWorkstations, selectProject } = useData();
   const { isAdmin, isLoading: isCheckingAdmin, checkAdminRole } = useAdminRole();
+  const { currentStep, isGuideActive, resetGuide } = useGuide();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [showPPTDialog, setShowPPTDialog] = useState(false);
@@ -201,6 +205,13 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
               {searchFocused && (
                 <div className="absolute inset-0 -z-10 rounded-md bg-primary/5 blur-sm" />
               )}
+            </div>
+          )}
+          
+          {/* Guide Steps Indicator - Hidden on mobile */}
+          {!showBackButton && !isMobile && isGuideActive && (
+            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 border border-border">
+              <GuideSteps />
             </div>
           )}
           
@@ -373,6 +384,11 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
                 <div className="text-xs text-muted-foreground mb-0.5">已登录账户</div>
                 <div className="text-sm font-medium truncate">{user?.email}</div>
               </div>
+              <DropdownMenuItem onClick={resetGuide}>
+                <HelpCircle className="h-4 w-4 mr-2" />
+                重新显示引导
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem 
                 onClick={signOut} 
                 className="text-destructive focus:text-destructive focus:bg-destructive/10 m-1"

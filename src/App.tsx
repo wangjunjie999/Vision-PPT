@@ -7,8 +7,10 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
 import { HardwareProvider } from "@/contexts/HardwareContext";
+import { GuideProvider } from "@/contexts/GuideContext";
 import { AnimatePresence, motion } from "framer-motion";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { WelcomeGuide } from "@/components/guide";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -128,16 +130,19 @@ const App = () => (
           <AuthProvider>
             <DataProvider>
               <HardwareProvider>
-                <Toaster />
-                <Sonner />
-                <BrowserRouter>
-                  <ErrorBoundary 
-                    fallbackTitle="页面加载失败"
-                    onReset={() => window.location.reload()}
-                  >
-                    <AnimatedRoutes />
-                  </ErrorBoundary>
-                </BrowserRouter>
+                <GuideProvider>
+                  <Toaster />
+                  <Sonner />
+                  <WelcomeGuide />
+                  <BrowserRouter>
+                    <ErrorBoundary 
+                      fallbackTitle="页面加载失败"
+                      onReset={() => window.location.reload()}
+                    >
+                      <AnimatedRoutes />
+                    </ErrorBoundary>
+                  </BrowserRouter>
+                </GuideProvider>
               </HardwareProvider>
             </DataProvider>
           </AuthProvider>

@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Guide System Colors */
+:root {
+  --guide-primary: 25 95% 53%;      /* Vibrant orange #FF6B35 */
+  --guide-secondary: 187 100% 50%;  /* Cyan #00D9FF */
+  --guide-success: 142 76% 36%;     /* Green #22C55E */
+  --guide-accent: 187 100% 50%;     /* Cyan accent */
+}
+
+.dark {
+  --guide-primary: 25 95% 53%;
+  --guide-secondary: 187 100% 50%;
+  --guide-success: 142 76% 36%;
+  --guide-accent: 187 100% 50%;
+}
+
 @layer base {
   :root {
     /* Modern Industrial Palette - Deep Slate & Electric Blue */
