@@ -334,7 +334,8 @@ export async function generateProductSchematicSlide(
     fontSize: 11, color: COLORS.dark, bold: true,
   });
 
-  const annotItems = annotation?.annotations_json || [];
+  // Defensive array check for annotations_json
+  const annotItems = Array.isArray(annotation?.annotations_json) ? annotation.annotations_json : [];
   const legendRows: TableRow[] = annotItems
     .filter(item => item.labelNumber && item.label)
     .map(item => row([`#${item.labelNumber}`, item.label || '']));
@@ -494,15 +495,16 @@ export function generateTechnicalRequirementsSlide(
       }
     }
     
-    // Output types
-    if (mod.output_types && mod.output_types.length > 0) {
+    // Output types - with defensive array check
+    const outputTypes = Array.isArray(mod.output_types) ? mod.output_types : [];
+    if (outputTypes.length > 0) {
       const outputLabels: Record<string, string> = {
         '报警': ctx.isZh ? '报警' : 'Alarm',
         '停机': ctx.isZh ? '停机' : 'Stop',
         '分拣': ctx.isZh ? '分拣' : 'Sort',
         '标记': ctx.isZh ? '标记' : 'Mark',
       };
-      const outputs = mod.output_types.map(o => outputLabels[o] || o).join('、');
+      const outputs = outputTypes.map(o => outputLabels[o] || o).join('、');
       toleranceRows.push(row([ctx.isZh ? '输出动作' : 'Output Action', outputs]));
     }
   });
@@ -691,10 +693,14 @@ export async function generateDiagramSlide(
     fontSize: 11, color: COLORS.dark, bold: true,
   });
 
+  // Defensive array checks for camera_mounts and mechanisms
+  const cameraMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
+  const mechanisms = Array.isArray(layout?.mechanisms) ? layout.mechanisms : [];
+  
   const layoutInfo: TableRow[] = [
     row([ctx.isZh ? '相机数量' : 'Cameras', `${layout?.camera_count || modules.length} ${ctx.isZh ? '台' : ''}`]),
-    row([ctx.isZh ? '安装方式' : 'Mount', layout?.camera_mounts?.join('/') || 'top']),
-    row([ctx.isZh ? '执行机构' : 'Mechanisms', layout?.mechanisms?.join('、') || '-']),
+    row([ctx.isZh ? '安装方式' : 'Mount', cameraMounts.join('/') || 'top']),
+    row([ctx.isZh ? '执行机构' : 'Mechanisms', mechanisms.join('、') || '-']),
     row([ctx.isZh ? '相对位置' : 'Position', ctx.isZh ? '见示意图' : 'See diagram']),
   ];
 
@@ -773,8 +779,11 @@ export function generateMotionMethodSlide(
     fontSize: 10, color: COLORS.primary, bold: true,
   });
 
+  // Defensive array check for camera_mounts
+  const installMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
+  
   const installRows: TableRow[] = [
-    row([ctx.isZh ? '安装方式' : 'Mount', layout?.camera_mounts?.join('/') || 'top']),
+    row([ctx.isZh ? '安装方式' : 'Mount', installMounts.join('/') || 'top']),
     row([ctx.isZh ? '相机朝向' : 'Direction', ctx.isZh ? '垂直向下' : 'Vertical down']),
     row([ctx.isZh ? '长边方向' : 'Long Edge', ctx.isZh ? '沿运动方向' : 'Along motion']),
   ];

@@ -166,9 +166,13 @@ export function WorkstationForm() {
       setCurrentStep(0);
     }
     if (layout) {
-      const selectedCameras = (layout as any).selected_cameras || [];
-      const selectedLenses = (layout as any).selected_lenses || [];
-      const selectedLights = (layout as any).selected_lights || [];
+      // Defensive checks for all JSON array fields
+      const rawCameras = (layout as any).selected_cameras;
+      const rawLenses = (layout as any).selected_lenses;
+      const rawLights = (layout as any).selected_lights;
+      const selectedCameras = Array.isArray(rawCameras) ? rawCameras : [];
+      const selectedLenses = Array.isArray(rawLenses) ? rawLenses : [];
+      const selectedLights = Array.isArray(rawLights) ? rawLights : [];
       let selectedController = (layout as any).selected_controller || null;
       
       // Merge controller data with latest from HardwareContext to get updated image_url
@@ -194,6 +198,10 @@ export function WorkstationForm() {
         mountCounts.top = layout.camera_count || 1;
       }
       
+      // Defensive check for mechanisms - ensure it's an array
+      const rawMechanisms = layout.mechanisms;
+      const mechanisms = Array.isArray(rawMechanisms) ? rawMechanisms : [];
+      
       setLayoutForm({ 
         conveyorType: layout.conveyor_type || '皮带输送线', 
         cameraCount: (layout.camera_count || 1) as 1|2|3|4, 
@@ -201,10 +209,10 @@ export function WorkstationForm() {
         lightCount: ((layout as any).light_count || 1) as 1|2|3|4,
         cameraMounts: mounts, 
         mountCounts,
-        mechanisms: (layout.mechanisms || []) as Mechanism[],
-        selectedCameras: Array.isArray(selectedCameras) ? selectedCameras : [],
-        selectedLenses: Array.isArray(selectedLenses) ? selectedLenses : [],
-        selectedLights: Array.isArray(selectedLights) ? selectedLights : [],
+        mechanisms: mechanisms as Mechanism[],
+        selectedCameras: selectedCameras,
+        selectedLenses: selectedLenses,
+        selectedLights: selectedLights,
         selectedController: selectedController,
       });
     }

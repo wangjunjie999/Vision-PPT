@@ -573,8 +573,10 @@ export async function generateDOCX(
         );
         
         for (const asset of wsAssets) {
-          if (asset.preview_images && asset.preview_images.length > 0) {
-            for (const img of asset.preview_images) {
+          // Defensive array check for preview_images
+          const previewImages = Array.isArray(asset.preview_images) ? asset.preview_images : [];
+          if (previewImages.length > 0) {
+            for (const img of previewImages) {
               const imgParagraphs = await createImageParagraph(img.url, img.name || (isZh ? '产品预览' : 'Product Preview'), 400, 300);
               for (const p of imgParagraphs) {
                 if (p) sections.push(p);
@@ -643,8 +645,10 @@ export async function generateDOCX(
       createLabelValue(isZh ? '处理时限' : 'Processing Time Limit', mod.processing_time_limit ? `${mod.processing_time_limit}ms` : '-'),
     );
 
-    if (mod.output_types && mod.output_types.length > 0) {
-      sections.push(createLabelValue(isZh ? '输出类型' : 'Output Types', mod.output_types.join(', ')));
+    // Defensive array check for output_types
+    const outputTypes = Array.isArray(mod.output_types) ? mod.output_types : [];
+    if (outputTypes.length > 0) {
+      sections.push(createLabelValue(isZh ? '输出类型' : 'Output Types', outputTypes.join(', ')));
     }
 
     if (mod.description) {
@@ -674,8 +678,10 @@ export async function generateDOCX(
         
         for (const asset of modAssets) {
           // Add preview images
-          if (asset.preview_images && asset.preview_images.length > 0) {
-            for (const img of asset.preview_images) {
+          // Defensive array check for preview_images
+          const modPreviewImages = Array.isArray(asset.preview_images) ? asset.preview_images : [];
+          if (modPreviewImages.length > 0) {
+            for (const img of modPreviewImages) {
               const imgParagraphs = await createImageParagraph(
                 img.url, 
                 img.name || (isZh ? '产品预览' : 'Product Preview'), 
