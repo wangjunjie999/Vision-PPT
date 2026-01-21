@@ -11,9 +11,28 @@ import { toast } from 'sonner';
 type WorkstationType = 'line' | 'turntable' | 'robot' | 'platform';
 
 export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: boolean; onOpenChange: (open: boolean) => void; projectId: string | null }) {
-  const { addWorkstation, selectWorkstation, addLayout } = useData();
+  const { addWorkstation, selectWorkstation, addLayout, projects, getProjectWorkstations } = useData();
   const [form, setForm] = useState({ code: '', name: '', type: 'line' as WorkstationType, cycleTime: '3' });
   const [loading, setLoading] = useState(false);
+  
+  // Generate workstation code based on project code and existing workstations
+  const generateWorkstationCode = () => {
+    if (!projectId) return '';
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return '';
+    
+    const existingWorkstations = getProjectWorkstations(projectId);
+    const nextIndex = existingWorkstations.length + 1;
+    return `${project.code}.${String(nextIndex).padStart(2, '0')}`;
+  };
+  
+  // Reset form with new default code when dialog opens or projectId changes
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen && projectId) {
+      setForm(prev => ({ ...prev, code: generateWorkstationCode() }));
+    }
+    onOpenChange(newOpen);
+  };
 
   const handleCreate = async () => {
     if (!projectId) {
@@ -61,8 +80,8 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
       }
       
       selectWorkstation(ws.id);
-      onOpenChange(false);
-      setForm({ code: '', name: '', type: 'line', cycleTime: '3' });
+      handleOpenChange(false);
+      setForm({ code: generateWorkstationCode(), name: '', type: 'line', cycleTime: '3' });
     } catch (error) {
       console.error('Failed to create workstation:', error);
       toast.error('创建工位失败');
@@ -72,7 +91,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>新建工位</DialogTitle></DialogHeader>
         <div className="space-y-4 py-4">
