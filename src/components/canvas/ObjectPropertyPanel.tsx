@@ -34,9 +34,13 @@ export interface LayoutObject {
   rotation: number;
   locked: boolean;
   cameraIndex?: number;
-  // Camera mounting to mechanism
+  // Camera mounting to mechanism - binding relationship
   mountedToMechanismId?: string;
   mountPointId?: string;
+  // Relative 3D offsets from mounted mechanism (for follow movement)
+  mountOffsetX?: number;
+  mountOffsetY?: number;
+  mountOffsetZ?: number;
 }
 
 interface ObjectPropertyPanelProps {
@@ -514,6 +518,40 @@ export function ObjectPropertyPanel({
           </div>
 
           <Separator className="my-3" />
+
+          {/* Camera Mount Status */}
+          {object.type === 'camera' && object.mountedToMechanismId && (
+            <>
+              <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-400">🔗</span>
+                    <div>
+                      <div className="text-xs font-medium text-blue-300">已挂载到机构</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        机构移动时相机跟随
+                      </div>
+                    </div>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    className="h-7 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/20"
+                    onClick={() => onUpdate(object.id, { 
+                      mountedToMechanismId: undefined, 
+                      mountPointId: undefined,
+                      mountOffsetX: undefined,
+                      mountOffsetY: undefined,
+                      mountOffsetZ: undefined,
+                    })}
+                  >
+                    解除挂载
+                  </Button>
+                </div>
+              </div>
+              <Separator className="my-3" />
+            </>
+          )}
 
           {/* Lock Toggle */}
           <div className="flex items-center justify-between py-1">

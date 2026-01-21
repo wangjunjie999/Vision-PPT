@@ -214,6 +214,46 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     ));
   }, []);
 
+  // Update object with followers - when a mechanism moves, mounted cameras follow
+  const updateObjectWithFollowers = useCallback((id: string, updates: Partial<LayoutObject>) => {
+    setObjects(prev => {
+      const targetObj = prev.find(o => o.id === id);
+      if (!targetObj) return prev;
+      
+      // Calculate position deltas
+      const deltaX = (updates.posX ?? targetObj.posX ?? 0) - (targetObj.posX ?? 0);
+      const deltaY = (updates.posY ?? targetObj.posY ?? 0) - (targetObj.posY ?? 0);
+      const deltaZ = (updates.posZ ?? targetObj.posZ ?? 0) - (targetObj.posZ ?? 0);
+      
+      // If mechanism moved, update all mounted cameras
+      if (targetObj.type === 'mechanism' && (deltaX !== 0 || deltaY !== 0 || deltaZ !== 0)) {
+        return prev.map(obj => {
+          if (obj.id === id) {
+            return { ...obj, ...updates };
+          }
+          // Find cameras mounted to this mechanism
+          if (obj.mountedToMechanismId === id) {
+            const newPosX = (obj.posX ?? 0) + deltaX;
+            const newPosY = (obj.posY ?? 0) + deltaY;
+            const newPosZ = (obj.posZ ?? 0) + deltaZ;
+            const canvasPos = project3DTo2D(newPosX, newPosY, newPosZ, currentView);
+            return { 
+              ...obj, 
+              posX: newPosX,
+              posY: newPosY,
+              posZ: newPosZ,
+              x: canvasPos.x,
+              y: canvasPos.y,
+            };
+          }
+          return obj;
+        });
+      }
+      
+      return prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj);
+    });
+  }, [project3DTo2D, currentView]);
+
   const deleteObject = useCallback((id: string) => {
     setObjects(prev => prev.filter(o => o.id !== id));
     setSelectedIds(prev => {
@@ -513,13 +553,73 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     // Update 3D coordinates based on canvas position and current view
     if (currentObj) {
       const updates3D = update3DFromCanvas(newX, newY, currentView, currentObj);
-      setObjects(prev => prev.map(obj => 
-        obj.id === selectedId ? { ...obj, x: newX, y: newY, ...updates3D } : obj
-      ));
+      
+      // If dragging a mechanism, also move mounted cameras
+      if (currentObj.type === 'mechanism') {
+        updateObjectWithFollowers(selectedId, { x: newX, y: newY, ...updates3D });
+      } else {
+        setObjects(prev => prev.map(obj => 
+          obj.id === selectedId ? { ...obj, x: newX, y: newY, ...updates3D } : obj
+        ));
+      }
     }
   };
 
   const handleMouseUp = () => {
+    // Check if camera should be mounted to mechanism
+    if (isDragging && selectedId) {
+      const currentObj = objects.find(o => o.id === selectedId);
+      if (currentObj?.type === 'camera') {
+        const nearestMount = findNearestMountPoint(
+          currentObj.x, 
+          currentObj.y, 
+          objects, 
+          currentView, 
+          30 // snap threshold
+        );
+        
+        if (nearestMount) {
+          // Get mount world position for snapping
+          const mountPos = getMountPointWorldPosition(nearestMount.mechanism, nearestMount.mountPoint.id, currentView);
+          
+          // Calculate 3D offsets for the binding
+          const mechPosX = nearestMount.mechanism.posX ?? 0;
+          const mechPosY = nearestMount.mechanism.posY ?? 0;
+          const mechPosZ = nearestMount.mechanism.posZ ?? 0;
+          
+          const offsetX = (currentObj.posX ?? 0) - mechPosX;
+          const offsetY = (currentObj.posY ?? 0) - mechPosY;
+          const offsetZ = (currentObj.posZ ?? 0) - mechPosZ;
+          
+          // Update camera with binding info
+          updateObject(selectedId, {
+            mountedToMechanismId: nearestMount.mechanism.id,
+            mountPointId: nearestMount.mountPoint.id,
+            mountOffsetX: offsetX,
+            mountOffsetY: offsetY,
+            mountOffsetZ: offsetZ,
+            // Snap position if mount position available
+            ...(mountPos ? { x: mountPos.x, y: mountPos.y } : {}),
+          });
+          
+          toast.success(`${currentObj.name} 已挂载到 ${nearestMount.mechanism.name}`);
+        } else if (currentObj.mountedToMechanismId) {
+          // Dragged away from mount point - unbind
+          const mechObj = objects.find(o => o.id === currentObj.mountedToMechanismId);
+          updateObject(selectedId, {
+            mountedToMechanismId: undefined,
+            mountPointId: undefined,
+            mountOffsetX: undefined,
+            mountOffsetY: undefined,
+            mountOffsetZ: undefined,
+          });
+          if (mechObj) {
+            toast.info(`${currentObj.name} 已从 ${mechObj.name} 解除挂载`);
+          }
+        }
+      }
+    }
+    
     setIsDragging(false);
     setIsPanning(false);
     setDraggingObject(null);
@@ -1604,7 +1704,64 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
                 />
               )}
               
-              {/* Instructions */}
+              {/* Camera mount points on mechanisms */}
+              {objects.filter(o => o.type === 'mechanism' && !hiddenIds.has(o.id)).map(mechObj => (
+                <g key={`mount-points-${mechObj.id}`} transform={`translate(${mechObj.x}, ${mechObj.y})`}>
+                  <CameraMountPoints
+                    mechanismObject={mechObj}
+                    currentView={currentView}
+                    cameras={objects.filter(o => o.type === 'camera')}
+                    onSnapCamera={(cameraId, mountPoint, mechanismId) => {
+                      const camera = objects.find(o => o.id === cameraId);
+                      const mechanism = objects.find(o => o.id === mechanismId);
+                      if (!camera || !mechanism) return;
+                      
+                      const mountPos = getMountPointWorldPosition(mechanism, mountPoint.id, currentView);
+                      if (!mountPos) return;
+                      
+                      // Calculate 3D offsets
+                      const offsetX = (camera.posX ?? 0) - (mechanism.posX ?? 0);
+                      const offsetY = (camera.posY ?? 0) - (mechanism.posY ?? 0);
+                      const offsetZ = (camera.posZ ?? 0) - (mechanism.posZ ?? 0);
+                      
+                      updateObject(cameraId, {
+                        x: mountPos.x,
+                        y: mountPos.y,
+                        mountedToMechanismId: mechanismId,
+                        mountPointId: mountPoint.id,
+                        mountOffsetX: offsetX,
+                        mountOffsetY: offsetY,
+                        mountOffsetZ: offsetZ,
+                      });
+                      
+                      toast.success(`${camera.name} 已挂载到 ${mechanism.name}`);
+                    }}
+                    draggingCameraId={isDragging && selectedObj?.type === 'camera' ? selectedId : null}
+                    scale={scale}
+                  />
+                </g>
+              ))}
+              
+              {/* Connection lines for mounted cameras */}
+              {objects.filter(o => o.type === 'camera' && o.mountedToMechanismId && !hiddenIds.has(o.id)).map(camera => {
+                const mechanism = objects.find(o => o.id === camera.mountedToMechanismId);
+                if (!mechanism || hiddenIds.has(mechanism.id)) return null;
+                
+                return (
+                  <line
+                    key={`mount-line-${camera.id}`}
+                    x1={camera.x}
+                    y1={camera.y}
+                    x2={mechanism.x}
+                    y2={mechanism.y}
+                    stroke="hsl(var(--primary))"
+                    strokeWidth="2"
+                    strokeDasharray="6 3"
+                    opacity="0.6"
+                  />
+                );
+              })}
+              
               <g transform={`translate(20, ${canvasHeight - 30})`}>
                 <rect x={-8} y={-14} width={500} height={24} rx={6} fill="rgba(30, 41, 59, 0.9)" />
                 <text fill="#94a3b8" fontSize="11">

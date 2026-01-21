@@ -142,6 +142,10 @@ export const ObjectListPanel = memo(function ObjectListPanel({
               {isHidden && (
                 <EyeOff className="h-3 w-3 text-muted-foreground shrink-0" />
               )}
+              {/* Mounted indicator for cameras */}
+              {obj.type === 'camera' && obj.mountedToMechanismId && (
+                <span className="text-blue-400 text-[10px]" title="已挂载到机构">🔗</span>
+              )}
             </div>
             
             {/* 3D coordinates */}
