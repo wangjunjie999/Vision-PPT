@@ -957,7 +957,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
         {/* Config Stage */}
         {stage === 'config' && (
-          <div className="flex flex-col gap-4 overflow-hidden flex-1">
+          <div className="flex flex-col gap-4 overflow-y-auto flex-1 pr-1">
             {/* Output Format Selection - 输出格式选择 */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">输出格式</Label>
