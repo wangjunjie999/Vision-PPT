@@ -26,15 +26,22 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
     return url;
   }
   
+  // 🔧 关键修复：将相对路径转换为完整URL
+  let absoluteUrl = url;
+  if (url.startsWith('/') && !url.startsWith('//')) {
+    absoluteUrl = `${window.location.origin}${url}`;
+    console.log(`[ImagePreloader] Converting relative URL: ${url} -> ${absoluteUrl}`);
+  }
+  
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
     
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(absoluteUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
     
     if (!response.ok) {
-      console.warn('Failed to fetch image:', url, response.status);
+      console.warn(`[ImagePreloader] Failed to fetch image: ${absoluteUrl} (status: ${response.status})`);
       return '';
     }
     
@@ -50,10 +57,10 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
       const firstKey = imageCache.keys().next().value;
       if (firstKey) imageCache.delete(firstKey);
     }
-    imageCache.set(url, dataUri);
+    imageCache.set(url, dataUri); // Cache with original URL as key
     return dataUri;
   } catch (error) {
-    console.warn('Failed to fetch image as dataUri:', url, error);
+    console.warn(`[ImagePreloader] Failed to fetch image as dataUri: ${absoluteUrl}`, error);
     return '';
   }
 }
@@ -157,6 +164,7 @@ export async function preloadImagesInBatches(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>();
+  const failedUrls: string[] = [];
   const totalUrls = urls.length;
   
   if (totalUrls === 0) return results;
@@ -175,10 +183,17 @@ export async function preloadImagesInBatches(
       })
     );
     
-    // Store successful results
+    // Store successful results, track failures
     batchResults.forEach(result => {
-      if (result.status === 'fulfilled' && result.value.dataUri) {
-        results.set(result.value.url, result.value.dataUri);
+      if (result.status === 'fulfilled') {
+        if (result.value.dataUri) {
+          results.set(result.value.url, result.value.dataUri);
+        } else {
+          failedUrls.push(result.value.url);
+        }
+      } else {
+        // Promise rejected
+        console.warn(`[ImagePreloader] Promise rejected for image in batch`);
       }
     });
     
@@ -194,6 +209,11 @@ export async function preloadImagesInBatches(
   
   const elapsed = Date.now() - startTime;
   console.log(`[ImagePreloader] Completed: ${results.size}/${totalUrls} images in ${elapsed}ms`);
+  
+  // Report failed images
+  if (failedUrls.length > 0) {
+    console.error(`[ImagePreloader] Failed to load ${failedUrls.length} images:`, failedUrls);
+  }
   
   return results;
 }
