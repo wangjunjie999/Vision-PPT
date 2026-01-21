@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,42 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
 
+// Mechanism image display with error handling
+const MechanismImageDisplay = memo(function MechanismImageDisplay({ 
+  type, 
+  databaseUrl, 
+  name 
+}: { 
+  type: string; 
+  databaseUrl: string | null; 
+  name: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+  
+  // Priority: local assets first
+  const localImage = getMechanismImage(type, 'front');
+  const imageUrl = localImage || databaseUrl;
+  
+  const handleError = useCallback(() => {
+    setHasError(true);
+  }, []);
+  
+  return (
+    <div className="w-16 h-16 rounded bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+      {!hasError && imageUrl ? (
+        <img 
+          src={imageUrl} 
+          alt={name} 
+          className="w-full h-full object-contain"
+          onError={handleError}
+        />
+      ) : (
+        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+      )}
+    </div>
+  );
+});
+
 const MECHANISM_TYPES = [
   { value: 'robot_arm', label: '机械臂' },
   { value: 'cylinder', label: '气缸' },
@@ -23,12 +59,14 @@ const MECHANISM_TYPES = [
   { value: 'camera_mount', label: '视觉支架' },
 ];
 
-// Get the display image for a mechanism - prefer database URL, fallback to local asset
+// Get the display image for a mechanism - LOCAL ASSETS FIRST, then database URL
 function getMechanismDisplayImage(mech: { type: string; front_view_image_url: string | null }): string | null {
-  // If there's a URL in the database, use it
+  // Priority 1: Local bundled assets (most reliable)
+  const localImage = getMechanismImage(mech.type, 'front');
+  if (localImage) return localImage;
+  // Priority 2: Database URL
   if (mech.front_view_image_url) return mech.front_view_image_url;
-  // Otherwise try to get from local assets
-  return getMechanismImage(mech.type, 'front');
+  return null;
 }
 
 export function MechanismResourceManager() {
@@ -327,13 +365,7 @@ export function MechanismResourceManager() {
           <Card key={mech.id} className={mech.enabled === false ? 'opacity-50' : ''}>
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
-                <div className="w-16 h-16 rounded bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {getMechanismDisplayImage(mech) ? (
-                    <img src={getMechanismDisplayImage(mech)!} alt={mech.name} className="w-full h-full object-contain" />
-                  ) : (
-                    <ImageIcon className="h-6 w-6 text-muted-foreground" />
-                  )}
-                </div>
+                <MechanismImageDisplay type={mech.type} databaseUrl={mech.front_view_image_url} name={mech.name} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <h4 className="font-medium truncate">{mech.name}</h4>

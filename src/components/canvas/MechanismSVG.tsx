@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
 
 export interface CameraMountPoint {
@@ -419,6 +419,7 @@ export function MechanismSVG({
   useImage = true,
   imageUrl,
 }: MechanismSVGProps) {
+  const [imageLoadError, setImageLoadError] = useState(false);
   const drawing = MechanismDrawings[type]?.[view];
   const mountPoints = getMechanismMountPoints(type, view);
 
@@ -427,9 +428,15 @@ export function MechanismSVG({
   const scaleY = height / 80;
   const scale = Math.min(scaleX, scaleY);
   
-  // Get image URL - prioritize: props imageUrl > local assets > fallback to SVG
-  const mechanismImageUrl = imageUrl || getMechanismImage(type, view);
-  const shouldUseImage = useImage && mechanismImageUrl;
+  // Get image URL - prioritize: LOCAL ASSETS FIRST > props imageUrl > fallback to SVG
+  const localImageUrl = getMechanismImage(type, view);
+  const mechanismImageUrl = localImageUrl || imageUrl;
+  const shouldUseImage = useImage && mechanismImageUrl && !imageLoadError;
+  
+  // Reset error state when type or view changes
+  const handleImageError = useCallback(() => {
+    setImageLoadError(true);
+  }, []);
 
   return (
     <g transform={`scale(${scale})`}>
@@ -450,6 +457,7 @@ export function MechanismSVG({
           width={80}
           height={80}
           preserveAspectRatio="xMidYMid meet"
+          onError={handleImageError}
         />
       ) : drawing || (
         <rect x={-35} y={-35} width={70} height={70} fill="#4b5563" rx={5} />
