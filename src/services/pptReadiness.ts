@@ -146,7 +146,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   // 4. 草案版检查：至少需要1个工位
   const draftReady = projectMissing.length === 0 && projectWorkstations.length > 0;
   
-  // 5. 检查工位布局配置
+  // 5. 检查工位布局配置和三视图
   projectWorkstations.forEach(ws => {
     const layout = layouts.find(l => l.workstation_id === ws.id);
     
@@ -160,11 +160,57 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
         actionType: 'selectWorkstation',
         targetId: ws.id,
       });
+    } else {
+      // 检查三视图是否已保存
+      const missingViews: string[] = [];
+      if (!layout.front_view_image_url) missingViews.push('正视图');
+      if (!layout.side_view_image_url) missingViews.push('侧视图');
+      if (!layout.top_view_image_url) missingViews.push('俯视图');
+      
+      if (missingViews.length > 0) {
+        warnings.push({
+          level: 'workstation',
+          id: ws.id,
+          name: ws.name,
+          warning: `未保存三视图：${missingViews.join('、')}`,
+        });
+      }
+      
+      // 检查硬件选择
+      const selectedCams = layout.selected_cameras as Array<{ id: string }> | null;
+      const selectedLens = layout.selected_lenses as Array<{ id: string }> | null;
+      const selectedLights = layout.selected_lights as Array<{ id: string }> | null;
+      
+      if (!selectedCams || selectedCams.length === 0) {
+        warnings.push({
+          level: 'workstation',
+          id: ws.id,
+          name: ws.name,
+          warning: '未配置相机',
+        });
+      }
+      if (!selectedLens || selectedLens.length === 0) {
+        warnings.push({
+          level: 'workstation',
+          id: ws.id,
+          name: ws.name,
+          warning: '未配置镜头',
+        });
+      }
+      if (!selectedLights || selectedLights.length === 0) {
+        warnings.push({
+          level: 'workstation',
+          id: ws.id,
+          name: ws.name,
+          warning: '未配置光源',
+        });
+      }
     }
   });
   
-  // 6. 检查模块示意图
+  // 6. 检查模块示意图和成像参数
   let missingSchematicImages = 0;
+  let missingImagingParams = 0;
   projectModules.forEach(mod => {
     const schematicUrl = (mod as any).schematic_image_url;
     if (!schematicUrl) {
@@ -178,6 +224,25 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
         actionType: 'selectModule',
         targetId: mod.id,
       });
+    }
+    
+    // 检查成像参数（FOV、工作距离等）
+    const config = (mod.defect_config || mod.positioning_config || mod.measurement_config || mod.ocr_config) as Record<string, unknown> | null;
+    if (config) {
+      const missingImaging: string[] = [];
+      if (!config.fieldOfView && !config.fieldOfViewWidth) missingImaging.push('视野范围(FOV)');
+      if (!config.workingDistance) missingImaging.push('工作距离');
+      if (!config.resolutionPerPixel) missingImaging.push('像素精度');
+      
+      if (missingImaging.length > 0) {
+        missingImagingParams++;
+        warnings.push({
+          level: 'module',
+          id: mod.id,
+          name: mod.name,
+          warning: `建议补充成像参数：${missingImaging.join('、')}`,
+        });
+      }
     }
   });
   
