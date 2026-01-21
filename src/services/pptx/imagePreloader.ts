@@ -1,7 +1,15 @@
 /**
  * Image Preloader for PPT Generation
  * Implements parallel batch loading with caching for optimal performance
+ * 
+ * Priority chain for image resolution:
+ * 1. Local bundled assets (src/assets) - most reliable
+ * 2. Supabase Storage URL - cloud resources
+ * 3. Public directory relative path - legacy support
+ * 4. Empty string (caller handles fallback) - prevents broken layout
  */
+
+import { resolveHardwareImageUrl } from '@/utils/hardwareImageUrls';
 
 // Image cache for dataUri conversion
 const imageCache = new Map<string, string>();
@@ -9,39 +17,85 @@ const MAX_CACHE_SIZE = 100;
 
 /**
  * Fetch a single image and convert to dataUri with caching
+ * Enhanced with local asset resolution for hardware images
  */
 export async function fetchImageAsDataUri(url: string): Promise<string> {
   if (!url || url.trim() === '') return '';
   
+  // Check cache first (using original URL as key)
   if (imageCache.has(url)) {
     return imageCache.get(url)!;
   }
   
+  // If already a data URI, cache and return
   if (url.startsWith('data:')) {
-    if (imageCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = imageCache.keys().next().value;
-      if (firstKey) imageCache.delete(firstKey);
-    }
-    imageCache.set(url, url);
+    addToCache(url, url);
     return url;
   }
   
-  // 🔧 关键修复：将相对路径转换为完整URL
-  let absoluteUrl = url;
-  if (url.startsWith('/') && !url.startsWith('//')) {
-    absoluteUrl = `${window.location.origin}${url}`;
+  // 🔧 Key fix: Resolve hardware image paths to local bundled assets
+  const resolvedUrl = resolveHardwareImageUrl(url);
+  
+  // If resolved URL is different and is a bundled asset (contains hash), use it
+  if (resolvedUrl && resolvedUrl !== url) {
+    // Bundled assets from Vite have paths like /assets/camera-basler-abc123.png
+    if (resolvedUrl.includes('/assets/') || resolvedUrl.startsWith('data:')) {
+      try {
+        const dataUri = await fetchFromUrl(resolvedUrl);
+        if (dataUri) {
+          addToCache(url, dataUri); // Cache with original URL as key
+          return dataUri;
+        }
+      } catch (e) {
+        console.warn(`[ImagePreloader] Failed to load bundled asset: ${resolvedUrl}`, e);
+      }
+    }
+  }
+  
+  // Build absolute URL for relative paths
+  let absoluteUrl = resolvedUrl || url;
+  if (absoluteUrl.startsWith('/') && !absoluteUrl.startsWith('//')) {
+    absoluteUrl = `${window.location.origin}${absoluteUrl}`;
     console.log(`[ImagePreloader] Converting relative URL: ${url} -> ${absoluteUrl}`);
   }
   
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-    
-    const response = await fetch(absoluteUrl, { signal: controller.signal });
+    const dataUri = await fetchFromUrl(absoluteUrl);
+    if (dataUri) {
+      addToCache(url, dataUri);
+      return dataUri;
+    }
+    return '';
+  } catch (error) {
+    console.warn(`[ImagePreloader] Failed to fetch image as dataUri: ${absoluteUrl}`, error);
+    return '';
+  }
+}
+
+/**
+ * Add to cache with size management
+ */
+function addToCache(key: string, value: string): void {
+  if (imageCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = imageCache.keys().next().value;
+    if (firstKey) imageCache.delete(firstKey);
+  }
+  imageCache.set(key, value);
+}
+
+/**
+ * Fetch image from URL and convert to dataUri
+ */
+async function fetchFromUrl(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  
+  try {
+    const response = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
     
     if (!response.ok) {
-      console.warn(`[ImagePreloader] Failed to fetch image: ${absoluteUrl} (status: ${response.status})`);
+      console.warn(`[ImagePreloader] Failed to fetch image: ${url} (status: ${response.status})`);
       return '';
     }
     
@@ -53,15 +107,10 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
       reader.readAsDataURL(blob);
     });
     
-    if (imageCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = imageCache.keys().next().value;
-      if (firstKey) imageCache.delete(firstKey);
-    }
-    imageCache.set(url, dataUri); // Cache with original URL as key
     return dataUri;
   } catch (error) {
-    console.warn(`[ImagePreloader] Failed to fetch image as dataUri: ${absoluteUrl}`, error);
-    return '';
+    clearTimeout(timeoutId);
+    throw error;
   }
 }
 
