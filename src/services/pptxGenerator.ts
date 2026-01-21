@@ -1284,6 +1284,13 @@ export async function generatePPTX(
         product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
         detection_requirements: wsProductAsset.detection_requirements as Array<{ content: string; highlight?: string | null }> | null,
       } : undefined,
+      // Pass full hardware data for detailed parameter lookup
+      hardware: hardware ? {
+        cameras: hardware.cameras,
+        lenses: hardware.lenses,
+        lights: hardware.lights,
+        controllers: hardware.controllers,
+      } : undefined,
     };
 
     // Generate slides in the correct order (10 pages per workstation)

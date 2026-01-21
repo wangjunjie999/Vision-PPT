@@ -24,6 +24,11 @@ import {
   TRIGGER_LABELS,
   PROCESS_STAGE_LABELS 
 } from './slideLabels';
+import { 
+  MECHANISM_LABELS, 
+  CAMERA_MOUNT_LABELS, 
+  getLabel 
+} from '@/services/labelMaps';
 
 // Type definitions
 type TableCell = { text: string; options?: Record<string, unknown> };
@@ -31,6 +36,49 @@ type TableRow = TableCell[];
 
 const cell = (text: string, opts?: Partial<TableCell>): TableCell => ({ text, options: opts });
 const row = (cells: string[]): TableRow => cells.map(t => cell(t));
+
+// ===== Hardware Data Types for Complete Info =====
+interface FullCameraData {
+  id: string;
+  brand: string;
+  model: string;
+  resolution?: string | null;
+  sensor_size?: string | null;
+  interface?: string | null;
+  frame_rate?: number | null;
+  image_url?: string | null;
+}
+
+interface FullLensData {
+  id: string;
+  brand: string;
+  model: string;
+  focal_length?: string | null;
+  aperture?: string | null;
+  mount?: string | null;
+  image_url?: string | null;
+}
+
+interface FullLightData {
+  id: string;
+  brand: string;
+  model: string;
+  type?: string | null;
+  color?: string | null;
+  power?: string | null;
+  image_url?: string | null;
+}
+
+interface FullControllerData {
+  id: string;
+  brand: string;
+  model: string;
+  cpu?: string | null;
+  gpu?: string | null;
+  memory?: string | null;
+  storage?: string | null;
+  image_url?: string | null;
+}
 
 /**
  * Unified slide title with Tech-Shine corporate style
@@ -77,7 +125,7 @@ interface WorkstationSlideData {
     shot_count?: number | null;
     risk_notes?: string | null;
     action_script?: string | null;
-    description?: string | null;  // Added workstation description
+    description?: string | null;
   };
   layout: {
     workstation_id: string;
@@ -100,17 +148,17 @@ interface WorkstationSlideData {
     id: string;
     name: string;
     type: string;
-    description?: string | null;  // Added module description
+    description?: string | null;
     trigger_type: string | null;
     processing_time_limit: number | null;
     schematic_image_url?: string | null;
     positioning_config?: Record<string, unknown> | null;
     defect_config?: Record<string, unknown> | null;
     measurement_config?: Record<string, unknown> | null;
-    ocr_config?: Record<string, unknown> | null;  // Added OCR config
-    deep_learning_config?: Record<string, unknown> | null;  // Added deep learning config
-    output_types?: string[] | null;  // Added output types
-    roi_strategy?: string | null;  // Added ROI strategy
+    ocr_config?: Record<string, unknown> | null;
+    deep_learning_config?: Record<string, unknown> | null;
+    output_types?: string[] | null;
+    roi_strategy?: string | null;
   }>;
   annotation?: {
     snapshot_url: string;
@@ -123,7 +171,16 @@ interface WorkstationSlideData {
     product_models?: Array<{ name: string; spec: string }> | null;
     detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
   };
+  // NEW: Complete hardware data for detailed parameters
+  hardware?: {
+    cameras: FullCameraData[];
+    lenses: FullLensData[];
+    lights: FullLightData[];
+    controllers: FullControllerData[];
+  };
 }
+
+export type { WorkstationSlideData, FullCameraData, FullLensData, FullLightData, FullControllerData };
 
 /**
  * Slide 0: Workstation Title
@@ -693,14 +750,23 @@ export async function generateDiagramSlide(
     fontSize: 11, color: COLORS.dark, bold: true,
   });
 
-  // Defensive array checks for camera_mounts and mechanisms
+  // Defensive array checks for camera_mounts and mechanisms - with translation
   const cameraMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
   const mechanisms = Array.isArray(layout?.mechanisms) ? layout.mechanisms : [];
   
+  // Translate camera mounts and mechanisms to localized labels
+  const translatedMounts = cameraMounts.map(m => 
+    getLabel(m, CAMERA_MOUNT_LABELS, ctx.isZh ? 'zh' : 'en')
+  ).join('/') || (ctx.isZh ? '顶部' : 'Top');
+  
+  const translatedMechanisms = mechanisms.map(m => 
+    getLabel(m, MECHANISM_LABELS, ctx.isZh ? 'zh' : 'en')
+  ).join('、') || '-';
+  
   const layoutInfo: TableRow[] = [
     row([ctx.isZh ? '相机数量' : 'Cameras', `${layout?.camera_count || modules.length} ${ctx.isZh ? '台' : ''}`]),
-    row([ctx.isZh ? '安装方式' : 'Mount', cameraMounts.join('/') || 'top']),
-    row([ctx.isZh ? '执行机构' : 'Mechanisms', mechanisms.join('、') || '-']),
+    row([ctx.isZh ? '安装方式' : 'Mount', translatedMounts]),
+    row([ctx.isZh ? '执行机构' : 'Mechanisms', translatedMechanisms]),
     row([ctx.isZh ? '相对位置' : 'Position', ctx.isZh ? '见示意图' : 'See diagram']),
   ];
 
@@ -779,11 +845,14 @@ export function generateMotionMethodSlide(
     fontSize: 10, color: COLORS.primary, bold: true,
   });
 
-  // Defensive array check for camera_mounts
+  // Defensive array check for camera_mounts - with translation
   const installMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
+  const translatedInstallMounts = installMounts.map(m => 
+    getLabel(m, CAMERA_MOUNT_LABELS, ctx.isZh ? 'zh' : 'en')
+  ).join('/') || (ctx.isZh ? '顶部安装' : 'Top Mount');
   
   const installRows: TableRow[] = [
-    row([ctx.isZh ? '安装方式' : 'Mount', installMounts.join('/') || 'top']),
+    row([ctx.isZh ? '安装方式' : 'Mount', translatedInstallMounts]),
     row([ctx.isZh ? '相机朝向' : 'Direction', ctx.isZh ? '垂直向下' : 'Vertical down']),
     row([ctx.isZh ? '长边方向' : 'Long Edge', ctx.isZh ? '沿运动方向' : 'Along motion']),
   ];
@@ -847,7 +916,7 @@ export function generateOpticalSolutionSlide(
   data: WorkstationSlideData
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { layout, modules } = data;
+  const { layout, modules, hardware } = data;
   
   addSlideTitle(slide, ctx, ctx.isZh ? '光学方案' : 'Optical Solution');
 
@@ -864,9 +933,17 @@ export function generateOpticalSolutionSlide(
     ctx.isZh ? '接口' : 'Interface'
   ]);
   
-  const cameraRows: TableRow[] = layout?.selected_cameras?.filter(c => c).map(cam => 
-    row([`${cam.brand} ${cam.model}`, '-', '-', '-'])
-  ) || [row(['-', '-', '-', '-'])];
+  // Look up full hardware data for cameras
+  const cameraRows: TableRow[] = layout?.selected_cameras?.filter(c => c).map(cam => {
+    // Find the full camera data from hardware library
+    const fullCam = hardware?.cameras?.find(c => c.id === cam.id);
+    return row([
+      `${cam.brand} ${cam.model}`,
+      fullCam?.resolution || '-',
+      fullCam?.sensor_size || '-',
+      fullCam?.interface || '-'
+    ]);
+  }) || [row(['-', '-', '-', '-'])];
 
   slide.addTable([cameraHeader, ...cameraRows], {
     x: 0.5, y: 1.4, w: 9, h: Math.min((cameraRows.length + 1) * 0.3 + 0.1, 1.5),
@@ -879,20 +956,33 @@ export function generateOpticalSolutionSlide(
     align: 'center',
   });
 
-  // Lens configuration
-  slide.addText(ctx.isZh ? '【镜头焦距】' : '[Lens Focal Length]', {
+  // Lens configuration - with full details
+  slide.addText(ctx.isZh ? '【镜头焦距/光圈】' : '[Lens Focal Length/Aperture]', {
     x: 0.5, y: 3.0, w: 4.3, h: 0.25,
     fontSize: 10, color: COLORS.primary, bold: true,
   });
 
-  const lensRows: TableRow[] = layout?.selected_lenses?.filter(l => l).map(lens => 
-    row([`${lens.brand} ${lens.model}`])
-  ) || [row(['-'])];
+  const lensHeader: TableRow = row([
+    ctx.isZh ? '型号' : 'Model', 
+    ctx.isZh ? '焦距' : 'Focal', 
+    ctx.isZh ? '光圈' : 'Aperture'
+  ]);
 
-  slide.addTable(lensRows, {
-    x: 0.5, y: 3.3, w: 4.3, h: Math.min(lensRows.length * 0.28 + 0.1, 1),
+  // Look up full hardware data for lenses
+  const lensRows: TableRow[] = layout?.selected_lenses?.filter(l => l).map(lens => {
+    const fullLens = hardware?.lenses?.find(l => l.id === lens.id);
+    return row([
+      `${lens.brand} ${lens.model}`,
+      fullLens?.focal_length || '-',
+      fullLens?.aperture || '-'
+    ]);
+  }) || [row(['-', '-', '-'])];
+
+  slide.addTable([lensHeader, ...lensRows], {
+    x: 0.5, y: 3.3, w: 4.3, h: Math.min((lensRows.length + 1) * 0.28 + 0.1, 1.2),
     fontFace: 'Arial',
     fontSize: 9,
+    colW: [2.3, 1, 1],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   });
