@@ -8,7 +8,41 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Check } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+
+// Hardware image with error handling
+function HardwareImage({ 
+  url, 
+  alt, 
+  type,
+  className 
+}: { 
+  url: string | null | undefined; 
+  alt: string;
+  type: 'camera' | 'lens' | 'light' | 'controller';
+  className?: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+  
+  const handleError = useCallback(() => {
+    setHasError(true);
+  }, []);
+  
+  const emoji = type === 'camera' ? '📷' : type === 'lens' ? '🔭' : type === 'light' ? '💡' : '🖥️';
+  
+  if (!url || hasError) {
+    return <span className="text-2xl">{emoji}</span>;
+  }
+  
+  return (
+    <img 
+      src={url} 
+      alt={alt} 
+      className={className || "w-full h-full object-cover"}
+      onError={handleError}
+    />
+  );
+}
 
 interface HardwareSelectPopoverProps {
   type: 'camera' | 'lens' | 'light' | 'controller';
@@ -86,13 +120,7 @@ function HardwareSelectPopover({
                 )}
               >
                 <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.model} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-2xl">
-                      {type === 'camera' ? '📷' : type === 'lens' ? '🔭' : type === 'light' ? '💡' : '🖥️'}
-                    </span>
-                  )}
+                  <HardwareImage url={item.image_url} alt={item.model} type={type} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
