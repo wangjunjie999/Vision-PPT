@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { toPng } from 'html-to-image';
 import { compressImage, dataUrlToBlob, QUALITY_PRESETS, type QualityPreset } from '@/utils/imageCompression';
+import { imageLocalCache, blobToDataUri, type ImageCacheType } from '@/services/imageLocalCache';
 
 export type ViewType = 'front' | 'side' | 'top';
 
@@ -112,6 +113,21 @@ export async function saveViewToStorage(
     [savedField]: true,
   } as any);
   
+  // 同时缓存到本地 IndexedDB
+  try {
+    const cacheType: ImageCacheType = view === 'front' 
+      ? 'layout_front_view' 
+      : view === 'side' 
+        ? 'layout_side_view' 
+        : 'layout_top_view';
+    
+    const dataUri = await blobToDataUri(imageBlob);
+    await imageLocalCache.set(cacheType, workstationId, urlData.publicUrl, dataUri);
+    console.log(`[ImageCache] 三视图已同步缓存: ${view} - ${workstationId}`);
+  } catch (cacheError) {
+    console.warn('[ImageCache] 本地缓存失败，不影响主流程:', cacheError);
+  }
+  
   return urlData.publicUrl;
 }
 
@@ -148,6 +164,15 @@ export async function saveSchematicToStorage(
     schematic_image_url: publicUrl,
     status: 'complete'
   });
+  
+  // 同时缓存到本地 IndexedDB
+  try {
+    const dataUri = await blobToDataUri(imageBlob);
+    await imageLocalCache.set('module_schematic', moduleId, publicUrl, dataUri);
+    console.log(`[ImageCache] 示意图已同步缓存: ${moduleId}`);
+  } catch (cacheError) {
+    console.warn('[ImageCache] 本地缓存失败，不影响主流程:', cacheError);
+  }
   
   return publicUrl;
 }
