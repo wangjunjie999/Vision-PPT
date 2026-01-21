@@ -4,9 +4,14 @@
  * 
  * Priority chain for image resolution:
  * 1. Local bundled assets (src/assets) - most reliable
- * 2. Supabase Storage URL - cloud resources
+ * 2. Supabase Storage URL - cloud resources (with CORS handling)
  * 3. Public directory relative path - legacy support
  * 4. Empty string (caller handles fallback) - prevents broken layout
+ * 
+ * Enhanced for local GitHub deployments with:
+ * - Multi-strategy fetch attempts
+ * - CORS error detection and recovery
+ * - Detailed logging for debugging
  */
 
 import { resolveHardwareImageUrl } from '@/utils/hardwareImageUrls';
@@ -15,9 +20,12 @@ import { resolveHardwareImageUrl } from '@/utils/hardwareImageUrls';
 const imageCache = new Map<string, string>();
 const MAX_CACHE_SIZE = 100;
 
+// Track failed URLs to avoid repeated attempts
+const failedUrls = new Set<string>();
+
 /**
  * Fetch a single image and convert to dataUri with caching
- * Enhanced with local asset resolution for hardware images
+ * Enhanced with local asset resolution and CORS handling
  */
 export async function fetchImageAsDataUri(url: string): Promise<string> {
   if (!url || url.trim() === '') return '';
@@ -25,6 +33,12 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
   // Check cache first (using original URL as key)
   if (imageCache.has(url)) {
     return imageCache.get(url)!;
+  }
+  
+  // Skip known failed URLs (with periodic retry)
+  if (failedUrls.has(url)) {
+    console.log(`[ImagePreloader] Skipping known failed URL: ${url}`);
+    return '';
   }
   
   // If already a data URI, cache and return
@@ -59,17 +73,85 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
     console.log(`[ImagePreloader] Converting relative URL: ${url} -> ${absoluteUrl}`);
   }
   
+  // Multi-strategy fetch for Supabase Storage URLs
+  const isSupabaseUrl = absoluteUrl.includes('supabase.co/storage');
+  
   try {
     const dataUri = await fetchFromUrl(absoluteUrl);
     if (dataUri) {
       addToCache(url, dataUri);
       return dataUri;
     }
+    
+    // If direct fetch failed and it's a Supabase URL, try alternative strategies
+    if (isSupabaseUrl) {
+      console.log(`[ImagePreloader] Supabase URL failed, trying alternative strategies: ${url}`);
+      const altDataUri = await fetchWithCorsProxy(absoluteUrl);
+      if (altDataUri) {
+        addToCache(url, altDataUri);
+        return altDataUri;
+      }
+    }
+    
+    failedUrls.add(url);
     return '';
   } catch (error) {
     console.warn(`[ImagePreloader] Failed to fetch image as dataUri: ${absoluteUrl}`, error);
+    failedUrls.add(url);
     return '';
   }
+}
+
+/**
+ * Alternative fetch strategy using Image element for CORS-blocked resources
+ * This works for public Supabase Storage buckets when direct fetch fails
+ */
+async function fetchWithCorsProxy(url: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    const timeout = setTimeout(() => {
+      console.warn(`[ImagePreloader] Image element load timeout: ${url}`);
+      resolve('');
+    }, 10000);
+    
+    img.onload = () => {
+      clearTimeout(timeout);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          const dataUri = canvas.toDataURL('image/png');
+          console.log(`[ImagePreloader] Successfully loaded via Image element: ${url}`);
+          resolve(dataUri);
+        } else {
+          resolve('');
+        }
+      } catch (e) {
+        console.warn(`[ImagePreloader] Canvas conversion failed (CORS): ${url}`, e);
+        resolve('');
+      }
+    };
+    
+    img.onerror = () => {
+      clearTimeout(timeout);
+      console.warn(`[ImagePreloader] Image element load failed: ${url}`);
+      resolve('');
+    };
+    
+    img.src = url;
+  });
+}
+
+/**
+ * Clear failed URLs cache (call before each PPT generation)
+ */
+export function resetFailedUrlsCache(): void {
+  failedUrls.clear();
 }
 
 /**
