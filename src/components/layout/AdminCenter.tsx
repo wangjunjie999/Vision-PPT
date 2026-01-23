@@ -13,9 +13,9 @@ export function AdminCenter() {
   const [activeTab, setActiveTab] = useState('cameras');
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <ScrollArea className="flex-1">
-        <div className="w-full max-w-6xl mx-auto p-6">
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <ScrollArea className="h-full">
+        <div className="w-full max-w-6xl mx-auto p-6 pb-12">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-foreground">管理中心</h1>
           <p className="text-muted-foreground mt-1">
