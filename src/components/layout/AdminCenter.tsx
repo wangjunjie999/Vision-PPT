@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Camera, CircleDot, Lightbulb, Monitor, FileText, Cog, CloudUpload } from 'lucide-react';
+import { Camera, CircleDot, Lightbulb, Monitor, FileText, Cog, CloudUpload, Database } from 'lucide-react';
 import { HardwareResourceManager } from '../admin/HardwareResourceManager';
 import { PPTTemplateManager } from '../admin/PPTTemplateManager';
 import { MechanismResourceManager } from '../admin/MechanismResourceManager';
 import { HardwareImageMigration } from '../admin/HardwareImageMigration';
+import { DataExportTool } from '../admin/DataExportTool';
+import { StorageMigrationTool } from '../admin/StorageMigrationTool';
 
 export function AdminCenter() {
   const [activeTab, setActiveTab] = useState('cameras');
@@ -20,7 +22,7 @@ export function AdminCenter() {
         </div>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-          <TabsList className="grid w-full max-w-4xl grid-cols-7">
+          <TabsList className="grid w-full max-w-5xl grid-cols-8">
             <TabsTrigger value="cameras" className="gap-2">
               <Camera className="h-4 w-4" />
               相机
@@ -45,9 +47,13 @@ export function AdminCenter() {
               <FileText className="h-4 w-4" />
               PPT母版
             </TabsTrigger>
-            <TabsTrigger value="migration" className="gap-2">
+            <TabsTrigger value="image-migration" className="gap-2">
               <CloudUpload className="h-4 w-4" />
               图片迁移
+            </TabsTrigger>
+            <TabsTrigger value="data-migration" className="gap-2">
+              <Database className="h-4 w-4" />
+              数据迁移
             </TabsTrigger>
           </TabsList>
           
@@ -70,8 +76,14 @@ export function AdminCenter() {
             <TabsContent value="templates">
               <PPTTemplateManager />
             </TabsContent>
-            <TabsContent value="migration">
+            <TabsContent value="image-migration">
               <HardwareImageMigration />
+            </TabsContent>
+            <TabsContent value="data-migration">
+              <div className="space-y-6">
+                <DataExportTool />
+                <StorageMigrationTool />
+              </div>
             </TabsContent>
           </div>
         </Tabs>
