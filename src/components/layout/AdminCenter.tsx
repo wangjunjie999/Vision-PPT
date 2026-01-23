@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Camera, CircleDot, Lightbulb, Monitor, FileText, Cog, CloudUpload, Database } from 'lucide-react';
 import { HardwareResourceManager } from '../admin/HardwareResourceManager';
 import { PPTTemplateManager } from '../admin/PPTTemplateManager';
@@ -12,8 +13,9 @@ export function AdminCenter() {
   const [activeTab, setActiveTab] = useState('cameras');
 
   return (
-    <div className="flex-1 flex overflow-hidden">
-      <div className="w-full max-w-6xl mx-auto p-6">
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <ScrollArea className="flex-1">
+        <div className="w-full max-w-6xl mx-auto p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-foreground">管理中心</h1>
           <p className="text-muted-foreground mt-1">
@@ -87,7 +89,8 @@ export function AdminCenter() {
             </TabsContent>
           </div>
         </Tabs>
-      </div>
+        </div>
+      </ScrollArea>
     </div>
   );
 }
