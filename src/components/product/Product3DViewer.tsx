@@ -481,9 +481,21 @@ export function Product3DViewer({
   const [tintKey, setTintKey] = useState<string>('original');
   const [renderMode, setRenderMode] = useState<RenderMode>('solid');
   const [backgroundKey, setBackgroundKey] = useState<BackgroundKey>('light');
+  const [paintMode, setPaintMode] = useState<'global' | 'part'>('global');
+  const [partTints, setPartTints] = useState<Record<string, string>>({});
+  const [activeBrush, setActiveBrush] = useState<string | null>(null);
 
   const tintHex = TINT_PRESETS.find((t) => t.key === tintKey)?.hex ?? null;
   const backgroundHex = BACKGROUND_PRESETS[backgroundKey].hex;
+
+  const handlePaintPart = useCallback((key: string) => {
+    setPartTints((prev) => {
+      if (!activeBrush) return prev;
+      return { ...prev, [key]: activeBrush };
+    });
+  }, [activeBrush]);
+
+  const clearPartTints = useCallback(() => setPartTints({}), []);
 
   const hasModel = !!modelUrl;
   const hasImages = imageUrls.length > 0;
