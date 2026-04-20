@@ -1,54 +1,25 @@
 
-目标：修复“3D 截图界面连续切换染色/模式后模型消失”的问题，并用更稳的渲染隔离方式避免再次出现。
 
-1. 先针对当前实现定位真正脆弱点
-- 重点检查 `src/components/product/Product3DViewer.tsx` 里的 `Model`：
-  - 现在是 `gltfScene.clone(true)` 后，再对同一份 `clonedScene` 的材质做“反复恢复 + 再修改”
-  - 这种做法对复杂 GLB（尤其带多材质、贴图、透明、线框、甚至骨骼网格）不够稳
-- 我会把问题按“材质增量修改导致状态污染”来处理，而不是继续在现有 WeakMap 恢复逻辑上打补丁
+## 问题根因
 
-2. 把模型外观切换改成“每次都从干净基线重建”
-- 不再对同一份显示中的 scene/material 反复改来改去
-- 改成：
-  - 从原始 GLB 建立一个“只读基线模型”
-  - 每次切换染色 / 实体 / 半透 / 线框时，重新生成一份新的 display scene
-  - 当前 화면里永远只挂载“这次状态生成出来的干净模型”
-- 这样可以彻底避免“切几次以后材质状态积累坏掉”
+`Model` 组件里的 fit 逻辑在 `displayScene` 变化时重跑（line 146-159），但它用 `setFromObject(modelRef.current)` 计算 box 时，group 上还残留着上一轮的 `scale`。`THREE.Box3.setFromObject` 算的是 world bounds（含 group 自身 scale），所以新一轮算出的 maxDim 已经是"被缩放后的尺寸"，再 `MODEL_TARGET_SIZE / maxDim` 就把 scale 越算越离谱，几次切换后模型缩成一个点。
 
-3. 升级 GLB 克隆方式，兼容更复杂模型
-- 把普通 `scene.clone(true)` 升级为更稳的克隆方案（优先考虑适配骨骼/复杂层级的克隆方式）
-- 目的不是做新功能，而是防止材质重新编译或显示模式切换后 mesh 丢失
+## 修复方案
 
-4. 收紧材质修改范围
-- 只改确实需要改的字段：
-  - 染色：`color`
-  - 线框：`wireframe`
-  - 半透：`transparent / opacity`
-- 避免对不必要字段做全量覆盖
-- 对贴图类材质做更谨慎处理，确保“原色”和“染色”切换不会把原贴图链路弄坏
+1. **fit 逻辑改成只跑一次**：依赖 `gltfScene`（原始模型）而不是 `displayScene`。颜色/模式切换不重算尺寸。
+2. **基于原始 scene 算 box**：用 `setFromObject(gltfScene)` 计算原始 bbox，避免 group transform 干扰。
+3. **放大默认显示**：`MODEL_TARGET_SIZE` 从 4 调到 6，相机初始距离同步收紧（`isometric` 从 [5,5,5] → [4,4,4]，`minDistance` 从 2 → 1.2），让模型默认填满更多画面。
+4. **保险措施**：fit 前先把 group 的 scale 重置到 1、position 归零，再计算 —— 确保 box 计算永远基于干净状态，即使未来逻辑变动也不会再累积。
 
-5. 增加资源清理，避免 WebGL 状态异常
-- 切换外观后，释放旧 display scene 上克隆出来的材质资源
-- 避免多次切换后 GPU / renderer 状态越来越脏，最终出现空白模型
+## 改动文件
 
-6. 保持交互不变
-- 保留现有：
-  - 视角按钮
-  - 背景切换
-  - 染色按钮
-  - 实体/半透/线框
-  - 截图并标注链路
-- 修复时不改用户操作方式，避免引入新的使用成本
+- `src/components/product/Product3DViewer.tsx`
+  - `MODEL_TARGET_SIZE`: 4 → 6
+  - `VIEW_PRESETS.isometric.position`: [5,5,5] → [4,4,4]，`front/side/top` 距离从 8 → 6
+  - `OrbitControls.minDistance`: 2 → 1.2
+  - `Model` 内 fit useEffect 重写：依赖改为 `[gltfScene, onLoaded]`，先重置 group transform 再 `setFromObject`
 
-7. 回归验证
-- 修复后重点验证这几组场景：
-  - 连续点击多种染色 10+ 次
-  - 染色 + 实体/半透/线框来回切换
-  - 切背景后再切颜色和模式
-  - 切完后立即截图并进入标注
-- 目标结果：模型始终可见，截图内容与当前显示一致
+## 不动的部分
 
-技术说明
-- 当前截图里 UI 还在、画布区域空白，说明不是工具栏问题，而是 3D 模型显示层出了问题
-- 最可疑的根因不是“按钮状态”，而是“同一份 Three.js scene/material 被反复增量修改后进入异常状态”
-- 最稳的修复策略是：不要在旧模型上叠加修改，而是每次外观切换都从干净源重新生成显示模型
+材质克隆/dispose、SkeletonUtils.clone、染色/模式/背景切换 UI 全部保留。截图链路、标注流程不变。
+
