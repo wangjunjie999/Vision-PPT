@@ -391,6 +391,10 @@ type CanvasInnerProps = {
   tintHex: string | null;
   renderMode: RenderMode;
   backgroundHex: string;
+  partTints: Record<string, string>;
+  paintMode: 'global' | 'part';
+  activeBrush: string | null;
+  onPaintPart: (key: string) => void;
 };
 
 function ProductViewerCanvasInner({
@@ -408,6 +412,10 @@ function ProductViewerCanvasInner({
   tintHex,
   renderMode,
   backgroundHex,
+  partTints,
+  paintMode,
+  activeBrush,
+  onPaintPart,
 }: CanvasInnerProps) {
   const controlsRef = useRef<any>(null);
 
@@ -431,6 +439,10 @@ function ProductViewerCanvasInner({
             onLoaded={() => setModelMounted(true)}
             tintHex={tintHex}
             renderMode={renderMode}
+            partTints={partTints}
+            paintMode={paintMode}
+            activeBrush={activeBrush}
+            onPaintPart={onPaintPart}
           />
         )}
         {!hasModel && hasImages && (
