@@ -32,7 +32,7 @@ interface Product3DViewerProps {
   preferredDisplayMode?: ProductViewerDisplayMode;
 }
 
-const MODEL_TARGET_SIZE = 4;
+const MODEL_TARGET_SIZE = 6;
 
 const BACKGROUND_PRESETS = {
   light: { hex: '#f3f4f6', name: '浅灰' },
@@ -60,10 +60,10 @@ const RENDER_MODE_PRESETS: { key: RenderMode; name: string }[] = [
 ];
 
 const VIEW_PRESETS = {
-  isometric: { position: [5, 5, 5] as [number, number, number], name: '等轴测' },
-  front: { position: [0, 0, 8] as [number, number, number], name: '正视' },
-  side: { position: [8, 0, 0] as [number, number, number], name: '侧视' },
-  top: { position: [0, 8, 0] as [number, number, number], name: '俯视' },
+  isometric: { position: [4, 4, 4] as [number, number, number], name: '等轴测' },
+  front: { position: [0, 0, 6] as [number, number, number], name: '正视' },
+  side: { position: [6, 0, 0] as [number, number, number], name: '侧视' },
+  top: { position: [0, 6, 0] as [number, number, number], name: '俯视' },
 };
 
 function Model({
@@ -143,10 +143,19 @@ function Model({
     };
   }, [displayScene]);
 
+  // Compute fit ONCE per source model. Do NOT depend on displayScene — re-running
+  // setFromObject on a group whose scale has already been mutated accumulates scale
+  // every appearance switch and shrinks the model to nothing.
   useEffect(() => {
-    if (!modelRef.current) return;
+    if (!modelRef.current || !gltfScene) return;
 
-    const box = new THREE.Box3().setFromObject(modelRef.current);
+    // Reset group transform first so prior runs cannot pollute the bbox calculation.
+    modelRef.current.scale.set(1, 1, 1);
+    modelRef.current.position.set(0, 0, 0);
+    modelRef.current.updateMatrixWorld(true);
+
+    // Measure the original GLTF scene (independent of our group transform).
+    const box = new THREE.Box3().setFromObject(gltfScene);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z, 0.001);
@@ -156,7 +165,7 @@ function Model({
     modelRef.current.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
     modelRef.current.updateMatrixWorld(true);
     onLoaded?.();
-  }, [displayScene, onLoaded]);
+  }, [gltfScene, onLoaded]);
 
   return (
     <group ref={modelRef}>
@@ -246,7 +255,7 @@ function CameraController({
       ref={controlsRef}
       enableDamping
       dampingFactor={0.1}
-      minDistance={2}
+      minDistance={1.2}
       maxDistance={20}
       mouseButtons={{
         LEFT: spaceHeld ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
