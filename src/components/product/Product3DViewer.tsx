@@ -71,11 +71,19 @@ function Model({
   onLoaded,
   tintHex,
   renderMode,
+  partTints,
+  paintMode,
+  activeBrush,
+  onPaintPart,
 }: {
   url: string;
   onLoaded?: () => void;
   tintHex: string | null;
   renderMode: RenderMode;
+  partTints: Record<string, string>;
+  paintMode: 'global' | 'part';
+  activeBrush: string | null;
+  onPaintPart: (key: string) => void;
 }) {
   const { scene: gltfScene } = useGLTF(url, true, true, (loader) => {
     loader.setCrossOrigin('anonymous');
