@@ -143,10 +143,19 @@ function Model({
     };
   }, [displayScene]);
 
+  // Compute fit ONCE per source model. Do NOT depend on displayScene — re-running
+  // setFromObject on a group whose scale has already been mutated accumulates scale
+  // every appearance switch and shrinks the model to nothing.
   useEffect(() => {
-    if (!modelRef.current) return;
+    if (!modelRef.current || !gltfScene) return;
 
-    const box = new THREE.Box3().setFromObject(modelRef.current);
+    // Reset group transform first so prior runs cannot pollute the bbox calculation.
+    modelRef.current.scale.set(1, 1, 1);
+    modelRef.current.position.set(0, 0, 0);
+    modelRef.current.updateMatrixWorld(true);
+
+    // Measure the original GLTF scene (independent of our group transform).
+    const box = new THREE.Box3().setFromObject(gltfScene);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z, 0.001);
@@ -156,7 +165,7 @@ function Model({
     modelRef.current.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
     modelRef.current.updateMatrixWorld(true);
     onLoaded?.();
-  }, [displayScene, onLoaded]);
+  }, [gltfScene, onLoaded]);
 
   return (
     <group ref={modelRef}>
