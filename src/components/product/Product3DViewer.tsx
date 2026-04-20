@@ -71,28 +71,52 @@ function Model({
   onLoaded,
   tintHex,
   renderMode,
+  partTints,
+  paintMode,
+  activeBrush,
+  onPaintPart,
 }: {
   url: string;
   onLoaded?: () => void;
   tintHex: string | null;
   renderMode: RenderMode;
+  partTints: Record<string, string>;
+  paintMode: 'global' | 'part';
+  activeBrush: string | null;
+  onPaintPart: (key: string) => void;
 }) {
   const { scene: gltfScene } = useGLTF(url, true, true, (loader) => {
     loader.setCrossOrigin('anonymous');
   });
   const modelRef = useRef<THREE.Group>(null);
 
+  // Stable per-mesh key: prefer name, fall back to deterministic path index.
+  const meshKeyOf = useCallback((mesh: THREE.Mesh, fallbackIndex: number) => {
+    return mesh.name && mesh.name.length > 0 ? `name:${mesh.name}` : `idx:${fallbackIndex}`;
+  }, []);
+
   // Rebuild a fresh display scene from a clean baseline whenever appearance changes.
   // This avoids accumulated state pollution from repeated incremental material mutations.
   const displayScene = useMemo(() => {
     const fresh = SkeletonUtils.clone(gltfScene) as THREE.Object3D;
+    let meshIndex = 0;
     fresh.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = true;
       child.receiveShadow = true;
 
+      const partKey = meshKeyOf(child, meshIndex);
+      meshIndex += 1;
+      // Tag the mesh so pointer events can recover the key.
+      child.userData.__partKey = partKey;
+
+      // Determine effective tint for this mesh:
+      // - Part mode: only override if this mesh has an entry in partTints
+      // - Global mode: apply the global tintHex to every mesh (if any)
+      const partOverride = partTints[partKey];
+      const effectiveTint = paintMode === 'part' ? partOverride ?? null : tintHex;
+
       const applyToMaterial = (origMat: THREE.Material): THREE.Material => {
-        // Deep-clone material so we never touch the cached GLTF material
         const mat = origMat.clone();
         const anyMat = mat as THREE.Material & {
           color?: THREE.Color;
@@ -103,13 +127,11 @@ function Model({
           needsUpdate?: boolean;
         };
 
-        // Tint: override color and drop the base color map so tint is visible
-        if (tintHex && anyMat.color) {
-          anyMat.color = new THREE.Color(tintHex);
+        if (effectiveTint && anyMat.color) {
+          anyMat.color = new THREE.Color(effectiveTint);
           if ('map' in anyMat) anyMat.map = null;
         }
 
-        // Render mode
         if ('wireframe' in anyMat) {
           anyMat.wireframe = renderMode === 'wireframe';
         }
@@ -130,7 +152,7 @@ function Model({
       }
     });
     return fresh;
-  }, [gltfScene, tintHex, renderMode]);
+  }, [gltfScene, tintHex, renderMode, partTints, paintMode, meshKeyOf]);
 
   // Dispose previously cloned materials when displayScene changes / unmounts
   useEffect(() => {
@@ -143,18 +165,13 @@ function Model({
     };
   }, [displayScene]);
 
-  // Compute fit ONCE per source model. Do NOT depend on displayScene — re-running
-  // setFromObject on a group whose scale has already been mutated accumulates scale
-  // every appearance switch and shrinks the model to nothing.
+  // Compute fit ONCE per source model.
   useEffect(() => {
     if (!modelRef.current || !gltfScene) return;
-
-    // Reset group transform first so prior runs cannot pollute the bbox calculation.
     modelRef.current.scale.set(1, 1, 1);
     modelRef.current.position.set(0, 0, 0);
     modelRef.current.updateMatrixWorld(true);
 
-    // Measure the original GLTF scene (independent of our group transform).
     const box = new THREE.Box3().setFromObject(gltfScene);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -167,8 +184,21 @@ function Model({
     onLoaded?.();
   }, [gltfScene, onLoaded]);
 
+  const handlePointerDown = useCallback(
+    (e: any) => {
+      if (paintMode !== 'part' || !activeBrush) return;
+      const obj = e.object as THREE.Object3D | undefined;
+      if (!obj || !(obj instanceof THREE.Mesh)) return;
+      const key = obj.userData?.__partKey as string | undefined;
+      if (!key) return;
+      e.stopPropagation();
+      onPaintPart(key);
+    },
+    [paintMode, activeBrush, onPaintPart]
+  );
+
   return (
-    <group ref={modelRef}>
+    <group ref={modelRef} onPointerDown={handlePointerDown}>
       <primitive object={displayScene} />
     </group>
   );
@@ -361,6 +391,10 @@ type CanvasInnerProps = {
   tintHex: string | null;
   renderMode: RenderMode;
   backgroundHex: string;
+  partTints: Record<string, string>;
+  paintMode: 'global' | 'part';
+  activeBrush: string | null;
+  onPaintPart: (key: string) => void;
 };
 
 function ProductViewerCanvasInner({
@@ -378,6 +412,10 @@ function ProductViewerCanvasInner({
   tintHex,
   renderMode,
   backgroundHex,
+  partTints,
+  paintMode,
+  activeBrush,
+  onPaintPart,
 }: CanvasInnerProps) {
   const controlsRef = useRef<any>(null);
 
@@ -401,6 +439,10 @@ function ProductViewerCanvasInner({
             onLoaded={() => setModelMounted(true)}
             tintHex={tintHex}
             renderMode={renderMode}
+            partTints={partTints}
+            paintMode={paintMode}
+            activeBrush={activeBrush}
+            onPaintPart={onPaintPart}
           />
         )}
         {!hasModel && hasImages && (
@@ -439,9 +481,21 @@ export function Product3DViewer({
   const [tintKey, setTintKey] = useState<string>('original');
   const [renderMode, setRenderMode] = useState<RenderMode>('solid');
   const [backgroundKey, setBackgroundKey] = useState<BackgroundKey>('light');
+  const [paintMode, setPaintMode] = useState<'global' | 'part'>('global');
+  const [partTints, setPartTints] = useState<Record<string, string>>({});
+  const [activeBrush, setActiveBrush] = useState<string | null>(null);
 
   const tintHex = TINT_PRESETS.find((t) => t.key === tintKey)?.hex ?? null;
   const backgroundHex = BACKGROUND_PRESETS[backgroundKey].hex;
+
+  const handlePaintPart = useCallback((key: string) => {
+    setPartTints((prev) => {
+      if (!activeBrush) return prev;
+      return { ...prev, [key]: activeBrush };
+    });
+  }, [activeBrush]);
+
+  const clearPartTints = useCallback(() => setPartTints({}), []);
 
   const hasModel = !!modelUrl;
   const hasImages = imageUrls.length > 0;
@@ -630,6 +684,63 @@ export function Product3DViewer({
             </div>
           </div>
         )}
+
+        {/* Row 3: Paint mode (part-by-part coloring) */}
+        {isModelMode && hasSupportedModel && (
+          <div className="flex gap-3 justify-center flex-wrap items-center text-xs">
+            <div className="flex items-center gap-1">
+              <span className="text-muted-foreground">染色模式</span>
+              <Button
+                variant={paintMode === 'global' ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-6 px-2"
+                onClick={() => { setPaintMode('global'); setActiveBrush(null); }}
+              >
+                整体
+              </Button>
+              <Button
+                variant={paintMode === 'part' ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-6 px-2"
+                onClick={() => setPaintMode('part')}
+              >
+                局部
+              </Button>
+            </div>
+            {paintMode === 'part' && (
+              <>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">画笔</span>
+                  {TINT_PRESETS.filter((p) => p.hex).map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => setActiveBrush(preset.hex)}
+                      title={preset.name}
+                      className={cn(
+                        'h-5 w-5 rounded border transition-all',
+                        activeBrush === preset.hex ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
+                      )}
+                      style={{ background: preset.hex ?? 'transparent' }}
+                    />
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-6 px-2"
+                  onClick={clearPartTints}
+                  disabled={Object.keys(partTints).length === 0}
+                >
+                  清空局部染色
+                </Button>
+                <span className="text-muted-foreground">
+                  {activeBrush ? '点击模型零件上色' : '请先选择画笔颜色'}
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div
@@ -637,6 +748,7 @@ export function Product3DViewer({
           'relative bg-gradient-to-b from-background to-muted overflow-hidden border',
           fillContainer ? 'flex-1 min-h-0' : 'aspect-video rounded-lg'
         )}
+        style={paintMode === 'part' && activeBrush ? { cursor: 'crosshair' } : undefined}
       >
         <Canvas
           gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
@@ -662,6 +774,10 @@ export function Product3DViewer({
             tintHex={tintHex}
             renderMode={renderMode}
             backgroundHex={backgroundHex}
+            partTints={partTints}
+            paintMode={paintMode}
+            activeBrush={activeBrush}
+            onPaintPart={handlePaintPart}
           />
         </Canvas>
 
