@@ -34,7 +34,21 @@ export async function uploadGLBFile(
       return null;
     }
 
-    const fileName = `${user.id}/${folder}/${Date.now()}-${file.name}`;
+    // Sanitize filename: Supabase storage object keys must be ASCII-safe.
+    // Strip/replace non-ASCII (CJK, accents, etc.) and any chars outside [A-Za-z0-9._-].
+    const rawName = file.name;
+    const dotIdx = rawName.lastIndexOf('.');
+    const baseRaw = dotIdx > 0 ? rawName.slice(0, dotIdx) : rawName;
+    const extRaw = dotIdx > 0 ? rawName.slice(dotIdx + 1) : 'glb';
+    const safeBase = baseRaw
+      .normalize('NFKD')
+      .replace(/[^\x20-\x7E]/g, '') // drop non-ASCII
+      .replace(/[^A-Za-z0-9._-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || 'model';
+    const safeExt = extRaw.toLowerCase().replace(/[^a-z0-9]/g, '') || 'glb';
+    const safeName = `${safeBase}.${safeExt}`;
+    const fileName = `${user.id}/${folder}/${Date.now()}-${safeName}`;
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(fileName, file, {
