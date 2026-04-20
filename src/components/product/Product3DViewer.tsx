@@ -255,7 +255,7 @@ function CameraController({
       ref={controlsRef}
       enableDamping
       dampingFactor={0.1}
-      minDistance={2}
+      minDistance={1.2}
       maxDistance={20}
       mouseButtons={{
         LEFT: spaceHeld ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
