@@ -60,10 +60,10 @@ const RENDER_MODE_PRESETS: { key: RenderMode; name: string }[] = [
 ];
 
 const VIEW_PRESETS = {
-  isometric: { position: [5, 5, 5] as [number, number, number], name: '等轴测' },
-  front: { position: [0, 0, 8] as [number, number, number], name: '正视' },
-  side: { position: [8, 0, 0] as [number, number, number], name: '侧视' },
-  top: { position: [0, 8, 0] as [number, number, number], name: '俯视' },
+  isometric: { position: [4, 4, 4] as [number, number, number], name: '等轴测' },
+  front: { position: [0, 0, 6] as [number, number, number], name: '正视' },
+  side: { position: [6, 0, 0] as [number, number, number], name: '侧视' },
+  top: { position: [0, 6, 0] as [number, number, number], name: '俯视' },
 };
 
 function Model({
