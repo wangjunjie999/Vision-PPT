@@ -32,7 +32,7 @@ interface Product3DViewerProps {
   preferredDisplayMode?: ProductViewerDisplayMode;
 }
 
-const MODEL_TARGET_SIZE = 4;
+const MODEL_TARGET_SIZE = 6;
 
 const BACKGROUND_PRESETS = {
   light: { hex: '#f3f4f6', name: '浅灰' },
