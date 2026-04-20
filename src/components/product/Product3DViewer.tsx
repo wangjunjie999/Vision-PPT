@@ -90,27 +90,6 @@ function Model({
   });
   const modelRef = useRef<THREE.Group>(null);
 
-  // Rebuild a fresh display scene from a clean baseline whenever appearance changes.
-  // This avoids accumulated state pollution from repeated incremental material mutations.
-  const displayScene = useMemo(() => {
-    const fresh = SkeletonUtils.clone(gltfScene) as THREE.Object3D;
-    fresh.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      child.castShadow = true;
-      child.receiveShadow = true;
-
-      const applyToMaterial = (origMat: THREE.Material): THREE.Material => {
-        // Deep-clone material so we never touch the cached GLTF material
-        const mat = origMat.clone();
-        const anyMat = mat as THREE.Material & {
-          color?: THREE.Color;
-          map?: THREE.Texture | null;
-          wireframe?: boolean;
-          transparent?: boolean;
-          opacity?: number;
-          needsUpdate?: boolean;
-        };
-
   // Stable per-mesh key: prefer name, fall back to deterministic path index.
   const meshKeyOf = useCallback((mesh: THREE.Mesh, fallbackIndex: number) => {
     return mesh.name && mesh.name.length > 0 ? `name:${mesh.name}` : `idx:${fallbackIndex}`;
