@@ -684,6 +684,63 @@ export function Product3DViewer({
             </div>
           </div>
         )}
+
+        {/* Row 3: Paint mode (part-by-part coloring) */}
+        {isModelMode && hasSupportedModel && (
+          <div className="flex gap-3 justify-center flex-wrap items-center text-xs">
+            <div className="flex items-center gap-1">
+              <span className="text-muted-foreground">染色模式</span>
+              <Button
+                variant={paintMode === 'global' ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-6 px-2"
+                onClick={() => { setPaintMode('global'); setActiveBrush(null); }}
+              >
+                整体
+              </Button>
+              <Button
+                variant={paintMode === 'part' ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-6 px-2"
+                onClick={() => setPaintMode('part')}
+              >
+                局部
+              </Button>
+            </div>
+            {paintMode === 'part' && (
+              <>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">画笔</span>
+                  {TINT_PRESETS.filter((p) => p.hex).map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => setActiveBrush(preset.hex)}
+                      title={preset.name}
+                      className={cn(
+                        'h-5 w-5 rounded border transition-all',
+                        activeBrush === preset.hex ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
+                      )}
+                      style={{ background: preset.hex ?? 'transparent' }}
+                    />
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-6 px-2"
+                  onClick={clearPartTints}
+                  disabled={Object.keys(partTints).length === 0}
+                >
+                  清空局部染色
+                </Button>
+                <span className="text-muted-foreground">
+                  {activeBrush ? '点击模型零件上色' : '请先选择画笔颜色'}
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div
