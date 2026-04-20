@@ -748,6 +748,7 @@ export function Product3DViewer({
           'relative bg-gradient-to-b from-background to-muted overflow-hidden border',
           fillContainer ? 'flex-1 min-h-0' : 'aspect-video rounded-lg'
         )}
+        style={paintMode === 'part' && activeBrush ? { cursor: 'crosshair' } : undefined}
       >
         <Canvas
           gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
@@ -773,6 +774,10 @@ export function Product3DViewer({
             tintHex={tintHex}
             renderMode={renderMode}
             backgroundHex={backgroundHex}
+            partTints={partTints}
+            paintMode={paintMode}
+            activeBrush={activeBrush}
+            onPaintPart={handlePaintPart}
           />
         </Canvas>
 
