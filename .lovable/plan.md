@@ -1,25 +1,63 @@
 
+用户上传 `ER220-2650_外部模型.glb`（机器人手臂模型）失败，需要排查原因并修复。
 
-## 问题根因
+## 排查方向
 
-`Model` 组件里的 fit 逻辑在 `displayScene` 变化时重跑（line 146-159），但它用 `setFromObject(modelRef.current)` 计算 box 时，group 上还残留着上一轮的 `scale`。`THREE.Box3.setFromObject` 算的是 world bounds（含 group 自身 scale），所以新一轮算出的 maxDim 已经是"被缩放后的尺寸"，再 `MODEL_TARGET_SIZE / maxDim` 就把 scale 越算越离谱，几次切换后模型缩成一个点。
+文件大小是首要怀疑点。看 `src/utils/glbUpload.ts`：
+- 客户端限制：`MAX_SIZE_MB = 50`
+- Supabase storage 桶 `3d-models` 是 public，但桶本身也有 file size limit（默认 50MB，但项目可能配置不同）
 
-## 修复方案
+但还有一个更关键的限制：**Supabase storage 默认单文件上传上限**。如果文件超 50MB，客户端 `validate3DModelFile` 就会先报错"模型文件大小不能超过 50MB"。
 
-1. **fit 逻辑改成只跑一次**：依赖 `gltfScene`（原始模型）而不是 `displayScene`。颜色/模式切换不重算尺寸。
-2. **基于原始 scene 算 box**：用 `setFromObject(gltfScene)` 计算原始 bbox，避免 group transform 干扰。
-3. **放大默认显示**：`MODEL_TARGET_SIZE` 从 4 调到 6，相机初始距离同步收紧（`isometric` 从 [5,5,5] → [4,4,4]，`minDistance` 从 2 → 1.2），让模型默认填满更多画面。
-4. **保险措施**：fit 前先把 group 的 scale 重置到 1、position 归零，再计算 —— 确保 box 计算永远基于干净状态，即使未来逻辑变动也不会再累积。
+让我先确认文件实际大小，然后看完整上传链路。
 
-## 改动文件
+## 需要确认
 
-- `src/components/product/Product3DViewer.tsx`
-  - `MODEL_TARGET_SIZE`: 4 → 6
-  - `VIEW_PRESETS.isometric.position`: [5,5,5] → [4,4,4]，`front/side/top` 距离从 8 → 6
-  - `OrbitControls.minDistance`: 2 → 1.2
-  - `Model` 内 fit useEffect 重写：依赖改为 `[gltfScene, onLoaded]`，先重置 group transform 再 `setFromObject`
+1. 这个 GLB 文件实际多大？（用 exec ls -lh 查看）
+2. 走的是哪条上传路径？项目里有几个地方上传 GLB：
+   - `src/utils/glbUpload.ts` → bucket `3d-models`，限 50MB
+   - `src/components/canvas/RobotArmGLBExporter.tsx`
+   - 硬件资源管理器 `HardwareResourceManager.tsx` / `MechanismResourceManager.tsx`
+3. Supabase 桶 `3d-models` / `product-models` 的 `file_size_limit` 实际配置是多少？
+4. 上传时控制台报什么错？（网络 413 / storage policy / 客户端校验）
 
-## 不动的部分
+## 修复策略（待确认大小后细化）
 
-材质克隆/dispose、SkeletonUtils.clone、染色/模式/背景切换 UI 全部保留。截图链路、标注流程不变。
+**情况 A：文件 ≤ 50MB**
+- 大概率是 storage 桶的 `file_size_limit` 设得比客户端低，或 RLS policy 拒绝
+- 修复：迁移调整桶的 `file_size_limit` 到 100MB；检查/补全 storage RLS policy
 
+**情况 B：文件 > 50MB（很可能，机器人手臂外部模型常 60-150MB）**
+- 客户端校验直接拒绝，根本没发请求
+- 修复：
+  1. 把 `MAX_SIZE_MB` 提到 150MB（`glbUpload.ts` + `validate3DModelFile`）
+  2. 桶 `file_size_limit` 同步提到 150MB（SQL 迁移 update storage.buckets）
+  3. 上传前给提示："大文件上传中，预计需要 X 秒"
+  4. 加上传进度条（用 `XMLHttpRequest` 替代 fetch，或用 supabase-js 的 `onUploadProgress`，目前 supabase-js v2 不直接支持，需要 resumable upload TUS 协议处理超大文件）
+
+**情况 C：超过 100MB**
+- 切换到 Supabase 的 resumable upload（TUS 协议），分块上传
+- 这块 supabase-js 已内置 `uploadToSignedUrl` 和 resumable，但需要改写上传逻辑
+
+## 计划步骤
+
+1. **测试**：copy 文件到 /tmp 看实际大小，确认是哪种情况
+2. **客户端**：调高 `MAX_SIZE_MB` 限制（`glbUpload.ts`、`fileValidation.ts` 的 `validate3DModelFile`、`RobotArmGLBExporter.tsx` 等所有 GLB 上传点统一）
+3. **服务端**：写 SQL migration 调整 `3d-models`、`product-models` 桶的 `file_size_limit`
+4. **如果 >50MB 显著**：上传逻辑改用 resumable upload，加进度提示
+5. **复测**：重新上传该文件确认成功
+
+## 改动范围（预估）
+
+- `src/utils/fileValidation.ts`：`validate3DModelFile` 默认 maxSize 50→150MB
+- `src/utils/glbUpload.ts`：`MAX_SIZE_MB` 50→150；可选改为 resumable upload
+- 其他 GLB 上传调用点：统一传新 maxSize
+- 新 SQL 迁移：`update storage.buckets set file_size_limit = 157286400 where id in ('3d-models','product-models');`
+- 不动：标注流程、3D 截图、染色逻辑
+
+## 风险
+
+- 桶限额提高后，超大文件占用 storage 配额
+- 浏览器内存：100MB+ GLB 加载到 Three.js 可能卡顿，但这是显示性能问题，不阻塞上传
+
+请确认按此方向修复。我会先测试文件大小，再依据结果调整方案。
