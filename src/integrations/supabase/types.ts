@@ -313,6 +313,7 @@ export type Database = {
           roi_strategy: string | null
           rotation: number | null
           schematic_image_url: string | null
+          schematic_layout: Json | null
           selected_camera: string | null
           selected_controller: string | null
           selected_lens: string | null
@@ -346,6 +347,7 @@ export type Database = {
           roi_strategy?: string | null
           rotation?: number | null
           schematic_image_url?: string | null
+          schematic_layout?: Json | null
           selected_camera?: string | null
           selected_controller?: string | null
           selected_lens?: string | null
@@ -379,6 +381,7 @@ export type Database = {
           roi_strategy?: string | null
           rotation?: number | null
           schematic_image_url?: string | null
+          schematic_layout?: Json | null
           selected_camera?: string | null
           selected_controller?: string | null
           selected_lens?: string | null
