@@ -380,6 +380,7 @@ export function WorkstationForm() {
         shot_count: wsForm.shot_count ? parseInt(wsForm.shot_count) : null,
         action_script: wsForm.action_script || null,
         risk_notes: wsForm.risk_notes || null,
+        notes: wsForm.notes || null,
         status: 'incomplete' 
       } as any);
       
