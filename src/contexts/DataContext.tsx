@@ -415,7 +415,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // Helpers
   const getProjectWorkstations = useCallback((projectId: string) => {
-    return workstations.filter(ws => ws.project_id === projectId);
+    const filtered = workstations.filter(ws => ws.project_id === projectId);
+    return sortByCode(filtered as any) as typeof filtered;
   }, [workstations]);
 
   const getWorkstationModules = useCallback((workstationId: string) => {
