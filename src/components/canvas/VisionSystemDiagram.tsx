@@ -94,13 +94,22 @@ function HardwareSelectPopover({ type, items, selectedId, onSelect, children, di
 function useSvgDrag(
   svgRef: React.RefObject<SVGSVGElement | null>,
   initial: { x: number; y: number },
-  enabled: boolean
+  enabled: boolean,
+  controlled?: { value: { x: number; y: number }; onChange: (p: { x: number; y: number }) => void }
 ) {
-  const [pos, setPos] = useState(initial);
+  const [internalPos, setInternalPos] = useState(initial);
+  const pos = controlled ? controlled.value : internalPos;
+  const setPos = (p: { x: number; y: number }) => {
+    if (controlled) controlled.onChange(p);
+    else setInternalPos(p);
+  };
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
 
-  useEffect(() => { setPos(initial); }, [initial.x, initial.y]);
+  useEffect(() => {
+    if (!controlled) setInternalPos(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial.x, initial.y]);
 
   const toSvgCoords = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -157,6 +166,15 @@ interface VisionSystemDiagramProps {
   moduleType?: string;
   interactive?: boolean;
   className?: string;
+  // Controlled positions (optional). When provided, drag updates call onChange instead of internal state.
+  cameraPos?: { x: number; y: number };
+  lightPos?: { x: number; y: number };
+  cameraRotation?: number;
+  lightRotation?: number;
+  onCameraPosChange?: (p: { x: number; y: number }) => void;
+  onLightPosChange?: (p: { x: number; y: number }) => void;
+  onCameraRotationChange?: (r: number) => void;
+  onLightRotationChange?: (r: number) => void;
 }
 
 // ─── SVG hardware shape renderers ───
@@ -608,7 +626,10 @@ export function VisionSystemDiagram({
   lightDistance = 335, fovAngle = 45,
   onFovAngleChange, onLightDistanceChange,
   roiStrategy = 'full', moduleType = 'defect',
-  interactive = true, className
+  interactive = true, className,
+  cameraPos, lightPos, cameraRotation, lightRotation,
+  onCameraPosChange, onLightPosChange,
+  onCameraRotationChange, onLightRotationChange,
 }: VisionSystemDiagramProps) {
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -617,13 +638,33 @@ export function VisionSystemDiagram({
   const productY = 420;
   const productCenterX = 275;
 
-  // Draggable positions
-  const camLensDrag = useSvgDrag(svgRef, { x: 275, y: 77 }, interactive);
-  const lightDrag = useSvgDrag(svgRef, { x: 275, y: 231 }, interactive);
+  // Draggable positions (controlled if cameraPos/lightPos supplied)
+  const camLensDrag = useSvgDrag(
+    svgRef,
+    { x: 275, y: 77 },
+    interactive,
+    cameraPos && onCameraPosChange ? { value: cameraPos, onChange: onCameraPosChange } : undefined
+  );
+  const lightDrag = useSvgDrag(
+    svgRef,
+    { x: 275, y: 231 },
+    interactive,
+    lightPos && onLightPosChange ? { value: lightPos, onChange: onLightPosChange } : undefined
+  );
 
-  // Rotation angles
-  const [camRotation, setCamRotation] = useState(0);
-  const [lightRotation, setLightRotation] = useState(0);
+  // Rotation angles (controlled if cameraRotation/lightRotation supplied)
+  const [internalCamRot, setInternalCamRot] = useState(0);
+  const [internalLightRot, setInternalLightRot] = useState(0);
+  const camRotation = cameraRotation !== undefined ? cameraRotation : internalCamRot;
+  const setCamRotation = (r: number) => {
+    if (onCameraRotationChange) onCameraRotationChange(r);
+    else setInternalCamRot(r);
+  };
+  const lightRotationVal = lightRotation !== undefined ? lightRotation : internalLightRot;
+  const setLightRotation = (r: number) => {
+    if (onLightRotationChange) onLightRotationChange(r);
+    else setInternalLightRot(r);
+  };
 
   // Derived measurements (rotation-aware)
   const rotRad = camRotation * Math.PI / 180;
@@ -886,7 +927,7 @@ export function VisionSystemDiagram({
 
         {/* ===== Light (draggable + rotatable) ===== */}
         <g
-          transform={`translate(${lightDrag.pos.x - 80}, ${lightDrag.pos.y - 16}) rotate(${lightRotation}, 80, 16)`}
+          transform={`translate(${lightDrag.pos.x - 80}, ${lightDrag.pos.y - 16}) rotate(${lightRotationVal}, 80, 16)`}
           style={{ cursor: interactive ? 'grab' : 'default' }}
           {...(interactive ? lightDrag.handlers : {})}
         >
@@ -919,7 +960,7 @@ export function VisionSystemDiagram({
         {interactive && (
           <RotationHandle
             cx={lightDrag.pos.x} cy={lightDrag.pos.y}
-            radius={50} angle={lightRotation}
+            radius={50} angle={lightRotationVal}
             onAngleChange={setLightRotation} enabled={interactive}
           />
         )}

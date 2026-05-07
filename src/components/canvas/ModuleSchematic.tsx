@@ -73,6 +73,12 @@ export function ModuleSchematic() {
   const [schematicSaved, setSchematicSaved] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
 
+  // Schematic layout (camera/light position + rotation) — persisted to module.schematic_layout
+  const [cameraPos, setCameraPos] = useState({ x: 275, y: 77 });
+  const [lightPos, setLightPos] = useState({ x: 275, y: 231 });
+  const [cameraRotation, setCameraRotation] = useState(0);
+  const [lightRotation, setLightRotation] = useState(0);
+
   // Resolve function ref for async capture flow
   const captureResolveRef = useRef<((dataUrl: string) => void) | null>(null);
   const captureRejectRef = useRef<((err: Error) => void) | null>(null);
@@ -122,6 +128,49 @@ export function ModuleSchematic() {
   const module = modules.find(m => m.id === selectedModuleId) as any;
   const workstation = workstations.find(w => w.id === selectedWorkstationId) as any;
   const layout = layouts.find(l => l.workstation_id === selectedWorkstationId) as any;
+
+  // Load saved schematic layout when module changes
+  useEffect(() => {
+    if (!module) return;
+    const saved = module.schematic_layout;
+    if (saved && typeof saved === 'object') {
+      if (saved.camera) setCameraPos({ x: saved.camera.x ?? 275, y: saved.camera.y ?? 77 });
+      if (saved.light) setLightPos({ x: saved.light.x ?? 275, y: saved.light.y ?? 231 });
+      if (typeof saved.cameraRotation === 'number') setCameraRotation(saved.cameraRotation);
+      if (typeof saved.lightRotation === 'number') setLightRotation(saved.lightRotation);
+      if (typeof saved.fovAngle === 'number') setFovAngle(saved.fovAngle);
+      if (typeof saved.lightDistance === 'number') setLightDistance(saved.lightDistance);
+    } else {
+      setCameraPos({ x: 275, y: 77 });
+      setLightPos({ x: 275, y: 231 });
+      setCameraRotation(0);
+      setLightRotation(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module?.id]);
+
+  // Debounced persistence of layout changes
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!module) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      updateModule(module.id, {
+        schematic_layout: {
+          camera: cameraPos,
+          light: lightPos,
+          cameraRotation,
+          lightRotation,
+          fovAngle,
+          lightDistance,
+        },
+      } as any).catch((err) => console.warn('Failed to persist schematic layout:', err));
+    }, 600);
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraPos.x, cameraPos.y, lightPos.x, lightPos.y, cameraRotation, lightRotation, fovAngle, lightDistance, module?.id]);
 
   // All hooks must be above early returns
   const handleCameraSelect = useCallback((cameraId: string) => {
@@ -385,6 +434,14 @@ export function ModuleSchematic() {
                 roiStrategy={module.roi_strategy || 'full'}
                 moduleType={module.type || 'positioning'}
                 interactive={true}
+                cameraPos={cameraPos}
+                lightPos={lightPos}
+                cameraRotation={cameraRotation}
+                lightRotation={lightRotation}
+                onCameraPosChange={setCameraPos}
+                onLightPosChange={setLightPos}
+                onCameraRotationChange={setCameraRotation}
+                onLightRotationChange={setLightRotation}
                 className="w-full h-full"
               />
 
@@ -451,6 +508,10 @@ export function ModuleSchematic() {
             roiStrategy={module.roi_strategy || 'full'}
             moduleType={module.type || 'positioning'}
             interactive={false}
+            cameraPos={cameraPos}
+            lightPos={lightPos}
+            cameraRotation={cameraRotation}
+            lightRotation={lightRotation}
             className="vision-diagram-container w-full h-full"
           />
         </div>

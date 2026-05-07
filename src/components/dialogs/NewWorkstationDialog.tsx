@@ -19,11 +19,20 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
   const generateWorkstationCode = () => {
     if (!projectId) return '';
     const project = projects.find(p => p.id === projectId);
-    if (!project) return '';
-    
+    if (!project || !project.code) return '';
+
     const existingWorkstations = getProjectWorkstations(projectId);
-    const nextIndex = existingWorkstations.length + 1;
-    return `${project.code}.${String(nextIndex).padStart(2, '0')}`;
+    // Find max existing .NN suffix matching this project's code
+    const prefix = `${project.code}.`;
+    let maxN = 0;
+    for (const ws of existingWorkstations) {
+      const code = ws.code || '';
+      if (code.startsWith(prefix)) {
+        const n = parseInt(code.slice(prefix.length), 10);
+        if (!isNaN(n) && n > maxN) maxN = n;
+      }
+    }
+    return `${project.code}.${String(maxN + 1).padStart(2, '0')}`;
   };
   
   // Auto-generate code when dialog opens externally or projectId changes
@@ -104,7 +113,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
               <Input 
                 value={form.code} 
                 onChange={e => setForm(p => ({ ...p, code: e.target.value }))} 
-                placeholder="WS-XX" 
+                placeholder="DB260101.01"
                 className="h-9"
               />
             </div>

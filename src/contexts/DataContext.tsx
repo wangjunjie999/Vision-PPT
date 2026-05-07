@@ -4,6 +4,7 @@ import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { offlineCache } from '@/services/offlineCache';
+import { sortByCode } from '@/utils/sortByCode';
 
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
@@ -415,7 +416,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // Helpers
   const getProjectWorkstations = useCallback((projectId: string) => {
-    return workstations.filter(ws => ws.project_id === projectId);
+    const filtered = workstations.filter(ws => ws.project_id === projectId);
+    return sortByCode(filtered as any) as typeof filtered;
   }, [workstations]);
 
   const getWorkstationModules = useCallback((workstationId: string) => {
