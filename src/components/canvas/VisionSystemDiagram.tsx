@@ -626,7 +626,10 @@ export function VisionSystemDiagram({
   lightDistance = 335, fovAngle = 45,
   onFovAngleChange, onLightDistanceChange,
   roiStrategy = 'full', moduleType = 'defect',
-  interactive = true, className
+  interactive = true, className,
+  cameraPos, lightPos, cameraRotation, lightRotation,
+  onCameraPosChange, onLightPosChange,
+  onCameraRotationChange, onLightRotationChange,
 }: VisionSystemDiagramProps) {
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -635,13 +638,33 @@ export function VisionSystemDiagram({
   const productY = 420;
   const productCenterX = 275;
 
-  // Draggable positions
-  const camLensDrag = useSvgDrag(svgRef, { x: 275, y: 77 }, interactive);
-  const lightDrag = useSvgDrag(svgRef, { x: 275, y: 231 }, interactive);
+  // Draggable positions (controlled if cameraPos/lightPos supplied)
+  const camLensDrag = useSvgDrag(
+    svgRef,
+    { x: 275, y: 77 },
+    interactive,
+    cameraPos && onCameraPosChange ? { value: cameraPos, onChange: onCameraPosChange } : undefined
+  );
+  const lightDrag = useSvgDrag(
+    svgRef,
+    { x: 275, y: 231 },
+    interactive,
+    lightPos && onLightPosChange ? { value: lightPos, onChange: onLightPosChange } : undefined
+  );
 
-  // Rotation angles
-  const [camRotation, setCamRotation] = useState(0);
-  const [lightRotation, setLightRotation] = useState(0);
+  // Rotation angles (controlled if cameraRotation/lightRotation supplied)
+  const [internalCamRot, setInternalCamRot] = useState(0);
+  const [internalLightRot, setInternalLightRot] = useState(0);
+  const camRotation = cameraRotation !== undefined ? cameraRotation : internalCamRot;
+  const setCamRotation = (r: number) => {
+    if (onCameraRotationChange) onCameraRotationChange(r);
+    else setInternalCamRot(r);
+  };
+  const lightRotationVal = lightRotation !== undefined ? lightRotation : internalLightRot;
+  const setLightRotation = (r: number) => {
+    if (onLightRotationChange) onLightRotationChange(r);
+    else setInternalLightRot(r);
+  };
 
   // Derived measurements (rotation-aware)
   const rotRad = camRotation * Math.PI / 180;
