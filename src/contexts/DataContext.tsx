@@ -4,6 +4,7 @@ import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { offlineCache } from '@/services/offlineCache';
+import { sortByCode } from '@/utils/sortByCode';
 
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
