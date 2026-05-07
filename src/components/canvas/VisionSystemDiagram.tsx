@@ -94,13 +94,22 @@ function HardwareSelectPopover({ type, items, selectedId, onSelect, children, di
 function useSvgDrag(
   svgRef: React.RefObject<SVGSVGElement | null>,
   initial: { x: number; y: number },
-  enabled: boolean
+  enabled: boolean,
+  controlled?: { value: { x: number; y: number }; onChange: (p: { x: number; y: number }) => void }
 ) {
-  const [pos, setPos] = useState(initial);
+  const [internalPos, setInternalPos] = useState(initial);
+  const pos = controlled ? controlled.value : internalPos;
+  const setPos = (p: { x: number; y: number }) => {
+    if (controlled) controlled.onChange(p);
+    else setInternalPos(p);
+  };
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
 
-  useEffect(() => { setPos(initial); }, [initial.x, initial.y]);
+  useEffect(() => {
+    if (!controlled) setInternalPos(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial.x, initial.y]);
 
   const toSvgCoords = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
