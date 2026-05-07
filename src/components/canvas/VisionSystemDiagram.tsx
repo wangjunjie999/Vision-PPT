@@ -166,6 +166,15 @@ interface VisionSystemDiagramProps {
   moduleType?: string;
   interactive?: boolean;
   className?: string;
+  // Controlled positions (optional). When provided, drag updates call onChange instead of internal state.
+  cameraPos?: { x: number; y: number };
+  lightPos?: { x: number; y: number };
+  cameraRotation?: number;
+  lightRotation?: number;
+  onCameraPosChange?: (p: { x: number; y: number }) => void;
+  onLightPosChange?: (p: { x: number; y: number }) => void;
+  onCameraRotationChange?: (r: number) => void;
+  onLightRotationChange?: (r: number) => void;
 }
 
 // ─── SVG hardware shape renderers ───
