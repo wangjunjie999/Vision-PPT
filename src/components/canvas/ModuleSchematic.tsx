@@ -129,6 +129,49 @@ export function ModuleSchematic() {
   const workstation = workstations.find(w => w.id === selectedWorkstationId) as any;
   const layout = layouts.find(l => l.workstation_id === selectedWorkstationId) as any;
 
+  // Load saved schematic layout when module changes
+  useEffect(() => {
+    if (!module) return;
+    const saved = module.schematic_layout;
+    if (saved && typeof saved === 'object') {
+      if (saved.camera) setCameraPos({ x: saved.camera.x ?? 275, y: saved.camera.y ?? 77 });
+      if (saved.light) setLightPos({ x: saved.light.x ?? 275, y: saved.light.y ?? 231 });
+      if (typeof saved.cameraRotation === 'number') setCameraRotation(saved.cameraRotation);
+      if (typeof saved.lightRotation === 'number') setLightRotation(saved.lightRotation);
+      if (typeof saved.fovAngle === 'number') setFovAngle(saved.fovAngle);
+      if (typeof saved.lightDistance === 'number') setLightDistance(saved.lightDistance);
+    } else {
+      setCameraPos({ x: 275, y: 77 });
+      setLightPos({ x: 275, y: 231 });
+      setCameraRotation(0);
+      setLightRotation(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module?.id]);
+
+  // Debounced persistence of layout changes
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!module) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      updateModule(module.id, {
+        schematic_layout: {
+          camera: cameraPos,
+          light: lightPos,
+          cameraRotation,
+          lightRotation,
+          fovAngle,
+          lightDistance,
+        },
+      } as any).catch((err) => console.warn('Failed to persist schematic layout:', err));
+    }, 600);
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraPos.x, cameraPos.y, lightPos.x, lightPos.y, cameraRotation, lightRotation, fovAngle, lightDistance, module?.id]);
+
   // All hooks must be above early returns
   const handleCameraSelect = useCallback((cameraId: string) => {
     if (!module) return;
