@@ -73,6 +73,12 @@ export function ModuleSchematic() {
   const [schematicSaved, setSchematicSaved] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
 
+  // Schematic layout (camera/light position + rotation) — persisted to module.schematic_layout
+  const [cameraPos, setCameraPos] = useState({ x: 275, y: 77 });
+  const [lightPos, setLightPos] = useState({ x: 275, y: 231 });
+  const [cameraRotation, setCameraRotation] = useState(0);
+  const [lightRotation, setLightRotation] = useState(0);
+
   // Resolve function ref for async capture flow
   const captureResolveRef = useRef<((dataUrl: string) => void) | null>(null);
   const captureRejectRef = useRef<((err: Error) => void) | null>(null);
