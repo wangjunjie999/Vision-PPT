@@ -927,7 +927,7 @@ export function VisionSystemDiagram({
 
         {/* ===== Light (draggable + rotatable) ===== */}
         <g
-          transform={`translate(${lightDrag.pos.x - 80}, ${lightDrag.pos.y - 16}) rotate(${lightRotation}, 80, 16)`}
+          transform={`translate(${lightDrag.pos.x - 80}, ${lightDrag.pos.y - 16}) rotate(${lightRotationVal}, 80, 16)`}
           style={{ cursor: interactive ? 'grab' : 'default' }}
           {...(interactive ? lightDrag.handlers : {})}
         >
@@ -960,7 +960,7 @@ export function VisionSystemDiagram({
         {interactive && (
           <RotationHandle
             cx={lightDrag.pos.x} cy={lightDrag.pos.y}
-            radius={50} angle={lightRotation}
+            radius={50} angle={lightRotationVal}
             onAngleChange={setLightRotation} enabled={interactive}
           />
         )}
