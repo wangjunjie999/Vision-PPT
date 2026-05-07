@@ -434,6 +434,14 @@ export function ModuleSchematic() {
                 roiStrategy={module.roi_strategy || 'full'}
                 moduleType={module.type || 'positioning'}
                 interactive={true}
+                cameraPos={cameraPos}
+                lightPos={lightPos}
+                cameraRotation={cameraRotation}
+                lightRotation={lightRotation}
+                onCameraPosChange={setCameraPos}
+                onLightPosChange={setLightPos}
+                onCameraRotationChange={setCameraRotation}
+                onLightRotationChange={setLightRotation}
                 className="w-full h-full"
               />
 
@@ -500,6 +508,10 @@ export function ModuleSchematic() {
             roiStrategy={module.roi_strategy || 'full'}
             moduleType={module.type || 'positioning'}
             interactive={false}
+            cameraPos={cameraPos}
+            lightPos={lightPos}
+            cameraRotation={cameraRotation}
+            lightRotation={lightRotation}
             className="vision-diagram-container w-full h-full"
           />
         </div>
