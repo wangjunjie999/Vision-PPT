@@ -72,6 +72,7 @@ export function ModuleSchematic() {
   const [savingSchematic, setSavingSchematic] = useState(false);
   const [schematicSaved, setSchematicSaved] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
   // Schematic layout (camera/light position + rotation) — persisted to module.schematic_layout
   const [cameraPos, setCameraPos] = useState({ x: 275, y: 77 });
@@ -147,6 +148,24 @@ export function ModuleSchematic() {
       setLightRotation(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module?.id]);
+
+  // Reset saved state whenever any visual input changes — so the button
+  // accurately reflects "needs re-save" after the user moves/rotates anything.
+  useEffect(() => {
+    setSchematicSaved(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cameraPos.x, cameraPos.y, lightPos.x, lightPos.y,
+    cameraRotation, lightRotation,
+    fovAngle, lightDistance,
+    module?.selected_camera, module?.selected_lens, module?.selected_light, module?.selected_controller,
+  ]);
+
+  // Reset saved indicator when switching modules
+  useEffect(() => {
+    setSchematicSaved(false);
+    setLastSavedAt(null);
   }, [module?.id]);
 
   // Debounced persistence of layout changes
@@ -326,6 +345,7 @@ export function ModuleSchematic() {
       });
       
       setSchematicSaved(true);
+      setLastSavedAt(new Date());
       toast.success('视觉系统示意图已保存，可用于PPT生成');
     } catch (error) {
       console.error('Failed to save schematic:', error);
