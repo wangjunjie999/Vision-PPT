@@ -311,6 +311,8 @@ export function ModuleSchematic() {
     setSavingSchematic(true);
     
     try {
+      // Ensure latest cameraPos / rotation state is flushed to the offscreen SVG transform
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       const dataUrl = await captureOffscreen();
       
       const response = await fetch(dataUrl);
