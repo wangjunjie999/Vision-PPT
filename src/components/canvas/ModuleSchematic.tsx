@@ -396,6 +396,15 @@ export function ModuleSchematic() {
         <TabsContent value="schematic" className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col">
           {/* Toolbar for schematic tab */}
           <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-border">
+            {lastSavedAt && (
+              <span className="text-xs text-muted-foreground mr-2">
+                最后保存于 {lastSavedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                {!schematicSaved && <span className="ml-2 text-warning">· 有改动未保存</span>}
+              </span>
+            )}
+            {!lastSavedAt && !schematicSaved && (
+              <span className="text-xs text-warning mr-2">· 有改动未保存</span>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
