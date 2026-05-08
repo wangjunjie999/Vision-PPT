@@ -72,6 +72,7 @@ export function ModuleSchematic() {
   const [savingSchematic, setSavingSchematic] = useState(false);
   const [schematicSaved, setSchematicSaved] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
   // Schematic layout (camera/light position + rotation) — persisted to module.schematic_layout
   const [cameraPos, setCameraPos] = useState({ x: 275, y: 77 });
@@ -147,6 +148,24 @@ export function ModuleSchematic() {
       setLightRotation(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module?.id]);
+
+  // Reset saved state whenever any visual input changes — so the button
+  // accurately reflects "needs re-save" after the user moves/rotates anything.
+  useEffect(() => {
+    setSchematicSaved(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cameraPos.x, cameraPos.y, lightPos.x, lightPos.y,
+    cameraRotation, lightRotation,
+    fovAngle, lightDistance,
+    module?.selected_camera, module?.selected_lens, module?.selected_light, module?.selected_controller,
+  ]);
+
+  // Reset saved indicator when switching modules
+  useEffect(() => {
+    setSchematicSaved(false);
+    setLastSavedAt(null);
   }, [module?.id]);
 
   // Debounced persistence of layout changes
@@ -292,6 +311,8 @@ export function ModuleSchematic() {
     setSavingSchematic(true);
     
     try {
+      // Ensure latest cameraPos / rotation state is flushed to the offscreen SVG transform
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       const dataUrl = await captureOffscreen();
       
       const response = await fetch(dataUrl);
@@ -326,6 +347,7 @@ export function ModuleSchematic() {
       });
       
       setSchematicSaved(true);
+      setLastSavedAt(new Date());
       toast.success('视觉系统示意图已保存，可用于PPT生成');
     } catch (error) {
       console.error('Failed to save schematic:', error);
@@ -376,6 +398,15 @@ export function ModuleSchematic() {
         <TabsContent value="schematic" className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col">
           {/* Toolbar for schematic tab */}
           <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-border">
+            {lastSavedAt && (
+              <span className="text-xs text-muted-foreground mr-2">
+                最后保存于 {lastSavedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                {!schematicSaved && <span className="ml-2 text-warning">· 有改动未保存</span>}
+              </span>
+            )}
+            {!lastSavedAt && !schematicSaved && (
+              <span className="text-xs text-warning mr-2">· 有改动未保存</span>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
