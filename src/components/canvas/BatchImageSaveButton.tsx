@@ -50,6 +50,62 @@ interface ImageList {
   total: number;
 }
 
+interface SchematicLayoutState {
+  camera: { x: number; y: number };
+  light: { x: number; y: number };
+  cameraRotation: number;
+  lightRotation: number;
+  fovAngle: number;
+  lightDistance: number;
+}
+
+const DEFAULT_SCHEMATIC_LAYOUT: SchematicLayoutState = {
+  camera: { x: 275, y: 77 },
+  light: { x: 275, y: 231 },
+  cameraRotation: 0,
+  lightRotation: 0,
+  fovAngle: 45,
+  lightDistance: 335,
+};
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readPoint(value: unknown, fallback: { x: number; y: number }) {
+  if (!value || typeof value !== 'object') return fallback;
+  const point = value as { x?: unknown; y?: unknown };
+  return {
+    x: toFiniteNumber(point.x, fallback.x),
+    y: toFiniteNumber(point.y, fallback.y),
+  };
+}
+
+function resolveSchematicLayout(rawLayout: unknown): SchematicLayoutState {
+  let layout = rawLayout;
+  if (typeof rawLayout === 'string') {
+    try {
+      layout = JSON.parse(rawLayout);
+    } catch {
+      layout = null;
+    }
+  }
+
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) {
+    return DEFAULT_SCHEMATIC_LAYOUT;
+  }
+
+  const data = layout as Record<string, unknown>;
+  return {
+    camera: readPoint(data.camera, DEFAULT_SCHEMATIC_LAYOUT.camera),
+    light: readPoint(data.light, DEFAULT_SCHEMATIC_LAYOUT.light),
+    cameraRotation: toFiniteNumber(data.cameraRotation, DEFAULT_SCHEMATIC_LAYOUT.cameraRotation),
+    lightRotation: toFiniteNumber(data.lightRotation, DEFAULT_SCHEMATIC_LAYOUT.lightRotation),
+    fovAngle: toFiniteNumber(data.fovAngle, DEFAULT_SCHEMATIC_LAYOUT.fovAngle),
+    lightDistance: toFiniteNumber(data.lightDistance, DEFAULT_SCHEMATIC_LAYOUT.lightDistance),
+  };
+}
+
 export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
   const { 
     workstations,
@@ -263,6 +319,10 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
   const currentModuleData = currentRenderModule 
     ? modules.find(m => m.id === currentRenderModule) as any
     : null;
+  const currentSchematicLayout = useMemo(
+    () => resolveSchematicLayout(currentModuleData?.schematic_layout),
+    [currentModuleData?.schematic_layout]
+  );
 
   return (
     <>
@@ -395,13 +455,17 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       onLensSelect={() => {}}
                       onLightSelect={() => {}}
                       onControllerSelect={() => {}}
-                      lightDistance={335}
-                      fovAngle={45}
+                      lightDistance={currentSchematicLayout.lightDistance}
+                      fovAngle={currentSchematicLayout.fovAngle}
                       onFovAngleChange={() => {}}
                       onLightDistanceChange={() => {}}
                       roiStrategy={currentModuleData.roi_strategy || 'full'}
                       moduleType={currentModuleData.type || 'positioning'}
                       interactive={false}
+                      cameraPos={currentSchematicLayout.camera}
+                      lightPos={currentSchematicLayout.light}
+                      cameraRotation={currentSchematicLayout.cameraRotation}
+                      lightRotation={currentSchematicLayout.lightRotation}
                       className="w-full h-full"
                     />
                   </div>

@@ -110,6 +110,7 @@ export interface SlideTypeInfo {
 export interface TemplateGenerationResult {
   success: boolean;
   fileUrl?: string;
+  filePath?: string;
   fileName?: string;
   fileSize?: number;
   slideCount?: number;
@@ -128,6 +129,8 @@ export interface TemplateGenerationOptions {
   duplicateWorkstationSlides?: boolean;
   /** 工位页类型到模板幻灯片索引的映射 */
   workstationSlideMapping?: Record<string, number[]>;
+  /** 模板字段映射，未传时使用模板保存的映射 */
+  fieldMappings?: Array<{ templateField: string; systemField: string }>;
 }
 
 // ==================== MAIN GENERATION FUNCTION ====================
@@ -152,6 +155,7 @@ export async function generateFromUserTemplate(
     onProgress,
     duplicateWorkstationSlides = false,
     workstationSlideMapping,
+    fieldMappings,
   } = options;
   
   // 获取认证信息
@@ -182,6 +186,7 @@ export async function generateFromUserTemplate(
         options: {
           duplicateWorkstationSlides,
           workstationSlideMapping,
+          fieldMappings,
         },
       }),
     });
@@ -201,6 +206,7 @@ export async function generateFromUserTemplate(
     return {
       success: true,
       fileUrl: result.fileUrl,
+      filePath: result.filePath,
       fileName: result.fileName,
       fileSize: result.fileSize,
       slideCount: result.slideCount,

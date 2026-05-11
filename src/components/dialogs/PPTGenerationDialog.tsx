@@ -30,7 +30,6 @@ import {
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
 import { generateFromUserTemplate, downloadGeneratedFile } from '@/services/templateBasedGenerator';
-import { extractTemplateStyles, convertStylesToGeneratorFormat } from '@/services/templateStyleExtractor';
 import { generateDOCX } from '@/services/docxGenerator';
 import { generatePDF } from '@/services/pdfGenerator';
 import { toast } from 'sonner';
@@ -120,6 +119,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   useEffect(() => {
     setPPTImageQuality(quality);
   }, [quality, setPPTImageQuality]);
+
   const [logs, setLogs] = useState<GenerationLog[]>([]);
   const [currentStep, setCurrentStep] = useState('');
   const [progress, setProgress] = useState(0);
@@ -137,6 +137,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   // 默认使用"从零生成"，因为模板生成需要Edge Function支持
   const [generationMethod, setGenerationMethod] = useState<GenerationMethod>('scratch');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('ppt'); // 输出格式
+
+  useEffect(() => {
+    if (outputFormat !== 'ppt' && generationMethod !== 'scratch') {
+      setGenerationMethod('scratch');
+    }
+  }, [outputFormat, generationMethod]);
   
   // 详细进度追踪状态
   const [currentWorkstation, setCurrentWorkstation] = useState<string>('');
@@ -228,8 +234,24 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       setCurrentStep('');
       setProgress(0);
       generatedBlobRef.current = null;
+      setGenerationResult({
+        pageCount: 0,
+        layoutImages: 0,
+        parameterTables: 0,
+        hardwareList: 0,
+        fileUrl: '',
+      });
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const preferredTemplateId = project?.template_id || defaultTemplate?.id || '';
+    const selectedStillExists = templates.some(t => t.id === selectedTemplateId);
+    if (preferredTemplateId && (!selectedTemplateId || !selectedStillExists)) {
+      setSelectedTemplateId(preferredTemplateId);
+    }
+  }, [open, project?.template_id, defaultTemplate, selectedTemplateId, templates]);
 
   // Initialize selected items when project/dialog changes
   useEffect(() => {
@@ -505,6 +527,38 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       addLog('success', '已保存到生成历史');
     } catch (err) {
       console.error('Failed to save to history:', err);
+      toast.warning('历史记录保存失败，但文件仍可下载');
+    }
+  };
+
+  const saveGeneratedReferenceToHistory = async (
+    filePathOrUrl: string,
+    fileName: string,
+    pageCount: number,
+    fileSize?: number,
+  ) => {
+    try {
+      if (!user?.id || !selectedProjectId) return;
+
+      const { error: insertError } = await supabase
+        .from('generated_documents')
+        .insert({
+          project_id: selectedProjectId,
+          user_id: user.id,
+          file_url: filePathOrUrl,
+          file_name: fileName,
+          file_size: fileSize || 0,
+          format: 'ppt',
+          generation_method: 'template',
+          template_id: selectedTemplateId || null,
+          page_count: pageCount,
+          metadata: { language, quality, mode, scope, generationMethod: 'template' },
+        } as any);
+
+      if (insertError) throw insertError;
+      addLog('success', '已保存到生成历史');
+    } catch (err) {
+      console.error('Failed to save template generation history:', err);
       toast.warning('历史记录保存失败，但文件仍可下载');
     }
   };
@@ -986,7 +1040,100 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         return;
       }
       
-      // PPT生成逻辑 - 始终使用硬编码企业风格从零生成
+      // PPT生成逻辑 - 上传模板路线是手动选择的并行路线，默认企业模板路线保持不变
+      if (generationMethod === 'template') {
+        if (!selectedTemplateId || !selectedTemplate) {
+          throw new Error('请选择要使用的上传模板');
+        }
+        if (!templateHasFile) {
+          throw new Error('所选模板没有上传 PPTX 文件，请先在管理中心补充模板文件');
+        }
+        if (!selectedTemplate.structure_meta?.parsedSlides?.length) {
+          throw new Error('所选模板缺少解析信息，请在管理中心重新上传或重新解析模板');
+        }
+
+        const layoutMapping = selectedTemplate.structure_meta.layoutMapping;
+        const workstationSlideMapping = layoutMapping?.mappings
+          ?.filter(mapping => mapping.enabled)
+          .reduce<Record<string, number[]>>((acc, mapping) => {
+            acc[mapping.slideType] = acc[mapping.slideType] || [];
+            acc[mapping.slideType].push(mapping.templateSlideIndex);
+            return acc;
+          }, {});
+
+        addLog('info', `使用上传模板「${selectedTemplate.name}」生成PPT...`);
+        setProgress(10);
+        setCurrentStep('准备模板生成数据');
+
+        const workstationsForTemplate = workstationData.map(ws => {
+          const wsModules = moduleData.filter(m => m.workstation_id === ws.id);
+          const wsLayout = layoutData.find(l => l.workstation_id === ws.id) || null;
+          const wsProductAsset = productAssetData.find(a => a.workstation_id === ws.id) || null;
+          const wsAnnotation = annotations.find(a => a.workstation_id === ws.id) || null;
+
+          return {
+            ...ws,
+            modules: wsModules,
+            layout: wsLayout,
+            product_asset: wsProductAsset,
+            product_annotation: wsAnnotation ? {
+              snapshot_url: wsAnnotation.snapshot_url,
+              annotations_json: Array.isArray(wsAnnotation.annotations_json) ? wsAnnotation.annotations_json : [],
+              remark: wsAnnotation.remark,
+            } : null,
+          };
+        });
+
+        const result = await generateFromUserTemplate({
+          templateId: selectedTemplateId,
+          data: {
+            project: projectData,
+            workstations: workstationsForTemplate,
+            modules: moduleData,
+            hardware: hardwareData,
+            language,
+          },
+          outputFileName: `${projectData.code}_${projectData.name}_方案.pptx`,
+          duplicateWorkstationSlides: layoutMapping?.duplicateForEachWorkstation ?? true,
+          workstationSlideMapping,
+          fieldMappings: selectedTemplate.structure_meta.fieldMappings,
+          onProgress: (message) => {
+            addLog('info', message);
+            setCurrentStep(message);
+            setProgress(prev => Math.min(90, Math.max(prev + 12, 20)));
+          },
+        });
+
+        if (!result.success || !result.fileUrl) {
+          throw new Error(result.error || '模板PPT生成失败');
+        }
+
+        generatedBlobRef.current = null;
+        setGenerationResult({
+          pageCount: result.slideCount || 0,
+          layoutImages: workstationsForTemplate.filter(ws => ws.layout).length * 3,
+          parameterTables: wsToProcess.length + modsToProcess.length,
+          hardwareList: 1,
+          fileUrl: result.fileUrl,
+        });
+
+        addLog('success', `成功生成模板PPT：${result.fileName || '方案.pptx'}`);
+        setProgress(100);
+        setCurrentStep('模板PPT生成完成');
+        setStage('complete');
+        setIsGenerating(false);
+        toast.success('模板PPT生成完成');
+
+        saveGeneratedReferenceToHistory(
+          result.filePath || result.fileUrl,
+          result.fileName || `${projectData.code}_${projectData.name}_方案.pptx`,
+          result.slideCount || 0,
+          result.fileSize,
+        ).catch(e => console.warn('保存模板生成历史记录失败:', e));
+        return;
+      }
+
+      // PPT生成逻辑 - 默认企业风格从零生成
       {
         addLog('info', '使用企业VI风格生成PPT...');
         setProgress(10);
@@ -1214,8 +1361,81 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               </>
             )}
 
-            {/* Template selection removed - using hardcoded corporate style */}
-            {/* Interface preserved in usePPTTemplates.ts for future restoration */}
+            {outputFormat === 'ppt' && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">PPT模板来源</Label>
+                <RadioGroup
+                  value={generationMethod}
+                  onValueChange={(v) => setGenerationMethod(v as GenerationMethod)}
+                  className="grid grid-cols-2 gap-2"
+                >
+                  <Label className={cn(
+                    "flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors",
+                    generationMethod === 'scratch' ? "border-primary bg-primary/5" : "hover:bg-muted"
+                  )}>
+                    <RadioGroupItem value="scratch" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        <Layers className="h-4 w-4" />
+                        默认企业模板
+                      </div>
+                      <div className="text-xs text-muted-foreground">使用现有生成逻辑</div>
+                    </div>
+                  </Label>
+                  <Label className={cn(
+                    "flex items-center gap-2 p-3 border rounded-lg transition-colors",
+                    templatesLoading || templates.length === 0 ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                    generationMethod === 'template' ? "border-primary bg-primary/5" : "hover:bg-muted"
+                  )}>
+                    <RadioGroupItem value="template" disabled={templatesLoading || templates.length === 0} />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        <FileStack className="h-4 w-4" />
+                        上传模板
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {templates.length === 0 ? '管理中心暂无模板' : '按占位符与页面映射生成'}
+                      </div>
+                    </div>
+                  </Label>
+                </RadioGroup>
+
+                {generationMethod === 'template' && (
+                  <div className="space-y-2 p-3 border rounded-lg bg-muted/20">
+                    <Label className="text-xs text-muted-foreground">选择上传模板</Label>
+                    <Select
+                      value={selectedTemplateId}
+                      onValueChange={setSelectedTemplateId}
+                      disabled={templatesLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={templatesLoading ? '模板加载中...' : '请选择模板'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templates.map(tpl => (
+                          <SelectItem key={tpl.id} value={tpl.id}>
+                            {tpl.name} {tpl.is_default && '(默认)'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedTemplate && (
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <Badge variant={selectedTemplate.file_url ? 'secondary' : 'destructive'}>
+                          {selectedTemplate.file_url ? '已上传文件' : '缺少PPTX文件'}
+                        </Badge>
+                        <Badge variant={(selectedTemplate.structure_meta?.parsedSlides?.length || 0) > 0 ? 'secondary' : 'destructive'}>
+                          已解析 {selectedTemplate.structure_meta?.parsedSlides?.length || 0} 页
+                        </Badge>
+                        <Badge variant="outline">
+                          字段 {selectedTemplate.structure_meta?.fieldMappings?.length || 0} 个
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Delivery Check Panel */}
             {(missing.length > 0 || warnings.length > 0) && (

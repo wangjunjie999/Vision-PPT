@@ -3,6 +3,12 @@ project_id = "yxjhungswhwahnbhahaq"
 [functions.extract-template-styles]
 verify_jwt = false
 
+[functions.parse-ppt-template]
+verify_jwt = false
+
+[functions.generate-ppt-from-user-template]
+verify_jwt = false
+
 [functions.admin-users]
 verify_jwt = false
 

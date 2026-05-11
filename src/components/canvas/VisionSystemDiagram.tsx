@@ -95,12 +95,12 @@ function useSvgDrag(
   svgRef: React.RefObject<SVGSVGElement | null>,
   initial: { x: number; y: number },
   enabled: boolean,
-  controlled?: { value: { x: number; y: number }; onChange: (p: { x: number; y: number }) => void }
+  controlled?: { value: { x: number; y: number }; onChange?: (p: { x: number; y: number }) => void }
 ) {
   const [internalPos, setInternalPos] = useState(initial);
   const pos = controlled ? controlled.value : internalPos;
   const setPos = (p: { x: number; y: number }) => {
-    if (controlled) controlled.onChange(p);
+    if (controlled) controlled.onChange?.(p);
     else setInternalPos(p);
   };
   const dragging = useRef(false);
@@ -643,13 +643,13 @@ export function VisionSystemDiagram({
     svgRef,
     { x: 275, y: 77 },
     interactive,
-    cameraPos && onCameraPosChange ? { value: cameraPos, onChange: onCameraPosChange } : undefined
+    cameraPos ? { value: cameraPos, onChange: onCameraPosChange } : undefined
   );
   const lightDrag = useSvgDrag(
     svgRef,
     { x: 275, y: 231 },
     interactive,
-    lightPos && onLightPosChange ? { value: lightPos, onChange: onLightPosChange } : undefined
+    lightPos ? { value: lightPos, onChange: onLightPosChange } : undefined
   );
 
   // Rotation angles (controlled if cameraRotation/lightRotation supplied)

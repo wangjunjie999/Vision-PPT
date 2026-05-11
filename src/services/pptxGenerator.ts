@@ -8,7 +8,6 @@ import {
   generateBasicInfoAndRequirementsSlide,
   generateProductSchematicSlide,
   generateLayoutAndOpticalSlide,
-  generateMechanicalThreeViewSlide,
   generateModuleOpticalSlide,
   generateLightingPhotosSlide,
   generateBOMSlide,
@@ -257,6 +256,171 @@ interface GenerationOptions {
 }
 
 type ProgressCallback = (progress: number, step: string, log: string) => void;
+
+interface ModuleTocEntry {
+  index: number;
+  workstationName: string;
+  wsCode: string;
+  moduleName: string;
+  moduleType: string;
+  targetSlideNumber: number;
+}
+
+const TOC_ITEMS_PER_PAGE = 14;
+const TOC_ROWS_PER_COLUMN = 7;
+
+function getPptxSlideCount(pptx: PptxGenJS): number {
+  return Array.isArray((pptx as any)._slides) ? (pptx as any)._slides.length : 0;
+}
+
+function getProductSlideCount(isDraft: boolean, annotations: AnnotationData[]): number {
+  if (isDraft) return 1;
+  return Math.max(annotations.length, 1);
+}
+
+function getModuleTocPageCount(moduleCount: number): number {
+  return Math.max(1, Math.ceil(moduleCount / TOC_ITEMS_PER_PAGE));
+}
+
+function buildModuleTocEntries(
+  projectCode: string,
+  workstations: WorkstationData[],
+  modules: ModuleData[],
+  annotations: AnnotationData[] | undefined,
+  firstWorkstationSlideNumber: number,
+  isDraft: boolean
+): ModuleTocEntry[] {
+  const entries: ModuleTocEntry[] = [];
+  let nextSlideNumber = firstWorkstationSlideNumber;
+
+  for (let i = 0; i < workstations.length; i++) {
+    const ws = workstations[i];
+    const wsModules = modules.filter(m => m.workstation_id === ws.id);
+    const wsCode = getWorkstationCode(projectCode, i);
+    const wsModuleIds = new Set(wsModules.map(m => m.id));
+    const wsAnnotations = annotations?.filter(a =>
+      (a.scope_type === 'workstation' && a.workstation_id === ws.id) ||
+      (a.scope_type === 'module' && a.module_id && wsModuleIds.has(a.module_id))
+    ) || [];
+
+    nextSlideNumber += 1; // Basic info + requirements.
+    nextSlideNumber += getProductSlideCount(isDraft, wsAnnotations);
+    nextSlideNumber += 1; // Mechanical layout.
+
+    for (const mod of wsModules) {
+      entries.push({
+        index: entries.length + 1,
+        workstationName: ws.name,
+        wsCode,
+        moduleName: mod.name,
+        moduleType: mod.type,
+        targetSlideNumber: nextSlideNumber,
+      });
+
+      nextSlideNumber += 1; // Module optical page.
+      if (!isDraft && Array.isArray((mod as any).lighting_photos) && (mod as any).lighting_photos.length > 0) {
+        nextSlideNumber += 1;
+      }
+    }
+
+    nextSlideNumber += 1; // BOM.
+  }
+
+  return entries;
+}
+
+function generateModuleTocSlides(
+  pptx: PptxGenJS,
+  entries: ModuleTocEntry[],
+  isZh: boolean
+): void {
+  const pages = Math.max(1, Math.ceil(entries.length / TOC_ITEMS_PER_PAGE));
+  const st = MASTER_SLIDE_SUBTITLE;
+
+  for (let page = 0; page < pages; page++) {
+    const slide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    const pageEntries = entries.slice(page * TOC_ITEMS_PER_PAGE, (page + 1) * TOC_ITEMS_PER_PAGE);
+
+    slide.addText(isZh ? '目录' : 'Contents', {
+      x: 0.4, y: 0.05, w: 5, h: 0.38,
+      fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
+      shadow: createHeadingShadow(),
+    });
+    slide.addText(isZh ? '模块快速定位' : 'Module Quick Links', {
+      x: 0, y: st.y, w: '100%', h: st.h,
+      fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
+      bold: st.bold, italic: st.italic,
+    });
+
+    slide.addText(
+      isZh ? '点击模块名称可跳转到对应光学方案页' : 'Click a module name to jump to its optical solution slide',
+      {
+        x: SLIDE_LAYOUT.contentLeft, y: 1.0, w: SLIDE_LAYOUT.contentWidth, h: 0.25,
+        fontSize: 9, fontFace: FONTS.body, color: COLORS.textSecondary,
+      }
+    );
+
+    if (pageEntries.length === 0) {
+      slide.addText(isZh ? '当前项目暂无模块' : 'No modules configured', {
+        x: 0.5, y: 2.4, w: 9, h: 0.5,
+        fontSize: 18, fontFace: FONTS.body, color: COLORS.secondary, align: 'center',
+      });
+      continue;
+    }
+
+    pageEntries.forEach((entry, localIndex) => {
+      const col = localIndex >= TOC_ROWS_PER_COLUMN ? 1 : 0;
+      const rowIndex = localIndex % TOC_ROWS_PER_COLUMN;
+      const x = col === 0 ? SLIDE_LAYOUT.contentLeft : 5.15;
+      const y = 1.42 + rowIndex * 0.54;
+      const w = 4.25;
+      const typeLabel = MODULE_TYPE_LABELS[entry.moduleType]?.[isZh ? 'zh' : 'en'] || entry.moduleType;
+      const title = `${entry.wsCode}  ${entry.moduleName}`;
+
+      slide.addText(String(entry.index).padStart(2, '0'), {
+        x, y, w: 0.38, h: 0.22,
+        fontSize: 9, fontFace: FONTS.body, color: COLORS.white, bold: true, align: 'center',
+        fill: { color: COLORS.primary },
+        margin: 0.03,
+      } as any);
+
+      slide.addText(title, {
+        x: x + 0.48, y: y - 0.02, w: w - 0.95, h: 0.22,
+        fontSize: 9.5, fontFace: FONTS.body, color: COLORS.primary, bold: true,
+        underline: { style: 'sng', color: COLORS.primary },
+        hyperlink: {
+          slide: entry.targetSlideNumber,
+          tooltip: isZh ? `跳转到 ${entry.moduleName}` : `Jump to ${entry.moduleName}`,
+        },
+        fit: 'shrink',
+      } as any);
+
+      slide.addText(`p.${entry.targetSlideNumber}`, {
+        x: x + w - 0.38, y: y - 0.02, w: 0.45, h: 0.22,
+        fontSize: 8, fontFace: FONTS.body, color: COLORS.secondary, align: 'right',
+      });
+
+      slide.addText(`${entry.workstationName} · ${typeLabel}`, {
+        x: x + 0.48, y: y + 0.22, w: w - 0.55, h: 0.2,
+        fontSize: 7.5, fontFace: FONTS.body, color: COLORS.textSecondary,
+        fit: 'shrink',
+      } as any);
+
+      slide.addShape('rect', {
+        x, y: y + 0.45, w, h: 0.005,
+        fill: { color: COLORS.border },
+        line: { color: COLORS.border, transparency: 100 },
+      });
+    });
+
+    if (pages > 1) {
+      slide.addText(`${page + 1}/${pages}`, {
+        x: 8.95, y: 5.0, w: 0.5, h: 0.2,
+        fontSize: 8, fontFace: FONTS.body, color: COLORS.secondary, align: 'right',
+      });
+    }
+  }
+}
 
 // Helper to create table cell
 const cell = (text: string, opts?: Partial<TableCell>): TableCell => ({ text, options: opts });
@@ -926,8 +1090,27 @@ export async function generatePPTX(
     });
   }
 
+  // ========== TABLE OF CONTENTS ==========
+  progress = 14;
+  onProgress(progress, isZh ? '生成模块目录...' : 'Generating module contents...', isZh ? '模块目录' : 'Module contents');
+  const generatedModuleCount = workstations.reduce(
+    (count, ws) => count + modules.filter(m => m.workstation_id === ws.id).length,
+    0
+  );
+  const tocPageCount = getModuleTocPageCount(generatedModuleCount);
+  const firstWorkstationSlideNumber = getPptxSlideCount(pptx) + tocPageCount + 1;
+  const moduleTocEntries = buildModuleTocEntries(
+    project.code,
+    workstations,
+    modules,
+    annotations,
+    firstWorkstationSlideNumber,
+    isDraft
+  );
+  generateModuleTocSlides(pptx, moduleTocEntries, isZh);
+
   // ========== WORKSTATION SLIDES (Dynamic pages per workstation) ==========
-  // Order: a.基本信息+检测要求 → b.产品截图标注 → c.机械三视图 → d.光学方案×N → e.BOM
+  // Order: basic info + requirements -> product schematic -> mechanical layout -> module optical pages -> BOM.
   const totalWsProgress = 65;
   const progressPerWs = totalWsProgress / Math.max(workstations.length, 1);
   
@@ -946,7 +1129,7 @@ export async function generatePPTX(
 
     const wsBaseProgress = 20 + i * progressPerWs;
     const moduleCount = Math.max(wsModules.length, 1);
-    const totalSteps = 3 + moduleCount + 1; // basic+product+threeview + N modules + BOM
+    const totalSteps = 3 + moduleCount + 1; // basic + product + layout + N modules + BOM
     const stepIncrement = progressPerWs / totalSteps;
     
     onProgress(
@@ -1066,16 +1249,6 @@ export async function generatePPTX(
       await generateLayoutAndOpticalSlide(ctx, slideData);
     }
 
-    // c2. 机械三视图 (when all three views are available)
-    const hasAllThreeViews = wsLayout?.front_view_image_url && wsLayout?.side_view_image_url && wsLayout?.top_view_image_url;
-    if (hasAllThreeViews) {
-      step++;
-      onProgress(wsBaseProgress + stepIncrement * step, `${ws.name} - ${isZh ? '三视图' : 'Three Views'}`, `[SLIDE:${ws.name}:c2] ${isZh ? '机械三视图' : 'Three Views'}`);
-      if (!isDraft) {
-        await generateMechanicalThreeViewSlide(ctx, slideData);
-      }
-    }
-    
     // d. 光学方案 × N + 打光照片 (Each module's optical followed by its lighting photos)
     for (let mi = 0; mi < wsModules.length; mi++) {
       step++;

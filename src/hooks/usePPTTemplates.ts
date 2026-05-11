@@ -17,6 +17,11 @@ export interface LayoutMappingConfig {
   preserveUnmappedSlides: boolean;
 }
 
+export interface FieldMapping {
+  templateField: string;
+  systemField: string;
+}
+
 // 解析后的幻灯片信息
 export interface ParsedSlideInfo {
   index: number;
@@ -26,8 +31,11 @@ export interface ParsedSlideInfo {
 
 export interface StructureMeta {
   sections: string[];
+  fieldMappings?: FieldMapping[];
   layoutMapping?: LayoutMappingConfig;
   parsedSlides?: ParsedSlideInfo[];
+  customFields?: string[];
+  parsedAt?: string;
 }
 
 export interface PPTTemplate {

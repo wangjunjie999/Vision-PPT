@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { parseTemplate, SYSTEM_FIELDS, autoMapFields, getFieldLabel, type ParsedTemplate, type FieldMapping } from '@/services/pptTemplateParser';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SlideLayoutMapping, type LayoutMappingConfig as SlideLayoutMappingConfig } from './SlideLayoutMapping';
+import { SlideLayoutMapping } from './SlideLayoutMapping';
 
 // 动态页面结构选项 - 将根据模板解析结果动态更新
 const DEFAULT_SECTION_OPTIONS = [
@@ -40,6 +40,12 @@ const SCOPE_OPTIONS = [
   { value: 'packaging', label: '包装检测' },
 ];
 
+const DEFAULT_LAYOUT_MAPPING: LayoutMappingConfig = {
+  mappings: [],
+  duplicateForEachWorkstation: true,
+  preserveUnmappedSlides: true,
+};
+
 export function PPTTemplateManager() {
   const {
     templates,
@@ -61,8 +67,10 @@ export function PPTTemplateManager() {
     is_default: false,
     structure_meta: { 
       sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'],
-      layoutMapping: { mappings: [], duplicateForEachWorkstation: true, preserveUnmappedSlides: true },
+      layoutMapping: DEFAULT_LAYOUT_MAPPING,
       parsedSlides: [],
+      fieldMappings: [],
+      customFields: [],
     },
     background_image_url: '',
   });
@@ -85,8 +93,10 @@ export function PPTTemplateManager() {
       is_default: false,
       structure_meta: { 
         sections: ['cover', 'overview', 'workstation_info', 'layout_views', 'module_target', 'bom'],
-        layoutMapping: { mappings: [], duplicateForEachWorkstation: true, preserveUnmappedSlides: true },
+        layoutMapping: DEFAULT_LAYOUT_MAPPING,
         parsedSlides: [],
+        fieldMappings: [],
+        customFields: [],
       },
       background_image_url: '',
     });
@@ -107,15 +117,17 @@ export function PPTTemplateManager() {
       is_default: template.is_default || false,
       structure_meta: template.structure_meta || { 
         sections: [],
-        layoutMapping: { mappings: [], duplicateForEachWorkstation: true, preserveUnmappedSlides: true },
+        layoutMapping: DEFAULT_LAYOUT_MAPPING,
         parsedSlides: [],
+        fieldMappings: [],
+        customFields: [],
       },
       background_image_url: template.background_image_url || '',
     });
     setSelectedFile(null);
     setSelectedBgFile(null);
     setParsedTemplate(null);
-    setFieldMappings([]);
+    setFieldMappings(template.structure_meta?.fieldMappings || []);
     setLayoutMappingOpen(false);
     setDialogOpen(true);
   };
@@ -123,8 +135,8 @@ export function PPTTemplateManager() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.name.endsWith('.pptx') && !file.name.endsWith('.ppt')) {
-        toast.error('请选择 .pptx 或 .ppt 文件');
+      if (!file.name.toLowerCase().endsWith('.pptx')) {
+        toast.error('当前版本仅支持 .pptx 文件，请先将 .ppt 另存为 .pptx');
         return;
       }
       setSelectedFile(file);
@@ -140,7 +152,24 @@ export function PPTTemplateManager() {
           setParsedTemplate(result.template);
           // 自动映射字段
           const mappings = autoMapFields(result.template.customFields);
+          const parsedSlides: ParsedSlideInfo[] = result.template.slides.map((slide) => ({
+            index: slide.index,
+            detectedType: slide.layoutRef || 'unknown',
+            customFields: slide.customFields,
+          }));
           setFieldMappings(mappings);
+          setFormData((prev) => ({
+            ...prev,
+            structure_meta: {
+              sections: prev.structure_meta?.sections || [],
+              layoutMapping: prev.structure_meta?.layoutMapping || DEFAULT_LAYOUT_MAPPING,
+              ...prev.structure_meta,
+              fieldMappings: mappings,
+              parsedSlides,
+              customFields: result.template.customFields,
+              parsedAt: result.template.parsedAt,
+            },
+          }));
           toast.success(`解析成功：发现 ${result.template.masters.length} 个母版, ${result.template.customFields.length} 个占位符`);
         } else {
           toast.error(result.error || '解析失败');
@@ -159,7 +188,13 @@ export function PPTTemplateManager() {
     const newSections = checked
       ? [...currentSections, sectionId]
       : currentSections.filter(s => s !== sectionId);
-    setFormData({ ...formData, structure_meta: { sections: newSections } });
+    setFormData({
+      ...formData,
+      structure_meta: {
+        ...formData.structure_meta,
+        sections: newSections,
+      },
+    });
   };
 
   const handleBgFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -198,6 +233,26 @@ export function PPTTemplateManager() {
 
     setUploading(true);
     try {
+      const parsedSlides: ParsedSlideInfo[] = parsedTemplate
+        ? parsedTemplate.slides.map((slide) => ({
+            index: slide.index,
+            detectedType: slide.layoutRef || 'unknown',
+            customFields: slide.customFields,
+          }))
+        : (formData.structure_meta?.parsedSlides || []);
+      const templateData: PPTTemplateInsert = {
+        ...formData,
+        structure_meta: {
+          sections: formData.structure_meta?.sections || [],
+          layoutMapping: formData.structure_meta?.layoutMapping || DEFAULT_LAYOUT_MAPPING,
+          ...formData.structure_meta,
+          fieldMappings,
+          parsedSlides,
+          customFields: parsedTemplate?.customFields || formData.structure_meta?.customFields || [],
+          parsedAt: parsedTemplate?.parsedAt || formData.structure_meta?.parsedAt || new Date().toISOString(),
+        },
+      };
+
       if (editingId) {
         // Update existing
         let file_url: string | undefined;
@@ -213,14 +268,14 @@ export function PPTTemplateManager() {
         await updateTemplate.mutateAsync({
           id: editingId,
           updates: {
-            ...formData,
+            ...templateData,
             ...(file_url && { file_url }),
             ...(background_image_url && { background_image_url }),
           },
         });
       } else {
         // Create new
-        const result = await addTemplate.mutateAsync(formData);
+        const result = await addTemplate.mutateAsync(templateData);
         if (result?.id) {
           const updates: Record<string, string> = {};
           
@@ -254,6 +309,13 @@ export function PPTTemplateManager() {
   };
 
   const previewTemplate = templates.find(t => t.id === previewId);
+  const mappingSlides = parsedTemplate
+    ? parsedTemplate.slides.map(s => ({
+        index: s.index,
+        detectedType: s.layoutRef || 'unknown',
+        customFields: s.customFields,
+      }))
+    : (formData.structure_meta?.parsedSlides || []);
 
   if (isLoading) {
     return (
@@ -454,13 +516,13 @@ export function PPTTemplateManager() {
               <div className="space-y-2">
                 <Label>上传母版文件</Label>
                 <div className="flex gap-2">
-                  <Input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pptx,.ppt"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
+                <Input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pptx"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
                   <Button
                     type="button"
                     variant="outline"
@@ -617,6 +679,14 @@ export function PPTTemplateManager() {
                       onClick={() => {
                         const mappings = autoMapFields(parsedTemplate.customFields);
                         setFieldMappings(mappings);
+                        setFormData({
+                          ...formData,
+                          structure_meta: {
+                            ...formData.structure_meta,
+                            sections: formData.structure_meta?.sections || [],
+                            fieldMappings: mappings,
+                          },
+                        });
                         toast.success(`自动映射了 ${mappings.length} 个字段`);
                       }}
                     >
@@ -628,7 +698,7 @@ export function PPTTemplateManager() {
             )}
 
             {/* Slide Layout Mapping */}
-            {parsedTemplate && parsedTemplate.slides.length > 0 && (
+            {mappingSlides.length > 0 && (
               <Collapsible open={layoutMappingOpen} onOpenChange={setLayoutMappingOpen}>
                 <CollapsibleTrigger asChild>
                   <Button variant="outline" className="w-full justify-between gap-2">
@@ -641,16 +711,8 @@ export function PPTTemplateManager() {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-4">
                   <SlideLayoutMapping
-                    templateSlides={parsedTemplate.slides.map(s => ({
-                      index: s.index,
-                      detectedType: s.layoutRef || 'unknown',
-                      customFields: s.customFields,
-                    }))}
-                    config={formData.structure_meta?.layoutMapping || {
-                      mappings: [],
-                      duplicateForEachWorkstation: true,
-                      preserveUnmappedSlides: true,
-                    }}
+                    templateSlides={mappingSlides}
+                    config={formData.structure_meta?.layoutMapping || DEFAULT_LAYOUT_MAPPING}
                     onChange={(config) => {
                       setFormData({
                         ...formData,

@@ -146,6 +146,8 @@ export function ModuleSchematic() {
       setLightPos({ x: 275, y: 231 });
       setCameraRotation(0);
       setLightRotation(0);
+      setFovAngle(45);
+      setLightDistance(335);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [module?.id]);
@@ -343,7 +345,15 @@ export function ModuleSchematic() {
       
       await updateModule(module.id, { 
         schematic_image_url: publicUrl,
-        status: 'complete'
+        status: 'complete',
+        schematic_layout: {
+          camera: cameraPos,
+          light: lightPos,
+          cameraRotation,
+          lightRotation,
+          fovAngle,
+          lightDistance,
+        },
       });
       
       setSchematicSaved(true);
