@@ -2,16 +2,58 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const env = import.meta.env as Record<string, string | boolean | undefined>;
+
+function readEnv(name: string): string | undefined {
+  const value = env[name];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function deriveSupabaseUrl(projectId: string | undefined): string | undefined {
+  if (!projectId || projectId === 'local') return undefined;
+  return `https://${projectId}.supabase.co`;
+}
+
+const SUPABASE_PROJECT_ID = readEnv('VITE_SUPABASE_PROJECT_ID');
+const SUPABASE_URL = readEnv('VITE_SUPABASE_URL') || deriveSupabaseUrl(SUPABASE_PROJECT_ID);
+const SUPABASE_PUBLISHABLE_KEY = readEnv('VITE_SUPABASE_PUBLISHABLE_KEY') || readEnv('VITE_SUPABASE_ANON_KEY');
+
+const missingEnvVars = [
+  !SUPABASE_URL ? 'VITE_SUPABASE_URL or VITE_SUPABASE_PROJECT_ID' : null,
+  !SUPABASE_PUBLISHABLE_KEY ? 'VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY' : null,
+].filter(Boolean) as string[];
+
+export const supabaseRuntimeConfig = {
+  projectId: SUPABASE_PROJECT_ID,
+  url: SUPABASE_URL,
+  hasPublishableKey: Boolean(SUPABASE_PUBLISHABLE_KEY),
+  missingEnvVars,
+  isConfigured: missingEnvVars.length === 0,
+};
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+const supabaseOptions = {
   auth: {
-    storage: localStorage,
+    storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
   }
-});
+};
+
+type SupabaseClient = ReturnType<typeof createClient<Database>>;
+
+function createUnavailableSupabaseClient(): SupabaseClient {
+  const message = `Supabase is not configured. Missing: ${missingEnvVars.join(', ')}`;
+  return new Proxy({}, {
+    get(_target, prop) {
+      if (prop === 'then') return undefined;
+      throw new Error(message);
+    },
+  }) as SupabaseClient;
+}
+
+export const supabase = supabaseRuntimeConfig.isConfigured
+  ? createClient<Database>(SUPABASE_URL!, SUPABASE_PUBLISHABLE_KEY!, supabaseOptions)
+  : createUnavailableSupabaseClient();
