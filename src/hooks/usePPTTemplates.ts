@@ -22,19 +22,49 @@ export interface FieldMapping {
   systemField: string;
 }
 
+export interface RuleDetectedBinding {
+  id: string;
+  slideIndex: number;
+  shapeId: string;
+  shapeName?: string;
+  sourceText: string;
+  token?: string;
+  label: string;
+  matchType: 'placeholder' | 'xxxx' | 'label' | 'image';
+  replacementMode: 'replace-token' | 'replace-shape-text' | 'replace-picture';
+  suggestedSystemField: string;
+  confidence: number;
+  optional?: boolean;
+}
+
+export interface ManualBinding {
+  bindingId: string;
+  systemField: string;
+  enabled: boolean;
+  clearWhenMissing?: boolean;
+}
+
 // 解析后的幻灯片信息
 export interface ParsedSlideInfo {
   index: number;
   detectedType: string;
   customFields: string[];
+  title?: string;
+  detectedRole?: string;
+  detectedBindings?: RuleDetectedBinding[];
 }
 
 export interface StructureMeta {
   sections: string[];
   fieldMappings?: FieldMapping[];
+  detectedBindings?: RuleDetectedBinding[];
+  manualBindings?: ManualBinding[];
   layoutMapping?: LayoutMappingConfig;
   parsedSlides?: ParsedSlideInfo[];
   customFields?: string[];
+  masters?: unknown[];
+  layouts?: unknown[];
+  roleSummary?: Record<string, number>;
   parsedAt?: string;
 }
 

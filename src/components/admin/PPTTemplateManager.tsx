@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Plus, Star, Trash2, Upload, FileText, Edit, Download, Eye, Image as ImageIcon, Loader2, CheckCircle2, Code, List, Scan, Layers, LayoutTemplate, FileCode, Link2, AlertCircle, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
-import { usePPTTemplates, PPTTemplateInsert, type LayoutMappingConfig, type ParsedSlideInfo } from '@/hooks/usePPTTemplates';
+import { usePPTTemplates, PPTTemplateInsert, type LayoutMappingConfig, type ParsedSlideInfo, type ManualBinding, type RuleDetectedBinding } from '@/hooks/usePPTTemplates';
 import { toast } from 'sonner';
 import { parseTemplate, SYSTEM_FIELDS, autoMapFields, getFieldLabel, type ParsedTemplate, type FieldMapping } from '@/services/pptTemplateParser';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -45,6 +45,42 @@ const DEFAULT_LAYOUT_MAPPING: LayoutMappingConfig = {
   duplicateForEachWorkstation: true,
   preserveUnmappedSlides: true,
 };
+
+const DEFAULT_BINDING_FIELDS = [
+  'project_name',
+  'project_code',
+  'customer',
+  'date_formatted',
+  'responsible',
+  'vision_responsible',
+  'sales_responsible',
+  'security_level',
+  'front_view_image',
+  'side_view_image',
+  'top_view_image',
+  'product_snapshot',
+  'schematic_image',
+];
+
+function createManualBindings(bindings: RuleDetectedBinding[] = []): ManualBinding[] {
+  return bindings.map((binding) => ({
+    bindingId: binding.id,
+    systemField: binding.suggestedSystemField || 'project_name',
+    enabled: Boolean(binding.suggestedSystemField) && binding.confidence >= 0.45,
+    clearWhenMissing: true,
+  }));
+}
+
+function buildParsedSlides(template: ParsedTemplate): ParsedSlideInfo[] {
+  return template.slides.map((slide) => ({
+    index: slide.index,
+    detectedType: slide.detectedRole || slide.layoutRef || 'unknown',
+    customFields: slide.customFields,
+    title: slide.title,
+    detectedRole: slide.detectedRole,
+    detectedBindings: slide.detectedBindings,
+  }));
+}
 
 export function PPTTemplateManager() {
   const {
@@ -80,6 +116,7 @@ export function PPTTemplateManager() {
   const [parsing, setParsing] = useState(false);
   const [parsedTemplate, setParsedTemplate] = useState<ParsedTemplate | null>(null);
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([]);
+  const [manualBindings, setManualBindings] = useState<ManualBinding[]>([]);
   const [layoutMappingOpen, setLayoutMappingOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgFileInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +141,7 @@ export function PPTTemplateManager() {
     setSelectedBgFile(null);
     setParsedTemplate(null);
     setFieldMappings([]);
+    setManualBindings([]);
     setLayoutMappingOpen(false);
     setDialogOpen(true);
   };
@@ -128,6 +166,7 @@ export function PPTTemplateManager() {
     setSelectedBgFile(null);
     setParsedTemplate(null);
     setFieldMappings(template.structure_meta?.fieldMappings || []);
+    setManualBindings(template.structure_meta?.manualBindings || []);
     setLayoutMappingOpen(false);
     setDialogOpen(true);
   };
@@ -145,6 +184,7 @@ export function PPTTemplateManager() {
       setParsing(true);
       setParsedTemplate(null);
       setFieldMappings([]);
+      setManualBindings([]);
       
       try {
         const result = await parseTemplate({ file });
@@ -152,12 +192,10 @@ export function PPTTemplateManager() {
           setParsedTemplate(result.template);
           // 自动映射字段
           const mappings = autoMapFields(result.template.customFields);
-          const parsedSlides: ParsedSlideInfo[] = result.template.slides.map((slide) => ({
-            index: slide.index,
-            detectedType: slide.layoutRef || 'unknown',
-            customFields: slide.customFields,
-          }));
+          const parsedSlides = buildParsedSlides(result.template);
+          const bindings = createManualBindings(result.template.detectedBindings);
           setFieldMappings(mappings);
+          setManualBindings(bindings);
           setFormData((prev) => ({
             ...prev,
             structure_meta: {
@@ -165,8 +203,13 @@ export function PPTTemplateManager() {
               layoutMapping: prev.structure_meta?.layoutMapping || DEFAULT_LAYOUT_MAPPING,
               ...prev.structure_meta,
               fieldMappings: mappings,
+              detectedBindings: result.template.detectedBindings,
+              manualBindings: bindings,
               parsedSlides,
               customFields: result.template.customFields,
+              masters: result.template.masters,
+              layouts: result.template.layouts,
+              roleSummary: result.template.roleSummary,
               parsedAt: result.template.parsedAt,
             },
           }));
@@ -234,11 +277,7 @@ export function PPTTemplateManager() {
     setUploading(true);
     try {
       const parsedSlides: ParsedSlideInfo[] = parsedTemplate
-        ? parsedTemplate.slides.map((slide) => ({
-            index: slide.index,
-            detectedType: slide.layoutRef || 'unknown',
-            customFields: slide.customFields,
-          }))
+        ? buildParsedSlides(parsedTemplate)
         : (formData.structure_meta?.parsedSlides || []);
       const templateData: PPTTemplateInsert = {
         ...formData,
@@ -247,8 +286,13 @@ export function PPTTemplateManager() {
           layoutMapping: formData.structure_meta?.layoutMapping || DEFAULT_LAYOUT_MAPPING,
           ...formData.structure_meta,
           fieldMappings,
+          detectedBindings: parsedTemplate?.detectedBindings || formData.structure_meta?.detectedBindings || [],
+          manualBindings,
           parsedSlides,
           customFields: parsedTemplate?.customFields || formData.structure_meta?.customFields || [],
+          masters: parsedTemplate?.masters || formData.structure_meta?.masters || [],
+          layouts: parsedTemplate?.layouts || formData.structure_meta?.layouts || [],
+          roleSummary: parsedTemplate?.roleSummary || formData.structure_meta?.roleSummary || {},
           parsedAt: parsedTemplate?.parsedAt || formData.structure_meta?.parsedAt || new Date().toISOString(),
         },
       };
@@ -312,10 +356,36 @@ export function PPTTemplateManager() {
   const mappingSlides = parsedTemplate
     ? parsedTemplate.slides.map(s => ({
         index: s.index,
-        detectedType: s.layoutRef || 'unknown',
+        detectedType: s.detectedRole || s.layoutRef || 'unknown',
         customFields: s.customFields,
       }))
     : (formData.structure_meta?.parsedSlides || []);
+  const detectedBindings = parsedTemplate?.detectedBindings || formData.structure_meta?.detectedBindings || [];
+
+  const upsertManualBinding = (bindingId: string, patch: Partial<ManualBinding>) => {
+    setManualBindings((prev) => {
+      const current = prev.find((binding) => binding.bindingId === bindingId);
+      const nextBinding: ManualBinding = {
+        bindingId,
+        systemField: current?.systemField || 'project_name',
+        enabled: current?.enabled ?? true,
+        clearWhenMissing: current?.clearWhenMissing ?? true,
+        ...patch,
+      };
+      const next = current
+        ? prev.map((binding) => binding.bindingId === bindingId ? nextBinding : binding)
+        : [...prev, nextBinding];
+      setFormData((data) => ({
+        ...data,
+        structure_meta: {
+          ...data.structure_meta,
+          sections: data.structure_meta?.sections || [],
+          manualBindings: next,
+        },
+      }));
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -551,7 +621,7 @@ export function PPTTemplateManager() {
                     解析成功
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {parsedTemplate.slideCount} 页 · {(parsedTemplate.dimensions.width / 914400).toFixed(1)}×{(parsedTemplate.dimensions.height / 914400).toFixed(1)} 英寸
+                    {parsedTemplate.slideCount} 页 · {parsedTemplate.dimensions.width.toFixed(1)}×{parsedTemplate.dimensions.height.toFixed(1)} 英寸
                   </div>
                 </div>
 
@@ -664,6 +734,68 @@ export function PPTTemplateManager() {
                     </ScrollArea>
                   </TabsContent>
                 </Tabs>
+
+                {detectedBindings.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        <Scan className="h-4 w-4" />
+                        规则识别候选映射
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {manualBindings.filter((binding) => binding.enabled).length}/{detectedBindings.length} 已启用
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      系统会把已启用的 XXXX、报告人、日期或图片位置替换为项目数据；未启用的模板内容保持原样。
+                    </p>
+                    <ScrollArea className="h-44 pr-3">
+                      <div className="space-y-2">
+                        {detectedBindings.map((binding) => {
+                          const manual = manualBindings.find((item) => item.bindingId === binding.id) || {
+                            bindingId: binding.id,
+                            systemField: binding.suggestedSystemField || 'project_name',
+                            enabled: false,
+                            clearWhenMissing: true,
+                          };
+                          return (
+                            <div key={binding.id} className="grid grid-cols-[auto_1fr_180px] gap-2 items-center p-2 bg-background rounded border">
+                              <Checkbox
+                                checked={manual.enabled}
+                                onCheckedChange={(checked) => upsertManualBinding(binding.id, { enabled: !!checked })}
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-xs">#{binding.slideIndex + 1}</Badge>
+                                  <span className="text-xs text-muted-foreground">{binding.matchType}</span>
+                                  <span className="text-xs text-muted-foreground">{Math.round(binding.confidence * 100)}%</span>
+                                </div>
+                                <p className="text-sm truncate" title={binding.sourceText}>
+                                  {binding.sourceText || binding.shapeName || binding.label}
+                                </p>
+                              </div>
+                              <Select
+                                value={manual.systemField}
+                                onValueChange={(value) => upsertManualBinding(binding.id, { systemField: value, enabled: true })}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {DEFAULT_BINDING_FIELDS.map((field) => (
+                                    <SelectItem key={field} value={field}>
+                                      {getFieldLabel(field)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
 
                 {/* 字段映射统计 */}
                 {parsedTemplate.customFields.length > 0 && (

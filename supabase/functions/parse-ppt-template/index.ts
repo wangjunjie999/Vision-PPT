@@ -21,6 +21,7 @@ const SYSTEM_FIELDS = [
   "spec_version",
   "product_process",
   "quality_strategy",
+  "security_level",
   "workstation_count",
   "total_module_count",
   "camera_count",
@@ -48,6 +49,11 @@ const SYSTEM_FIELDS = [
   "mod_type_label",
   "mod_trigger_label",
   "mod_processing_time",
+  "front_view_image",
+  "side_view_image",
+  "top_view_image",
+  "product_snapshot",
+  "schematic_image",
   "generated_date",
   "generated_time",
 ];
@@ -151,17 +157,32 @@ async function parsePptx(zip: any, fileName: string, fileSize: number) {
 
   const slides = [];
   const allFields = new Set<string>();
+  const detectedBindings: any[] = [];
+  const roleSummary: Record<string, number> = {};
   for (const path of slideFiles) {
     const index = Number(path.match(/slide(\d+)\.xml$/)?.[1] || "1") - 1;
     const xml = await readZipFile(zip, path) || "";
+    const shapes = parseShapes(xml);
+    const text = shapes.map((shape: any) => shape.text).filter(Boolean).join("\n");
+    const layoutRef = await getSlideLayoutRef(zip, path);
     const textFields = collectTextFields(xml);
     const imageFields = collectImageFields(xml);
+    const detectedRole = detectSlideRole(index, text, layoutRef);
+    const slideBindings = detectRuleBindings(index, detectedRole, shapes, textFields);
+
     textFields.forEach((field) => allFields.add(field));
+    detectedBindings.push(...slideBindings);
+    roleSummary[detectedRole] = (roleSummary[detectedRole] || 0) + 1;
 
     slides.push({
       index,
-      layoutRef: await getSlideLayoutRef(zip, path),
+      layoutRef,
       customFields: [...new Set([...textFields, ...imageFields.map((f) => `img:${f}`)])],
+      text,
+      title: guessSlideTitle(shapes),
+      detectedRole,
+      shapes,
+      detectedBindings: slideBindings,
     });
   }
 
@@ -174,6 +195,8 @@ async function parsePptx(zip: any, fileName: string, fileSize: number) {
     layouts,
     slides,
     customFields: [...allFields],
+    detectedBindings,
+    roleSummary,
     availableSystemFields: SYSTEM_FIELDS,
     parsedAt: new Date().toISOString(),
   };
@@ -228,6 +251,63 @@ function parsePlaceholders(xml: string) {
   return placeholders;
 }
 
+function parseShapes(xml: string) {
+  const shapes: any[] = [];
+  const shapeRegex = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+  const picRegex = /<p:pic\b[\s\S]*?<\/p:pic>/g;
+
+  for (const match of xml.matchAll(shapeRegex)) {
+    const raw = match[0];
+    const text = collectShapeText(raw);
+    shapes.push({
+      id: getShapeId(raw, `sp_${shapes.length}`),
+      name: getShapeName(raw),
+      kind: text ? "text" : "other",
+      text,
+      position: parseShapePosition(raw),
+    });
+  }
+
+  for (const match of xml.matchAll(picRegex)) {
+    const raw = match[0];
+    shapes.push({
+      id: getShapeId(raw, `pic_${shapes.length}`),
+      name: getShapeName(raw),
+      kind: "picture",
+      text: "",
+      position: parseShapePosition(raw),
+    });
+  }
+
+  return shapes.sort((a, b) => (a.position.y - b.position.y) || (a.position.x - b.position.x));
+}
+
+function collectShapeText(shapeXml: string): string {
+  return [...shapeXml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+    .map((match) => decodeXml(match[1]))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getShapeId(xml: string, fallback: string): string {
+  return xml.match(/<p:cNvPr[^>]*\bid="([^"]+)"/)?.[1] || fallback;
+}
+
+function getShapeName(xml: string): string {
+  return decodeXml(xml.match(/<p:cNvPr[^>]*\bname="([^"]*)"/)?.[1] || "");
+}
+
+function parseShapePosition(xml: string) {
+  const match = xml.match(/<a:off\s+x="(-?\d+)"\s+y="(-?\d+)"[\s\S]*?<a:ext\s+cx="(\d+)"\s+cy="(\d+)"/);
+  return {
+    x: Number((Number(match?.[1] || 0) / EMU_PER_INCH).toFixed(3)),
+    y: Number((Number(match?.[2] || 0) / EMU_PER_INCH).toFixed(3)),
+    w: Number((Number(match?.[3] || 0) / EMU_PER_INCH).toFixed(3)),
+    h: Number((Number(match?.[4] || 0) / EMU_PER_INCH).toFixed(3)),
+  };
+}
+
 function collectTextFields(xml: string): string[] {
   const fields = new Set<string>();
   for (const match of xml.matchAll(/{{\s*([^{}]+?)\s*}}/g)) {
@@ -245,6 +325,119 @@ function collectImageFields(xml: string): string[] {
     if (key) fields.add(key);
   }
   return [...fields];
+}
+
+function detectSlideRole(index: number, text: string, layoutRef: string): string {
+  const compact = text.replace(/\s+/g, "");
+  if (index === 0) return "cover";
+  if (/走进|资质荣誉|数字泛微|公司简介|关于我们/.test(compact)) return "company_intro";
+  if (/目录|CONTENT|Contents/i.test(compact)) return "toc";
+  if (/章节|Section/i.test(layoutRef) || (/^0?\d/.test(compact) && compact.length < 80)) return "section";
+  if (/方案|解决方案|检测|技术|要求|系统|工位|模块/.test(compact)) return "content";
+  return "general";
+}
+
+function guessSlideTitle(shapes: any[]): string {
+  return shapes
+    .filter((shape) => shape.kind === "text" && shape.text)
+    .sort((a, b) => (b.position.h - a.position.h) || (a.position.y - b.position.y))[0]
+    ?.text
+    ?.slice(0, 80) || "";
+}
+
+function detectRuleBindings(slideIndex: number, role: string, shapes: any[], textFields: string[]) {
+  const bindings: any[] = [];
+  for (const field of textFields) {
+    bindings.push({
+      id: `s${slideIndex}-placeholder-${field}`,
+      slideIndex,
+      shapeId: "",
+      sourceText: `{{${field}}}`,
+      token: field,
+      label: field,
+      matchType: "placeholder",
+      replacementMode: "replace-token",
+      suggestedSystemField: SYSTEM_FIELDS.includes(field) ? field : guessSystemField(field, role),
+      confidence: SYSTEM_FIELDS.includes(field) ? 1 : 0.65,
+    });
+  }
+
+  for (const shape of shapes) {
+    if (shape.kind === "picture") {
+      const suggested = guessImageField(shape, role);
+      if (suggested) {
+        bindings.push({
+          id: `s${slideIndex}-pic-${shape.id}`,
+          slideIndex,
+          shapeId: shape.id,
+          shapeName: shape.name,
+          sourceText: shape.name || "图片",
+          label: suggested,
+          matchType: "image",
+          replacementMode: "replace-picture",
+          suggestedSystemField: suggested,
+          confidence: 0.45,
+          optional: true,
+        });
+      }
+      continue;
+    }
+
+    if (!shape.text) continue;
+    const tokens = [...shape.text.matchAll(/[XxＸｘ]{2,}|_{3,}/g)];
+    tokens.forEach((tokenMatch, idx) => {
+      const suggested = guessSystemField(shape.text, role, shape, idx);
+      bindings.push({
+        id: `s${slideIndex}-sp-${shape.id}-x-${idx}`,
+        slideIndex,
+        shapeId: shape.id,
+        shapeName: shape.name,
+        sourceText: shape.text,
+        token: tokenMatch[0],
+        label: suggested,
+        matchType: "xxxx",
+        replacementMode: "replace-token",
+        suggestedSystemField: suggested,
+        confidence: confidenceForSuggestion(shape.text, role, suggested),
+      });
+    });
+  }
+  return bindings;
+}
+
+function guessSystemField(text: string, role: string, shape?: any, occurrenceIndex = 0): string {
+  const compact = text.replace(/\s+/g, "");
+  if (/报告人|汇报人|负责人|Author|Presenter/i.test(compact)) return "responsible";
+  if (/日期|时间|Date/i.test(compact)) return "date_formatted";
+  if (/客户|Client|Customer/i.test(compact)) return "customer";
+  if (/密级|公开|涉密|绝密|Confidential/i.test(compact)) return "security_level";
+  if (/项目编号|项目号|编号|Code/i.test(compact)) return "project_code";
+  if (/项目|方案|标题|主题|Project|Title/i.test(compact)) return "project_name";
+  if (role === "cover") {
+    if ((shape?.position?.y ?? 9) < 2.4) return "project_name";
+    if (occurrenceIndex === 0) return "project_name";
+    if (occurrenceIndex === 1) return "responsible";
+    if (occurrenceIndex === 2) return "date_formatted";
+  }
+  if (role === "toc") return "project_name";
+  return "project_name";
+}
+
+function confidenceForSuggestion(text: string, role: string, field: string): number {
+  if (/报告人|汇报人|负责人|日期|时间|客户|密级|项目编号|编号|项目|方案/.test(text)) return 0.9;
+  if (role === "cover" && ["project_name", "responsible", "date_formatted"].includes(field)) return 0.72;
+  return 0.55;
+}
+
+function guessImageField(shape: any, role: string): string | null {
+  const name = `${shape.name}`.toLowerCase();
+  if (/front|正视|正面/.test(name)) return "front_view_image";
+  if (/side|侧视|侧面/.test(name)) return "side_view_image";
+  if (/top|俯视|俯视图/.test(name)) return "top_view_image";
+  if (/product|产品|标注/.test(name)) return "product_snapshot";
+  if (/schematic|diagram|示意/.test(name)) return "schematic_image";
+  if (role === "content") return "product_snapshot";
+  return null;
 }
 
 async function getSlideLayoutRef(zip: any, slidePath: string): Promise<string> {

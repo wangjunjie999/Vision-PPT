@@ -138,6 +138,20 @@ async function generatePptxFromTemplate(zip: any, input: {
     xml = imageResult.xml;
     relsXml = imageResult.relsXml;
 
+    const ruleResult = await replaceRuleBindings(
+      zip,
+      xml,
+      relsXml,
+      i + 1,
+      item.sourceIndex,
+      item.context,
+      input.options,
+      input.structureMeta,
+      replacedFields,
+    );
+    xml = ruleResult.xml;
+    relsXml = ruleResult.relsXml;
+
     zip.file(`ppt/slides/slide${i + 1}.xml`, xml);
     zip.file(`ppt/slides/_rels/slide${i + 1}.xml.rels`, relsXml);
     slideTypes.push({ index: i, type: item.slideType || "template" });
@@ -293,6 +307,7 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     spec_version: project.spec_version,
     product_process: project.product_process,
     quality_strategy: project.quality_strategy,
+    security_level: project.security_level || project.confidentiality || "",
     workstation_count: String(context.workstations?.length || 0),
     total_module_count: String((context.workstations || []).reduce((sum: number, ws: any) => sum + (ws.modules?.length || 0), 0) || context.modules?.length || 0),
     camera_count: String(context.hardware?.cameras?.length || 0),
@@ -319,6 +334,11 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     front_view_image_url: layout.front_view_image_url,
     side_view_image_url: layout.side_view_image_url,
     top_view_image_url: layout.top_view_image_url,
+    front_view_image: layout.front_view_image_url,
+    side_view_image: layout.side_view_image_url,
+    top_view_image: layout.top_view_image_url,
+    product_snapshot: context.productAnnotation?.snapshot_url,
+    schematic_image: context.modules?.[0]?.schematic_image_url,
   };
 
   if (workstation?.id) {
@@ -417,6 +437,125 @@ async function replaceImagePlaceholders(zip: any, xml: string, relsXml: string, 
   }
 
   return { xml: outputXml, relsXml: outputRels };
+}
+
+async function replaceRuleBindings(
+  zip: any,
+  xml: string,
+  relsXml: string,
+  slideNumber: number,
+  sourceSlideIndex: number,
+  context: any,
+  options: any,
+  structureMeta: any,
+  replacedFields: Set<string>,
+) {
+  const detectedBindings = options?.detectedBindings || structureMeta?.detectedBindings || [];
+  const manualBindings = options?.manualBindings || structureMeta?.manualBindings || [];
+  const fieldMappings = options?.fieldMappings || structureMeta?.fieldMappings || [];
+  if (!Array.isArray(detectedBindings) || !Array.isArray(manualBindings)) {
+    return { xml, relsXml };
+  }
+
+  const manualById = new Map(
+    manualBindings
+      .filter((binding: any) => binding?.enabled !== false)
+      .map((binding: any) => [binding.bindingId, binding]),
+  );
+  if (manualById.size === 0) return { xml, relsXml };
+
+  let outputXml = xml;
+  let outputRels = relsXml || relationshipsXml("");
+  const fields = buildFieldMap(context, fieldMappings);
+
+  for (const binding of detectedBindings) {
+    if (Number(binding?.slideIndex) !== Number(sourceSlideIndex)) continue;
+    const manual = manualById.get(binding.id) as any;
+    if (!manual?.systemField) continue;
+
+    const value = fields[manual.systemField] ?? stringify(getByPath({
+      ...context,
+      project: context.project || {},
+      workstation: context.workstation || {},
+      layout: context.layout || {},
+      hardware: context.hardware || {},
+    }, manual.systemField));
+
+    if (!value && manual.clearWhenMissing === false) continue;
+
+    if (binding.replacementMode === "replace-picture" || binding.matchType === "image") {
+      if (!value) continue;
+      try {
+        const image = await fetchImage(value);
+        const mediaName = `rule_img_${slideNumber}_${binding.shapeId}.${image.ext}`;
+        zip.file(`ppt/media/${mediaName}`, image.bytes);
+        const rId = nextRelationshipId(outputRels);
+        outputRels = addRelationship(outputRels, rId, IMAGE_REL, `../media/${mediaName}`);
+        outputXml = replacePictureEmbedByShapeId(outputXml, String(binding.shapeId || ""), rId);
+        replacedFields.add(`${binding.id}:${manual.systemField}`);
+      } catch (error) {
+        console.warn("Rule image replacement failed:", value, error);
+      }
+      continue;
+    }
+
+    const nextXml = replaceTextBindingByShapeId(outputXml, String(binding.shapeId || ""), binding, value);
+    if (nextXml !== outputXml) {
+      outputXml = nextXml;
+      replacedFields.add(`${binding.id}:${manual.systemField}`);
+    }
+  }
+
+  return { xml: outputXml, relsXml: outputRels };
+}
+
+function replaceTextBindingByShapeId(xml: string, shapeId: string, binding: any, value: string) {
+  if (!shapeId) return xml;
+  return xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (shape) => {
+    if (!shapeHasId(shape, shapeId)) return shape;
+    const token = binding?.token ? String(binding.token) : "";
+    if (binding?.replacementMode === "replace-shape-text" || !token) {
+      return replaceFirstTextRun(shape, value);
+    }
+    return replaceTokenInTextRuns(shape, token, value);
+  });
+}
+
+function replacePictureEmbedByShapeId(xml: string, shapeId: string, rId: string) {
+  if (!shapeId) return xml;
+  return xml.replace(/<p:pic\b[\s\S]*?<\/p:pic>/g, (pic) => {
+    if (!shapeHasId(pic, shapeId)) return pic;
+    if (pic.includes("r:embed=")) {
+      return pic.replace(/r:embed="[^"]+"/, `r:embed="${rId}"`);
+    }
+    return pic.replace(/<a:blip\b([^>]*)\/>/, `<a:blip$1 r:embed="${rId}"/>`);
+  });
+}
+
+function shapeHasId(shapeXml: string, shapeId: string) {
+  const escaped = escapeRegExp(shapeId);
+  return new RegExp(`<p:cNvPr[^>]*\\bid="${escaped}"`).test(shapeXml);
+}
+
+function replaceTokenInTextRuns(shapeXml: string, token: string, value: string) {
+  let replaced = false;
+  const output = shapeXml.replace(/<a:t(\s[^>]*)?>([\s\S]*?)<\/a:t>/g, (full, attrs = "", rawText) => {
+    if (replaced) return full;
+    const text = decodeXml(rawText);
+    if (!text.includes(token)) return full;
+    replaced = true;
+    return `<a:t${attrs}>${escapeXml(text.replace(token, value))}</a:t>`;
+  });
+  return replaced ? output : shapeXml;
+}
+
+function replaceFirstTextRun(shapeXml: string, value: string) {
+  let replaced = false;
+  return shapeXml.replace(/<a:t(\s[^>]*)?>([\s\S]*?)<\/a:t>/g, (full, attrs = "") => {
+    if (replaced) return "";
+    replaced = true;
+    return `<a:t${attrs}>${escapeXml(value)}</a:t>`;
+  });
 }
 
 function resolveImageUrl(key: string, context: any): string | null {
@@ -606,6 +745,15 @@ function escapeXml(value: unknown): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function decodeXml(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 function escapeRegExp(value: string): string {
