@@ -71,6 +71,77 @@ interface Store {
   finishPPTGeneration: () => void;
 }
 
+const PERSISTED_STORE_VERSION = 2;
+
+const DEFAULT_PERSISTED_STATE = {
+  currentRole: 'user' as UserRole,
+  selectedProjectId: null,
+  selectedWorkstationId: null,
+  selectedModuleId: null,
+  currentView: 'front' as ViewType,
+  pptImageQuality: 'high' as const,
+  pendingAIFill: null,
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function readCurrentRole(value: unknown): UserRole {
+  return value === 'admin' || value === 'user' ? value : DEFAULT_PERSISTED_STATE.currentRole;
+}
+
+function readCurrentView(value: unknown): ViewType {
+  return value === 'front' || value === 'side' || value === 'top'
+    ? value
+    : DEFAULT_PERSISTED_STATE.currentView;
+}
+
+function readPPTImageQuality(value: unknown): 'standard' | 'high' | 'ultra' {
+  return value === 'standard' || value === 'high' || value === 'ultra'
+    ? value
+    : DEFAULT_PERSISTED_STATE.pptImageQuality;
+}
+
+function readPendingAIFill(value: unknown): Store['pendingAIFill'] {
+  if (!isRecord(value)) return null;
+  const { targetType, targetId, fields } = value;
+  const validTarget = targetType === 'project' || targetType === 'workstation' || targetType === 'module';
+  if (!validTarget || typeof targetId !== 'string' || !isRecord(fields)) return null;
+
+  return {
+    targetType,
+    targetId,
+    fields: Object.fromEntries(
+      Object.entries(fields).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    ),
+  };
+}
+
+function normalizePersistedState(persistedState: unknown): Partial<Store> {
+  const state = isRecord(persistedState) && isRecord(persistedState.state)
+    ? persistedState.state
+    : persistedState;
+
+  if (!isRecord(state)) {
+    return DEFAULT_PERSISTED_STATE;
+  }
+
+  return {
+    currentRole: readCurrentRole(state.currentRole),
+    selectedProjectId: readNullableString(state.selectedProjectId),
+    selectedWorkstationId: readNullableString(state.selectedWorkstationId),
+    selectedModuleId: readNullableString(state.selectedModuleId),
+    currentView: readCurrentView(state.currentView),
+    pptImageQuality: readPPTImageQuality(state.pptImageQuality),
+    pendingAIFill: readPendingAIFill(state.pendingAIFill),
+  };
+}
+
 export const useAppStore = create<Store>()(
   persist(
     (set, get) => ({
@@ -173,6 +244,20 @@ export const useAppStore = create<Store>()(
     }),
     {
       name: 'vision-config-storage',
+      version: PERSISTED_STORE_VERSION,
+      migrate: (persistedState) => ({
+        ...DEFAULT_PERSISTED_STATE,
+        ...normalizePersistedState(persistedState),
+        selectedProjectId: null,
+        selectedWorkstationId: null,
+        selectedModuleId: null,
+      }),
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          console.warn('[Store] Failed to rehydrate persisted UI state. Clearing stale storage.', error);
+          localStorage.removeItem('vision-config-storage');
+        }
+      },
       partialize: (state) => ({
         currentRole: state.currentRole,
         selectedProjectId: state.selectedProjectId,
