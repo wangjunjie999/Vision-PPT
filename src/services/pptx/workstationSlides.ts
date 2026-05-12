@@ -152,6 +152,125 @@ function addSlideTitle(
   }
 }
 
+const TABLE_SAFE_BOTTOM_Y = SLIDE_LAYOUT.contentBottom - 0.18;
+
+function getBodyRowsPerPage(
+  tableY: number,
+  rowHeight: number,
+  headerRowCount = 0,
+  bottomY = TABLE_SAFE_BOTTOM_Y
+): number {
+  const availableHeight = Math.max(rowHeight, bottomY - tableY - 0.08);
+  return Math.max(1, Math.floor(availableHeight / rowHeight) - headerRowCount);
+}
+
+function withSafeTableHeight(
+  options: Record<string, unknown>,
+  rowCount: number,
+  rowHeight: number,
+  bottomY = TABLE_SAFE_BOTTOM_Y
+): Record<string, unknown> {
+  const y = typeof options.y === 'number' ? options.y : 1;
+  const requestedHeight = typeof options.h === 'number'
+    ? options.h
+    : rowCount * rowHeight + 0.08;
+  const maxHeight = Math.max(rowHeight, bottomY - y);
+  return {
+    ...options,
+    h: Math.min(requestedHeight, maxHeight),
+  };
+}
+
+function addSafeTable(
+  slide: ReturnType<PptxGenJS['addSlide']>,
+  rows: TableRow[],
+  options: Record<string, unknown>,
+  rowHeight = 0.28,
+  bottomY = TABLE_SAFE_BOTTOM_Y
+): void {
+  slide.addTable(rows, withSafeTableHeight(options, rows.length, rowHeight, bottomY) as any);
+}
+
+function addContinuationTableSlides(
+  ctx: SlideContext,
+  subtitle: string,
+  sectionTitle: string,
+  headerRows: TableRow[],
+  bodyRows: TableRow[],
+  tableOptions: Record<string, unknown>,
+  rowHeight = 0.28
+): void {
+  if (bodyRows.length === 0) return;
+
+  const tableY = typeof tableOptions.y === 'number' ? tableOptions.y : 1.15;
+  const maxBodyRows = getBodyRowsPerPage(tableY, rowHeight, headerRows.length);
+  const chunks: TableRow[][] = [];
+  for (let i = 0; i < bodyRows.length; i += maxBodyRows) {
+    chunks.push(bodyRows.slice(i, i + maxBodyRows));
+  }
+
+  chunks.forEach((chunk, index) => {
+    const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    addSlideTitle(slide, ctx, `${subtitle} - ${sectionTitle} (${index + 1}/${chunks.length})`);
+    slide.addText(sectionTitle, {
+      x: tableOptions.x as number,
+      y: Math.max(0.9, tableY - 0.28),
+      w: tableOptions.w as number,
+      h: 0.22,
+      fontSize: 10,
+      fontFace: FONTS.body,
+      color: COLORS.primary,
+      bold: true,
+    });
+    addSafeTable(slide, [...headerRows, ...chunk], tableOptions, rowHeight);
+  });
+}
+
+function addPaginatedTable(
+  ctx: SlideContext,
+  slide: ReturnType<PptxGenJS['addSlide']>,
+  subtitle: string,
+  sectionTitle: string,
+  headerRows: TableRow[],
+  bodyRows: TableRow[],
+  tableOptions: Record<string, unknown>,
+  config: {
+    rowHeight?: number;
+    firstPageMaxBodyRows?: number;
+    firstPageBottomY?: number;
+    continuationOptions?: Record<string, unknown>;
+    continuationRowHeight?: number;
+  } = {}
+): void {
+  const rowHeight = config.rowHeight ?? 0.28;
+  const tableY = typeof tableOptions.y === 'number' ? tableOptions.y : 1;
+  const firstMaxRows = config.firstPageMaxBodyRows ?? getBodyRowsPerPage(
+    tableY,
+    rowHeight,
+    headerRows.length,
+    config.firstPageBottomY ?? TABLE_SAFE_BOTTOM_Y
+  );
+  const firstBodyRows = bodyRows.slice(0, firstMaxRows);
+  addSafeTable(
+    slide,
+    [...headerRows, ...firstBodyRows],
+    tableOptions,
+    rowHeight,
+    config.firstPageBottomY ?? TABLE_SAFE_BOTTOM_Y
+  );
+
+  const remainingRows = bodyRows.slice(firstMaxRows);
+  addContinuationTableSlides(
+    ctx,
+    subtitle,
+    sectionTitle,
+    headerRows,
+    remainingRows,
+    config.continuationOptions ?? tableOptions,
+    config.continuationRowHeight ?? rowHeight
+  );
+}
+
 interface SlideContext {
   pptx: PptxGenJS;
   isZh: boolean;
@@ -440,10 +559,19 @@ export async function generateProductSchematicSlide(
           return row([`#${num}`, detail]);
         });
       if (legendRows.length > 0) {
-        slide.addTable(legendRows, {
+        addPaginatedTable(ctx, slide, 'Product Schematic', 'Annotation Legend', [], legendRows, {
           x: 6.2, y: 1.55, w: 3.3, h: Math.min(legendRows.length * 0.32 + 0.1, 2.8),
           fontFace: FONTS.body, fontSize: 9, colW: [0.6, 2.7],
           border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
+        }, {
+          rowHeight: 0.32,
+          firstPageBottomY: 4.35,
+          continuationOptions: {
+            x: 0.5, y: 1.2, w: 9,
+            fontFace: FONTS.body, fontSize: 9, colW: [1.0, 8.0],
+            border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
+          },
+          continuationRowHeight: 0.32,
         });
       }
       if (annotation.remark) {
@@ -498,7 +626,7 @@ export function generateTechnicalRequirementsSlide(
   modules.forEach(mod => {
     const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
     // Include module description if available
-    const modDesc = mod.description ? ` - ${mod.description.slice(0, 30)}...` : '';
+    const modDesc = mod.description ? ` - ${mod.description}` : '';
     detectionItems.push(row([typeLabel, mod.name + modDesc]));
     
     // Add specific config details based on module type
@@ -508,7 +636,7 @@ export function generateTechnicalRequirementsSlide(
       if (mod.defect_config) {
         const defCfg = mod.defect_config as Record<string, unknown>;
         if (defCfg.defectClasses && Array.isArray(defCfg.defectClasses)) {
-          detectionItems.push(row([ctx.isZh ? '缺陷类别' : 'Defect Types', (defCfg.defectClasses as string[]).slice(0, 3).join('、')]));
+          detectionItems.push(row([ctx.isZh ? '缺陷类别' : 'Defect Types', (defCfg.defectClasses as string[]).join('、')]));
         }
       }
       // OCR specific
@@ -535,7 +663,7 @@ export function generateTechnicalRequirementsSlide(
         }
         if (measCfg.measurementItems && Array.isArray(measCfg.measurementItems)) {
           const items = measCfg.measurementItems as Array<{ name: string }>;
-          items.slice(0, 2).forEach(item => {
+          items.forEach(item => {
             detectionItems.push(row([ctx.isZh ? '测量项' : 'Measure Item', item.name || '-']));
           });
         }
@@ -553,7 +681,7 @@ export function generateTechnicalRequirementsSlide(
           detectionItems.push(row([ctx.isZh ? 'AI任务类型' : 'AI Task', taskLabels[dlCfg.taskType as string] || String(dlCfg.taskType)]));
         }
         if (dlCfg.targetClasses && Array.isArray(dlCfg.targetClasses)) {
-          detectionItems.push(row([ctx.isZh ? '目标类别' : 'Target Classes', (dlCfg.targetClasses as string[]).slice(0, 3).join('、')]));
+          detectionItems.push(row([ctx.isZh ? '目标类别' : 'Target Classes', (dlCfg.targetClasses as string[]).join('、')]));
         }
       }
     }
@@ -568,13 +696,25 @@ export function generateTechnicalRequirementsSlide(
     detectionItems.push(row(['-', '-']));
   }
 
-  slide.addTable(detectionItems.slice(0, 8), {
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Items', [], detectionItems, {
     x: 0.5, y: 1.45, w: 4.3, h: Math.min(detectionItems.length * 0.28 + 0.1, 2.2),
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [1.4, 2.9],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.28,
+    firstPageMaxBodyRows: 8,
+    firstPageBottomY: 3.75,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [2.2, 6.8],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
   });
 
   // Minimum defect / Tolerance / Configuration details
@@ -629,13 +769,26 @@ export function generateTechnicalRequirementsSlide(
     toleranceRows.push(row([ctx.isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria?.accuracy || '±0.1mm']));
   }
 
-  slide.addTable(toleranceRows.slice(0, 10), {
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Config Parameters', [], toleranceRows, {
     x: 5, y: 1.45, w: 4.5, h: Math.min(toleranceRows.length * 0.26 + 0.1, 2.4),
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [1.8, 2.7],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.26,
+    firstPageMaxBodyRows: 10,
+    firstPageBottomY: 3.85,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [2.6, 6.4],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
+    continuationRowHeight: 0.26,
   });
 
   // Risk notes section
@@ -808,13 +961,25 @@ export function generateMotionMethodSlide(
     fovRows.push(row([ctx.isZh ? '待定' : 'TBD', '-']));
   }
 
-  slide.addTable(fovRows.slice(0, 4), {
+  addPaginatedTable(ctx, slide, 'Motion/Detection Method', 'FOV / Pixel Precision', [], fovRows, {
     x: 0.5, y: 1.65, w: 4.3, h: Math.min(fovRows.length * 0.28 + 0.1, 1.2),
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [2, 2.3],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.28,
+    firstPageMaxBodyRows: 4,
+    firstPageBottomY: 2.9,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 9,
+      colW: [3.2, 5.8],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
   });
 
   // Right column: Installation requirements
@@ -834,14 +999,14 @@ export function generateMotionMethodSlide(
     row([ctx.isZh ? '长边方向' : 'Long Edge', ctx.isZh ? '沿运动方向' : 'Along motion']),
   ];
 
-  slide.addTable(installRows, {
+  addSafeTable(slide, installRows, {
     x: 5, y: 1.65, w: 4.5, h: 1.0,
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [1.8, 2.7],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
-  });
+  }, 0.3, 2.9);
 
   // Cycle and shot count
   slide.addText(ctx.isZh ? '【节拍/拍照次数】' : '[Cycle / Shot Count]', {
@@ -855,14 +1020,14 @@ export function generateMotionMethodSlide(
     row([ctx.isZh ? '触发方式' : 'Trigger', TRIGGER_LABELS[modules[0]?.trigger_type || 'io']?.[ctx.isZh ? 'zh' : 'en'] || 'IO']),
   ];
 
-  slide.addTable(cycleRows, {
+  addSafeTable(slide, cycleRows, {
     x: 0.5, y: 3.3, w: 4.3, h: 1.0,
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [1.8, 2.5],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
-  });
+  }, 0.3, 4.8);
 
   // Measurement method / Action flow
   slide.addText(ctx.isZh ? '【测量方法/动作流程】' : '[Measurement Method / Action Flow]', {
@@ -920,7 +1085,7 @@ export function generateOpticalSolutionSlide(
     ]);
   }) || [row(['-', '-', '-', '-'])];
 
-  slide.addTable([cameraHeader, ...cameraRows], {
+  addPaginatedTable(ctx, slide, 'Optical Solution', 'Camera Configuration', [cameraHeader], cameraRows, {
     x: 0.5, y: 1.4, w: 9, h: Math.min((cameraRows.length + 1) * 0.3 + 0.1, 1.5),
     fontFace: FONTS.body,
     fontSize: 9,
@@ -929,6 +1094,21 @@ export function generateOpticalSolutionSlide(
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
+  }, {
+    rowHeight: 0.3,
+    firstPageMaxBodyRows: 3,
+    firstPageBottomY: 2.95,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 9,
+      colW: [3.5, 2, 1.5, 2],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+      align: 'center',
+    },
+    continuationRowHeight: 0.3,
   });
 
   // Lens configuration
@@ -952,13 +1132,25 @@ export function generateOpticalSolutionSlide(
     ]);
   }) || [row(['-', '-', '-'])];
 
-  slide.addTable([lensHeader, ...lensRows], {
+  addPaginatedTable(ctx, slide, 'Optical Solution', 'Lens Configuration', [lensHeader], lensRows, {
     x: 0.5, y: 3.3, w: 4.3, h: Math.min((lensRows.length + 1) * 0.28 + 0.1, 1.2),
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [2.3, 1, 1],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.28,
+    firstPageMaxBodyRows: 4,
+    firstPageBottomY: 4.8,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 9,
+      colW: [5, 2, 2],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
   });
 
   // Working distance & extended optical params
@@ -987,7 +1179,7 @@ export function generateOpticalSolutionSlide(
     ctx.isZh ? '景深' : 'DOF',
   ]);
 
-  slide.addTable([wdHeader, ...wdRows.slice(0, 4)], {
+  addPaginatedTable(ctx, slide, 'Optical Solution', 'Working Distance', [wdHeader], wdRows, {
     x: 5, y: 3.3, w: 4.5, h: Math.min((wdRows.length + 1) * 0.28 + 0.1, 1.5),
     fontFace: FONTS.body,
     fontSize: 8,
@@ -996,6 +1188,20 @@ export function generateOpticalSolutionSlide(
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
+  }, {
+    rowHeight: 0.28,
+    firstPageMaxBodyRows: 4,
+    firstPageBottomY: 4.95,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [3, 2, 2, 2],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+      align: 'center',
+    },
   });
 }
 
@@ -1021,13 +1227,25 @@ export function generateVisionListSlide(
     row([`${light.brand} ${light.model}`, '1'])
   ) || [row(['-', '-'])];
 
-  slide.addTable(lightRows, {
+  addPaginatedTable(ctx, slide, 'Measurement & Vision List', 'Light Model/Quantity', [], lightRows, {
     x: 0.5, y: 1.4, w: 4.3, h: Math.min(lightRows.length * 0.28 + 0.1, 1.2),
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [3.3, 1],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.28,
+    firstPageMaxBodyRows: 4,
+    firstPageBottomY: 2.65,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 9,
+      colW: [7.2, 1.8],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
   });
 
   // Light distance and angle
@@ -1056,14 +1274,14 @@ export function generateVisionListSlide(
     row([ctx.isZh ? '支架/线缆' : 'Bracket/Cable', ctx.isZh ? '按需配置' : 'As needed']),
   ];
 
-  slide.addTable(visionListRows, {
+  addSafeTable(slide, visionListRows, {
     x: 0.5, y: 3.0, w: 4.3, h: 2.0,
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [1.8, 2.5],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
-  });
+  }, 0.3, 5.05);
 
   // Module summary
   slide.addText(ctx.isZh ? '功能模块' : 'Function Modules', {
@@ -1077,13 +1295,26 @@ export function generateVisionListSlide(
   ]));
 
   if (modRows.length > 0) {
-    slide.addTable(modRows.slice(0, 6), {
+    addPaginatedTable(ctx, slide, 'Measurement & Vision List', 'Function Modules', [], modRows, {
       x: 5, y: 3.0, w: 4.5, h: Math.min(modRows.length * 0.3 + 0.1, 2),
       fontFace: FONTS.body,
       fontSize: 9,
       colW: [1.5, 3],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
+    }, {
+      rowHeight: 0.3,
+      firstPageMaxBodyRows: 6,
+      firstPageBottomY: 5.05,
+      continuationOptions: {
+        x: 0.5, y: 1.2, w: 9,
+        fontFace: FONTS.body,
+        fontSize: 9,
+        colW: [3, 6],
+        border: { pt: 0.5, color: COLORS.border },
+        fill: { color: COLORS.white },
+      },
+      continuationRowHeight: 0.3,
     });
   }
 }
@@ -1137,7 +1368,7 @@ export function generateBOMSlide(
     bomRows.push(row(['1', '-', '-', '-', '-', '-']));
   }
 
-  slide.addTable([bomHeader, ...bomRows.slice(0, 10)], {
+  addPaginatedTable(ctx, slide, 'BOM List', 'BOM', [bomHeader], bomRows, {
     x: 0.5, y: 1.1, w: 9, h: Math.min((bomRows.length + 1) * 0.32 + 0.1, 3.0),
     fontFace: FONTS.body,
     fontSize: 9,
@@ -1146,6 +1377,21 @@ export function generateBOMSlide(
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
+  }, {
+    rowHeight: 0.32,
+    firstPageMaxBodyRows: 10,
+    firstPageBottomY: 4.45,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 9,
+      colW: [0.6, 1.5, 2.8, 0.8, 1, 2.3],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+      align: 'center',
+    },
+    continuationRowHeight: 0.32,
   });
 }
 
@@ -1182,7 +1428,7 @@ export function generateBasicInfoAndRequirementsSlide(
     row([ctx.isZh ? '兼容尺寸' : 'Product Dims', dimsText]),
   ];
 
-  slide.addTable(basicInfoRows, {
+  addSafeTable(slide, basicInfoRows, {
     x: 0.4, y: startY, w: 4.5, h: 1.8,
     fontFace: FONTS.body,
     fontSize: 8,
@@ -1190,7 +1436,7 @@ export function generateBasicInfoAndRequirementsSlide(
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
-  });
+  }, 0.24, 2.9);
 
   // Right: Detection method summary + camera info
   const detectionMethods = modules.map(m => {
@@ -1212,7 +1458,7 @@ export function generateBasicInfoAndRequirementsSlide(
     rightInfoRows.push(row([typeLabel, mod.name]));
   });
 
-  slide.addTable(rightInfoRows.slice(0, 8), {
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Workstation Summary', [], rightInfoRows, {
     x: 5.1, y: startY, w: 4.5, h: 1.8,
     fontFace: FONTS.body,
     fontSize: 8,
@@ -1220,6 +1466,19 @@ export function generateBasicInfoAndRequirementsSlide(
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
+  }, {
+    rowHeight: 0.24,
+    firstPageMaxBodyRows: 8,
+    firstPageBottomY: 2.9,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [2.4, 6.6],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+    },
   });
 
   // === BOTTOM HALF: Detection Requirements ===
@@ -1239,7 +1498,7 @@ export function generateBasicInfoAndRequirementsSlide(
     if (mod.defect_config) {
       const defCfg = mod.defect_config as Record<string, unknown>;
       if (defCfg.defectClasses && Array.isArray(defCfg.defectClasses)) {
-        detectionItems.push(row([ctx.isZh ? '  缺陷类别' : '  Defects', (defCfg.defectClasses as string[]).slice(0, 3).join('、')]));
+        detectionItems.push(row([ctx.isZh ? '  缺陷类别' : '  Defects', (defCfg.defectClasses as string[]).join('、')]));
       }
     }
     if (mod.measurement_config) {
@@ -1259,13 +1518,26 @@ export function generateBasicInfoAndRequirementsSlide(
     detectionItems.push(row(['-', '-']));
   }
 
-  slide.addTable(detectionItems.slice(0, 7), {
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Items', [], detectionItems, {
     x: 0.4, y: bottomY + 0.3, w: 4.5, h: Math.min(detectionItems.length * 0.26 + 0.05, 1.8),
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [1.4, 3.1],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.26,
+    firstPageMaxBodyRows: 7,
+    firstPageBottomY: 5.05,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [2.4, 6.6],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
+    continuationRowHeight: 0.26,
   });
 
   // Right: Config parameters / tolerances
@@ -1290,13 +1562,26 @@ export function generateBasicInfoAndRequirementsSlide(
     toleranceRows.push(row([ctx.isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria?.accuracy || '±0.1mm']));
   }
 
-  slide.addTable(toleranceRows.slice(0, 7), {
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Config / Tolerance', [], toleranceRows, {
     x: 5.1, y: bottomY + 0.3, w: 4.5, h: Math.min(toleranceRows.length * 0.26 + 0.05, 1.8),
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [1.6, 2.9],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
+  }, {
+    rowHeight: 0.26,
+    firstPageMaxBodyRows: 7,
+    firstPageBottomY: 5.05,
+    continuationOptions: {
+      x: 0.5, y: 1.2, w: 9,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [2.6, 6.4],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+    },
+    continuationRowHeight: 0.26,
   });
 
   // Risk notes removed per user request

@@ -162,13 +162,13 @@ describe('ProductViewerCanvas', () => {
         expect(mocks.store.transitionViewerToAnnotation).not.toHaveBeenCalled();
     });
 
-    it('截图无效时回退到首张产品图片', async () => {
+    it('图片模式截图无效时回退到首张产品图片', async () => {
         mocks.store.viewerAssetData = {
             modelUrl: 'https://example.com/demo.glb',
             imageUrls: ['https://example.com/fallback.png'],
             assetId: 'asset-2',
             scope: 'workstation',
-            preferredDisplayMode: 'auto' as const,
+            preferredDisplayMode: 'image' as const,
         };
         mocks.viewerHandle.getStatus.mockReturnValue('ready');
         mocks.viewerHandle.canTakeScreenshot.mockReturnValue(true);

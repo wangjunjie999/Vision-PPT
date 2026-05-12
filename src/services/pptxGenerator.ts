@@ -433,7 +433,9 @@ function createAutoPageTableOptions(
   startY: number,
   masterName: string = 'MASTER_SLIDE'
 ): Record<string, unknown> {
+  const safeBottomY = SLIDE_LAYOUT.contentBottom - 0.18;
   return {
+    h: Math.max(0.35, safeBottomY - startY),
     autoPage: true,
     autoPageRepeatHeader: true,
     autoPageHeaderRows: 1,
@@ -1284,18 +1286,22 @@ export async function generatePPTX(
   progress = 92;
   onProgress(progress, isZh ? '生成硬件清单...' : 'Generating hardware list...', isZh ? '硬件清单汇总' : 'Hardware summary');
 
-  const hwSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  
-  hwSlide.addText(isZh ? '硬件清单汇总' : 'Hardware Summary', {
-    x: 0.4, y: 0.05, w: 7.5, h: 0.38,
-    fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
-    shadow: createHeadingShadow(),
-  });
-  hwSlide.addText(isZh ? '设备清单' : 'Equipment List', {
-    x: 0, y: st.y, w: '100%', h: st.h,
-    fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
-    bold: st.bold, italic: st.italic,
-  });
+  const createHardwareSummarySlide = (pageLabel = '') => {
+    const slide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    slide.addText(`${isZh ? '硬件清单汇总' : 'Hardware Summary'}${pageLabel}`, {
+      x: 0.4, y: 0.05, w: 7.5, h: 0.38,
+      fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
+      shadow: createHeadingShadow(),
+    });
+    slide.addText(isZh ? '设备清单' : 'Equipment List', {
+      x: 0, y: st.y, w: '100%', h: st.h,
+      fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
+      bold: st.bold, italic: st.italic,
+    });
+    return slide;
+  };
+
+  const hwSlide = createHardwareSummarySlide();
 
   // Aggregate hardware by brand+model across all modules
   const hwCountMap = new Map<string, { type: string; brand: string; model: string; count: number }>();
@@ -1364,10 +1370,20 @@ export async function generatePPTX(
     row(['', '', '', isZh ? '总计' : 'Total', `${totalDevices}${isZh ? '台' : ''}`, '']),
   ];
 
-  const hwAllRows = [...hwHeader, ...hwDataRows, ...hwTotalRow];
+  const hardwareRowsPerPage = 15;
+  const hardwareChunks: TableRow[][] = [];
+  for (let i = 0; i < hwDataRows.length; i += hardwareRowsPerPage) {
+    hardwareChunks.push(hwDataRows.slice(i, i + hardwareRowsPerPage));
+  }
+  if (hardwareChunks.length === 0) {
+    hardwareChunks.push([]);
+  }
 
-  hwSlide.addTable(hwAllRows, {
-    x: SLIDE_LAYOUT.contentLeft, y: 0.85, w: SLIDE_LAYOUT.contentWidth,
+  const hardwareTableOptions = {
+    x: SLIDE_LAYOUT.contentLeft,
+    y: 0.85,
+    w: SLIDE_LAYOUT.contentWidth,
+    h: SLIDE_LAYOUT.contentBottom - 0.85 - 0.18,
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [0.5, 1.4, 1.2, 2.0, 0.6, 1.8],
@@ -1375,6 +1391,17 @@ export async function generatePPTX(
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
+  };
+
+  hardwareChunks.forEach((chunk, pageIndex) => {
+    const isLastPage = pageIndex === hardwareChunks.length - 1;
+    const slide = pageIndex === 0
+      ? hwSlide
+      : createHardwareSummarySlide(` (${pageIndex + 1}/${hardwareChunks.length})`);
+    slide.addTable(
+      [...hwHeader, ...chunk, ...(isLastPage ? hwTotalRow : [])],
+      hardwareTableOptions
+    );
   });
 
 
