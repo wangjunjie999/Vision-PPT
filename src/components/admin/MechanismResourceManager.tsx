@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
 import { ImageCropDialog } from './ImageCropDialog';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 // Mechanism image display with error handling
 const MechanismImageDisplay = memo(function MechanismImageDisplay({ 
@@ -216,34 +217,18 @@ export function MechanismResourceManager() {
 
   const ImageUploadArea = ({ viewType, label, url }: { viewType: 'front' | 'side' | 'top'; label: string; url: string }) => {
     return (
-    <div className="space-y-2">
-      <Label className="text-xs">{label}</Label>
-      <div className="relative border-2 border-dashed border-border rounded-lg p-2 h-24 flex items-center justify-center bg-muted/30">
-        {url ? (
-          <img src={url} alt={label} className="max-h-full max-w-full object-contain" />
-        ) : (
-          <div className="text-center text-muted-foreground text-xs">
-            <ImageIcon className="h-6 w-6 mx-auto mb-1" />
-            未上传
-          </div>
-        )}
-        <input
-          type="file"
-          accept="image/*"
-          className="absolute inset-0 opacity-0 cursor-pointer"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) openCropDialog(file, viewType);
-          }}
-          disabled={uploadingView === viewType}
-        />
-        {uploadingView === viewType && (
-          <div className="absolute inset-0 bg-background/80 flex items-center justify-center rounded-lg">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
-        )}
-      </div>
-    </div>
+    <DragDropUpload
+      variant="thumbnail"
+      accept="image/*"
+      label={label}
+      currentUrl={url || null}
+      uploading={uploadingView === viewType}
+      showPreview={false}
+      onUpload={async (files) => {
+        const file = files[0];
+        if (file) openCropDialog(file, viewType);
+      }}
+    />
     );
   };
 
@@ -328,7 +313,39 @@ export function MechanismResourceManager() {
               <div className="space-y-2">
                 <Label>3D 模型（GLB）</Label>
                 <div className="flex items-center gap-3">
-                  <div className="relative flex-1 border-2 border-dashed border-border rounded-lg p-3 flex items-center justify-center bg-muted/30 min-h-[48px]">
+                  <div
+                    className="relative flex-1 border-2 border-dashed border-border rounded-lg p-3 flex items-center justify-center bg-gradient-to-br from-muted/40 to-muted/10 min-h-[48px] transition-all hover:border-primary/50 hover:from-primary/5"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add('!border-primary', 'ring-2', 'ring-primary/30', 'scale-[1.01]');
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove('!border-primary', 'ring-2', 'ring-primary/30', 'scale-[1.01]');
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('!border-primary', 'ring-2', 'ring-primary/30', 'scale-[1.01]');
+                      if (uploadingGlb) return;
+                      const file = e.dataTransfer.files?.[0];
+                      if (!file || !/\.glb$/i.test(file.name)) {
+                        toast.error('仅支持 .glb 文件');
+                        return;
+                      }
+                      setUploadingGlb(true);
+                      try {
+                        const { uploadGLBFile } = await import('@/utils/glbUpload');
+                        const url = await uploadGLBFile(file, 'mechanisms');
+                        if (url) {
+                          setForm(prev => ({ ...prev, model_3d_url: url }));
+                          toast.success('3D 模型上传成功');
+                        }
+                      } catch {
+                        toast.error('3D 模型上传失败');
+                      } finally {
+                        setUploadingGlb(false);
+                      }
+                    }}
+                  >
                     {form.model_3d_url ? (
                       <div className="flex items-center gap-2 w-full">
                         <Box className="h-5 w-5 text-primary flex-shrink-0" />
@@ -346,7 +363,7 @@ export function MechanismResourceManager() {
                     ) : (
                       <div className="text-center text-muted-foreground text-xs">
                         <Box className="h-5 w-5 mx-auto mb-1" />
-                        未上传
+                        拖拽 .glb 文件到此处或点击上传
                       </div>
                     )}
                     <input

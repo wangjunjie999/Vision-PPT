@@ -38,6 +38,7 @@ import { Product3DViewer } from './Product3DViewer';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
 import type { ProductViewerDisplayMode } from '@/utils/productViewer';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductAsset {
   id: string;
@@ -507,29 +508,20 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
           <TabsContent value="viewer" className="mt-3 space-y-3">
             <div className="space-y-2">
               <Label className="text-xs">上传局部图片</Label>
-              <label className="block">
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.webp"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  disabled={uploading}
-                />
-                <div className={cn(
-                  "flex items-center justify-center gap-2 px-3 py-2 border-2 border-dashed rounded-md cursor-pointer transition-colors",
-                  "hover:border-primary hover:bg-primary/5",
-                  uploading && "opacity-50 cursor-not-allowed"
-                )}>
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4" />
-                  )}
-                  <span className="text-xs">
-                    {uploading ? '上传中...' : '上传检测区域图片'}
-                  </span>
-                </div>
-              </label>
+              <DragDropUpload
+                accept=".jpg,.jpeg,.png,.webp"
+                maxSize={10}
+                showPreview={false}
+                uploading={uploading}
+                label="拖拽检测区域图片到此处"
+                hint="支持 jpg / png / webp"
+                onUpload={async (files) => {
+                  const file = files[0];
+                  if (!file) return;
+                  const fakeEvent = { target: { files: [file], value: '' } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                  await handleFileUpload(fakeEvent);
+                }}
+              />
             </div>
 
             {displayAsset ? (

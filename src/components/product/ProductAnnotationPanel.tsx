@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
 import { getSupportedProductModelHint, type ProductViewerDisplayMode } from '@/utils/productViewer';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductModelItem {
   name: string;
@@ -459,31 +460,20 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
             {/* Upload Area */}
             <div className="space-y-2">
               <Label className="text-xs">素材上传</Label>
-              <div className="flex gap-2">
-                <label className="flex-1">
-                  <input
-                    type="file"
-                    accept=".glb,.gltf,.jpg,.jpeg,.png,.webp"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    disabled={uploading}
-                  />
-                  <div className={cn(
-                    "flex items-center justify-center gap-2 px-3 py-2 border-2 border-dashed rounded-md cursor-pointer transition-colors",
-                    "hover:border-primary hover:bg-primary/5",
-                    uploading && "opacity-50 cursor-not-allowed"
-                  )}>
-                    {uploading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4" />
-                    )}
-                    <span className="text-xs">
-                      {uploading ? '上传中...' : '上传3D模型或图片'}
-                    </span>
-                  </div>
-                </label>
-              </div>
+              <DragDropUpload
+                accept=".glb,.gltf,.jpg,.jpeg,.png,.webp"
+                maxSize={50}
+                showPreview={false}
+                uploading={uploading}
+                label="拖拽 3D 模型或图片到此处"
+                hint="支持 .glb / .gltf / jpg / png / webp"
+                onUpload={async (files) => {
+                  const file = files[0];
+                  if (!file) return;
+                  const fakeEvent = { target: { files: [file], value: '' } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                  await handleFileUpload(fakeEvent);
+                }}
+              />
               {asset && (
                 <div className="text-xs text-muted-foreground flex items-center gap-2">
                   <Clock className="h-3 w-3" />

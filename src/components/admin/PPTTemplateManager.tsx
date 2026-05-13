@@ -18,6 +18,7 @@ import { parseTemplate, SYSTEM_FIELDS, autoMapFields, getFieldLabel, type Parsed
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SlideLayoutMapping } from './SlideLayoutMapping';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 // 动态页面结构选项 - 将根据模板解析结果动态更新
 const DEFAULT_SECTION_OPTIONS = [
@@ -585,24 +586,20 @@ export function PPTTemplateManager() {
 
               <div className="space-y-2">
                 <Label>上传母版文件</Label>
-                <div className="flex gap-2">
-                <Input
-                  ref={fileInputRef}
-                  type="file"
+                <DragDropUpload
                   accept=".pptx"
-                  onChange={handleFileSelect}
-                  className="hidden"
+                  maxSize={50}
+                  showPreview={false}
+                  uploading={parsing}
+                  label={selectedFile ? selectedFile.name : '拖拽 .pptx 文件到此处'}
+                  hint="支持 .pptx 格式 · 拖拽或点击上传"
+                  onUpload={async (files) => {
+                    const file = files[0];
+                    if (!file) return;
+                    const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                    await handleFileSelect(fakeEvent);
+                  }}
                 />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Upload className="h-4 w-4" />
-                    {selectedFile ? selectedFile.name : '选择文件'}
-                  </Button>
-                </div>
                 {parsing && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -862,42 +859,43 @@ export function PPTTemplateManager() {
             {/* Background Image Upload */}
             <div className="space-y-2">
               <Label>PPT背景图（可选，将应用到所有页面）</Label>
-              <div className="flex gap-2 items-center">
-                <Input
-                  ref={bgFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleBgFileSelect}
-                  className="hidden"
-                />
+              <DragDropUpload
+                accept="image/*"
+                maxSize={10}
+                showPreview={false}
+                label={
+                  selectedBgFile
+                    ? selectedBgFile.name
+                    : formData.background_image_url
+                    ? '已有背景图，拖拽或点击更换'
+                    : '拖拽背景图到此处或点击上传'
+                }
+                hint="支持 jpg / png / webp · 最大 10MB"
+                onUpload={async (files) => {
+                  const file = files[0];
+                  if (file) {
+                    if (!file.type.startsWith('image/')) {
+                      toast.error('请选择图片文件');
+                      return;
+                    }
+                    setSelectedBgFile(file);
+                  }
+                }}
+              />
+              {(formData.background_image_url || selectedBgFile) && (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
+                  size="sm"
                   className="gap-2"
-                  onClick={() => bgFileInputRef.current?.click()}
+                  onClick={() => {
+                    setSelectedBgFile(null);
+                    setFormData({ ...formData, background_image_url: '' });
+                  }}
                 >
-                  <ImageIcon className="h-4 w-4" />
-                  {selectedBgFile ? selectedBgFile.name : (formData.background_image_url ? '更换背景图' : '选择背景图')}
+                  <Trash2 className="h-4 w-4" />
+                  移除背景图
                 </Button>
-                {(formData.background_image_url || selectedBgFile) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedBgFile(null);
-                      setFormData({ ...formData, background_image_url: '' });
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-              {formData.background_image_url && !selectedBgFile && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <ImageIcon className="h-3 w-3" />
-                  <span>已有背景图</span>
-                </div>
               )}
             </div>
 

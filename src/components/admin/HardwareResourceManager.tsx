@@ -462,7 +462,23 @@ export function HardwareResourceManager({ type }: Props) {
                       </Button>
                     </>
                   ) : (
-                    <label className="cursor-pointer">
+                    <label
+                      className="cursor-pointer flex-1 border-2 border-dashed border-border/60 rounded-md px-3 py-2 text-center bg-gradient-to-br from-muted/40 to-muted/10 hover:border-primary/50 hover:from-primary/5 transition-all"
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('!border-primary', 'bg-primary/10'); }}
+                      onDragLeave={(e) => { e.currentTarget.classList.remove('!border-primary', 'bg-primary/10'); }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove('!border-primary', 'bg-primary/10');
+                        if (glbUploading) return;
+                        const file = e.dataTransfer.files?.[0];
+                        if (!file || !/\.glb$/i.test(file.name)) { toast.error('仅支持 .glb 文件'); return; }
+                        setGlbUploading(true);
+                        try {
+                          const url = await uploadGLBFile(file, 'cameras');
+                          if (url) setGlbUrl(url);
+                        } finally { setGlbUploading(false); }
+                      }}
+                    >
                       <input
                         type="file"
                         accept=".glb"
@@ -479,9 +495,10 @@ export function HardwareResourceManager({ type }: Props) {
                           }
                         }}
                       />
-                      <Button variant="outline" size="sm" asChild disabled={glbUploading}>
-                        <span>{glbUploading ? '上传中...' : '上传 GLB 文件'}</span>
-                      </Button>
+                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                        <Upload className="h-3.5 w-3.5" />
+                        {glbUploading ? '上传中...' : '拖拽 .glb 或点击上传'}
+                      </span>
                     </label>
                   )}
                 </div>
@@ -502,7 +519,37 @@ export function HardwareResourceManager({ type }: Props) {
                       <Button variant="outline" size="sm" onClick={() => setFrontViewUrl(null)}>移除</Button>
                     </>
                   ) : (
-                    <label className="cursor-pointer">
+                    <label
+                      className="cursor-pointer flex-1 border-2 border-dashed border-border/60 rounded-md px-3 py-2 text-center bg-gradient-to-br from-muted/40 to-muted/10 hover:border-primary/50 hover:from-primary/5 transition-all"
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('!border-primary', 'bg-primary/10'); }}
+                      onDragLeave={(e) => { e.currentTarget.classList.remove('!border-primary', 'bg-primary/10'); }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove('!border-primary', 'bg-primary/10');
+                        if (frontViewUploading) return;
+                        const file = e.dataTransfer.files?.[0];
+                        if (!file) return;
+                        setFrontViewUploading(true);
+                        try {
+                          const isValid = await validateImageFile(file, {
+                            maxSizeMB: 5,
+                            allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+                            allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+                            checkMagicBytes: true,
+                          });
+                          if (!isValid) return;
+                          const uploadFile = await processHardwareImageForUpload(file);
+                          const fileExt = uploadFile.name.split('.').pop() || 'png';
+                          const path = `${type}/front-view/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+                          const { error } = await supabase.storage.from('hardware-images').upload(path, uploadFile, {
+                            contentType: uploadFile.type || 'image/png',
+                          });
+                          if (error) { toast.error('上传失败'); return; }
+                          const { data: urlData } = supabase.storage.from('hardware-images').getPublicUrl(path);
+                          setFrontViewUrl(urlData.publicUrl);
+                        } finally { setFrontViewUploading(false); }
+                      }}
+                    >
                       <input
                         type="file"
                         accept="image/*"
@@ -534,9 +581,10 @@ export function HardwareResourceManager({ type }: Props) {
                           }
                         }}
                       />
-                      <Button variant="outline" size="sm" asChild disabled={frontViewUploading}>
-                        <span>{frontViewUploading ? '上传中...' : '上传正视图'}</span>
-                      </Button>
+                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                        <Upload className="h-3.5 w-3.5" />
+                        {frontViewUploading ? '上传中...' : '拖拽图片或点击上传'}
+                      </span>
                     </label>
                   )}
                 </div>
@@ -555,7 +603,37 @@ export function HardwareResourceManager({ type }: Props) {
                       <Button variant="outline" size="sm" onClick={() => setTopViewUrl(null)}>移除</Button>
                     </>
                   ) : (
-                    <label className="cursor-pointer">
+                    <label
+                      className="cursor-pointer flex-1 border-2 border-dashed border-border/60 rounded-md px-3 py-2 text-center bg-gradient-to-br from-muted/40 to-muted/10 hover:border-primary/50 hover:from-primary/5 transition-all"
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('!border-primary', 'bg-primary/10'); }}
+                      onDragLeave={(e) => { e.currentTarget.classList.remove('!border-primary', 'bg-primary/10'); }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove('!border-primary', 'bg-primary/10');
+                        if (topViewUploading) return;
+                        const file = e.dataTransfer.files?.[0];
+                        if (!file) return;
+                        setTopViewUploading(true);
+                        try {
+                          const isValid = await validateImageFile(file, {
+                            maxSizeMB: 5,
+                            allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+                            allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+                            checkMagicBytes: true,
+                          });
+                          if (!isValid) return;
+                          const uploadFile = await processHardwareImageForUpload(file);
+                          const fileExt = uploadFile.name.split('.').pop() || 'png';
+                          const path = `lights/top-view/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+                          const { error } = await supabase.storage.from('hardware-images').upload(path, uploadFile, {
+                            contentType: uploadFile.type || 'image/png',
+                          });
+                          if (error) { toast.error('上传失败'); return; }
+                          const { data: urlData } = supabase.storage.from('hardware-images').getPublicUrl(path);
+                          setTopViewUrl(urlData.publicUrl);
+                        } finally { setTopViewUploading(false); }
+                      }}
+                    >
                       <input
                         type="file"
                         accept="image/*"
@@ -587,9 +665,10 @@ export function HardwareResourceManager({ type }: Props) {
                           }
                         }}
                       />
-                      <Button variant="outline" size="sm" asChild disabled={topViewUploading}>
-                        <span>{topViewUploading ? '上传中...' : '上传俯视图'}</span>
-                      </Button>
+                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                        <Upload className="h-3.5 w-3.5" />
+                        {topViewUploading ? '上传中...' : '拖拽图片或点击上传'}
+                      </span>
                     </label>
                   )}
                 </div>

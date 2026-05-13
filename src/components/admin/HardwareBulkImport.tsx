@@ -24,6 +24,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 type HardwareType = 'cameras' | 'lenses' | 'lights' | 'controllers';
 
@@ -241,30 +242,16 @@ export function HardwareBulkImport({ type, open, onOpenChange, onImport }: Hardw
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <Label className="sr-only">选择文件</Label>
-              <div
-                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
-                onClick={() => inputRef.current?.click()}
-              >
-                {fileName ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <FileSpreadsheet className="h-5 w-5 text-primary" />
-                    <span className="font-medium">{fileName}</span>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
-                      点击或拖拽文件到此处上传
-                    </p>
-                  </div>
-                )}
-              </div>
-              <Input
-                ref={inputRef}
-                type="file"
+              <DragDropUpload
                 accept=".csv,.xlsx,.xls"
-                className="hidden"
-                onChange={handleFileChange}
+                maxSize={20}
+                showPreview={false}
+                label={fileName || '拖拽 Excel / CSV 文件到此处'}
+                hint="支持 .xlsx / .xls / .csv 格式"
+                onUpload={async (files) => {
+                  const file = files[0];
+                  if (file) parseFile(file);
+                }}
               />
             </div>
             <Button variant="outline" onClick={downloadTemplate} className="shrink-0">

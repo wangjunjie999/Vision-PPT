@@ -67,9 +67,56 @@ interface ObjectPropertyPanelProps {
 // Inline GLB upload field for property panel
 function GLBUploadField({ currentUrl, onUpdate }: { currentUrl?: string; onUpdate: (url: string | undefined) => void }) {
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFile = async (file: File) => {
+    const cadExts = /\.(sldprt|sldasm|step|stp|iges|igs|x_t|x_b|sat|catpart|catproduct|prt|asm)$/i;
+    if (cadExts.test(file.name)) {
+      const ext = file.name.split('.').pop()?.toUpperCase() || '';
+      toast.error(`${ext} 是 CAD 格式，请先转换为 GLB 后再上传。`, { duration: 8000 });
+      return;
+    }
+    if (!/\.(glb|gltf)$/i.test(file.name)) {
+      toast.error('仅支持 GLB / GLTF 格式');
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadGLBFile } = await import('@/utils/glbUpload');
+      const url = await uploadGLBFile(file, 'layout-objects');
+      if (url) {
+        onUpdate(url);
+        toast.success('3D 模型已更新');
+      }
+    } catch (err) {
+      console.error('GLB upload error:', err);
+      toast.error('上传失败');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
-    <div className="relative border-2 border-dashed border-border rounded-lg p-2 min-h-[40px] flex items-center justify-center bg-muted/30">
+    <div
+      className={cn(
+        'relative border-2 border-dashed rounded-lg p-2 min-h-[40px] flex items-center justify-center transition-all',
+        dragOver
+          ? 'border-primary bg-primary/10 ring-2 ring-primary/30 scale-[1.01]'
+          : 'border-border bg-gradient-to-br from-muted/40 to-muted/10 hover:border-primary/50'
+      )}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!uploading) setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={async (e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (uploading) return;
+        const file = e.dataTransfer.files?.[0];
+        if (file) await handleFile(file);
+      }}
+    >
       {currentUrl ? (
         <div className="flex items-center gap-2 w-full">
           <Box className="h-4 w-4 text-primary flex-shrink-0" />
@@ -79,7 +126,7 @@ function GLBUploadField({ currentUrl, onUpdate }: { currentUrl?: string; onUpdat
           </Button>
         </div>
       ) : (
-        <span className="text-xs text-muted-foreground">上传 .glb 替换默认模型</span>
+        <span className="text-xs text-muted-foreground">拖拽 .glb 到此处或点击上传</span>
       )}
       <input
         type="file"
@@ -89,30 +136,8 @@ function GLBUploadField({ currentUrl, onUpdate }: { currentUrl?: string; onUpdat
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          const cadExts = /\.(sldprt|sldasm|step|stp|iges|igs|x_t|x_b|sat|catpart|catproduct|prt|asm)$/i;
-          if (cadExts.test(file.name)) {
-            const ext = file.name.split('.').pop()?.toUpperCase() || '';
-            toast.error(`${ext} 是 CAD 格式，请先转换为 GLB 后再上传。`, { duration: 8000 });
-            return;
-          }
-          if (!/\.(glb|gltf)$/i.test(file.name)) {
-            toast.error('仅支持 GLB / GLTF 格式');
-            return;
-          }
-          setUploading(true);
-          try {
-            const { uploadGLBFile } = await import('@/utils/glbUpload');
-            const url = await uploadGLBFile(file, 'layout-objects');
-            if (url) {
-              onUpdate(url);
-              toast.success('3D 模型已更新');
-            }
-          } catch (err) {
-            console.error('GLB upload error:', err);
-            toast.error('上传失败');
-          } finally {
-            setUploading(false);
-          }
+          await handleFile(file);
+          e.currentTarget.value = '';
         }}
       />
       {uploading && (
