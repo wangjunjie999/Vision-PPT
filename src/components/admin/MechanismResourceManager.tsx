@@ -313,7 +313,39 @@ export function MechanismResourceManager() {
               <div className="space-y-2">
                 <Label>3D 模型（GLB）</Label>
                 <div className="flex items-center gap-3">
-                  <div className="relative flex-1 border-2 border-dashed border-border rounded-lg p-3 flex items-center justify-center bg-muted/30 min-h-[48px]">
+                  <div
+                    className="relative flex-1 border-2 border-dashed border-border rounded-lg p-3 flex items-center justify-center bg-gradient-to-br from-muted/40 to-muted/10 min-h-[48px] transition-all hover:border-primary/50 hover:from-primary/5"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add('!border-primary', 'ring-2', 'ring-primary/30', 'scale-[1.01]');
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove('!border-primary', 'ring-2', 'ring-primary/30', 'scale-[1.01]');
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('!border-primary', 'ring-2', 'ring-primary/30', 'scale-[1.01]');
+                      if (uploadingGlb) return;
+                      const file = e.dataTransfer.files?.[0];
+                      if (!file || !/\.glb$/i.test(file.name)) {
+                        toast.error('仅支持 .glb 文件');
+                        return;
+                      }
+                      setUploadingGlb(true);
+                      try {
+                        const { uploadGLBFile } = await import('@/utils/glbUpload');
+                        const url = await uploadGLBFile(file, 'mechanisms');
+                        if (url) {
+                          setForm(prev => ({ ...prev, model_3d_url: url }));
+                          toast.success('3D 模型上传成功');
+                        }
+                      } catch {
+                        toast.error('3D 模型上传失败');
+                      } finally {
+                        setUploadingGlb(false);
+                      }
+                    }}
+                  >
                     {form.model_3d_url ? (
                       <div className="flex items-center gap-2 w-full">
                         <Box className="h-5 w-5 text-primary flex-shrink-0" />
@@ -331,7 +363,7 @@ export function MechanismResourceManager() {
                     ) : (
                       <div className="text-center text-muted-foreground text-xs">
                         <Box className="h-5 w-5 mx-auto mb-1" />
-                        未上传
+                        拖拽 .glb 文件到此处或点击上传
                       </div>
                     )}
                     <input
