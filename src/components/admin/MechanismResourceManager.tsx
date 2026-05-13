@@ -216,34 +216,18 @@ export function MechanismResourceManager() {
 
   const ImageUploadArea = ({ viewType, label, url }: { viewType: 'front' | 'side' | 'top'; label: string; url: string }) => {
     return (
-    <div className="space-y-2">
-      <Label className="text-xs">{label}</Label>
-      <div className="relative border-2 border-dashed border-border rounded-lg p-2 h-24 flex items-center justify-center bg-muted/30">
-        {url ? (
-          <img src={url} alt={label} className="max-h-full max-w-full object-contain" />
-        ) : (
-          <div className="text-center text-muted-foreground text-xs">
-            <ImageIcon className="h-6 w-6 mx-auto mb-1" />
-            未上传
-          </div>
-        )}
-        <input
-          type="file"
-          accept="image/*"
-          className="absolute inset-0 opacity-0 cursor-pointer"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) openCropDialog(file, viewType);
-          }}
-          disabled={uploadingView === viewType}
-        />
-        {uploadingView === viewType && (
-          <div className="absolute inset-0 bg-background/80 flex items-center justify-center rounded-lg">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
-        )}
-      </div>
-    </div>
+    <DragDropUpload
+      variant="thumbnail"
+      accept="image/*"
+      label={label}
+      currentUrl={url || null}
+      uploading={uploadingView === viewType}
+      showPreview={false}
+      onUpload={async (files) => {
+        const file = files[0];
+        if (file) openCropDialog(file, viewType);
+      }}
+    />
     );
   };
 
