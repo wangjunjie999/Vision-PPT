@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
 import { ImageCropDialog } from './ImageCropDialog';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 // Mechanism image display with error handling
 const MechanismImageDisplay = memo(function MechanismImageDisplay({ 
