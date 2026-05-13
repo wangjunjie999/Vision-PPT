@@ -38,6 +38,7 @@ import { Product3DViewer } from './Product3DViewer';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
 import type { ProductViewerDisplayMode } from '@/utils/productViewer';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductAsset {
   id: string;
