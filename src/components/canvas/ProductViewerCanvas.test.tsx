@@ -168,7 +168,7 @@ describe('ProductViewerCanvas', () => {
             imageUrls: ['https://example.com/fallback.png'],
             assetId: 'asset-2',
             scope: 'workstation',
-            preferredDisplayMode: 'image' as const,
+            preferredDisplayMode: 'image',
         };
         mocks.viewerHandle.getStatus.mockReturnValue('ready');
         mocks.viewerHandle.canTakeScreenshot.mockReturnValue(true);
