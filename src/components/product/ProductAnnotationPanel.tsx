@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
 import { getSupportedProductModelHint, type ProductViewerDisplayMode } from '@/utils/productViewer';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductModelItem {
   name: string;
