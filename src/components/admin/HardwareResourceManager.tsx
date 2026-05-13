@@ -462,7 +462,23 @@ export function HardwareResourceManager({ type }: Props) {
                       </Button>
                     </>
                   ) : (
-                    <label className="cursor-pointer">
+                    <label
+                      className="cursor-pointer flex-1 border-2 border-dashed border-border/60 rounded-md px-3 py-2 text-center bg-gradient-to-br from-muted/40 to-muted/10 hover:border-primary/50 hover:from-primary/5 transition-all"
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('!border-primary', 'bg-primary/10'); }}
+                      onDragLeave={(e) => { e.currentTarget.classList.remove('!border-primary', 'bg-primary/10'); }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove('!border-primary', 'bg-primary/10');
+                        if (glbUploading) return;
+                        const file = e.dataTransfer.files?.[0];
+                        if (!file || !/\.glb$/i.test(file.name)) { toast.error('仅支持 .glb 文件'); return; }
+                        setGlbUploading(true);
+                        try {
+                          const url = await uploadGLBFile(file, 'cameras');
+                          if (url) setGlbUrl(url);
+                        } finally { setGlbUploading(false); }
+                      }}
+                    >
                       <input
                         type="file"
                         accept=".glb"
@@ -479,9 +495,10 @@ export function HardwareResourceManager({ type }: Props) {
                           }
                         }}
                       />
-                      <Button variant="outline" size="sm" asChild disabled={glbUploading}>
-                        <span>{glbUploading ? '上传中...' : '上传 GLB 文件'}</span>
-                      </Button>
+                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                        <Upload className="h-3.5 w-3.5" />
+                        {glbUploading ? '上传中...' : '拖拽 .glb 或点击上传'}
+                      </span>
                     </label>
                   )}
                 </div>
