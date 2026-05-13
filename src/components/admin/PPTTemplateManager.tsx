@@ -586,24 +586,20 @@ export function PPTTemplateManager() {
 
               <div className="space-y-2">
                 <Label>上传母版文件</Label>
-                <div className="flex gap-2">
-                <Input
-                  ref={fileInputRef}
-                  type="file"
+                <DragDropUpload
                   accept=".pptx"
-                  onChange={handleFileSelect}
-                  className="hidden"
+                  maxSize={50}
+                  showPreview={false}
+                  uploading={parsing}
+                  label={selectedFile ? selectedFile.name : '拖拽 .pptx 文件到此处'}
+                  hint="支持 .pptx 格式 · 拖拽或点击上传"
+                  onUpload={async (files) => {
+                    const file = files[0];
+                    if (!file) return;
+                    const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                    await handleFileSelect(fakeEvent);
+                  }}
                 />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Upload className="h-4 w-4" />
-                    {selectedFile ? selectedFile.name : '选择文件'}
-                  </Button>
-                </div>
                 {parsing && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
