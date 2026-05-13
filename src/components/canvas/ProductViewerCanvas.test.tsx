@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
             imageUrls: [] as string[],
             assetId: 'asset-1',
             scope: 'workstation' as const,
-            preferredDisplayMode: 'auto' as const,
+            preferredDisplayMode: 'auto' as 'auto' | 'image' | 'model',
         },
         exitViewerMode: vi.fn(),
         enterAnnotationMode: vi.fn(),
