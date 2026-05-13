@@ -18,6 +18,7 @@ import { parseTemplate, SYSTEM_FIELDS, autoMapFields, getFieldLabel, type Parsed
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SlideLayoutMapping } from './SlideLayoutMapping';
+import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 // 动态页面结构选项 - 将根据模板解析结果动态更新
 const DEFAULT_SECTION_OPTIONS = [
