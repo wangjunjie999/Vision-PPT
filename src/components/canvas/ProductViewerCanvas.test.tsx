@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
             imageUrls: [] as string[],
             assetId: 'asset-1',
             scope: 'workstation' as const,
-            preferredDisplayMode: 'auto' as const,
+            preferredDisplayMode: 'auto' as 'auto' | 'image' | 'model',
         },
         exitViewerMode: vi.fn(),
         enterAnnotationMode: vi.fn(),
@@ -168,7 +168,7 @@ describe('ProductViewerCanvas', () => {
             imageUrls: ['https://example.com/fallback.png'],
             assetId: 'asset-2',
             scope: 'workstation',
-            preferredDisplayMode: 'image' as const,
+            preferredDisplayMode: 'image',
         };
         mocks.viewerHandle.getStatus.mockReturnValue('ready');
         mocks.viewerHandle.canTakeScreenshot.mockReturnValue(true);

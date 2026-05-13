@@ -1389,8 +1389,8 @@ export async function generatePPTX(
     colW: [0.5, 1.4, 1.2, 2.0, 0.6, 1.8],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
-    valign: 'middle',
-    align: 'center',
+    valign: 'middle' as const,
+    align: 'center' as const,
   };
 
   hardwareChunks.forEach((chunk, pageIndex) => {
