@@ -110,6 +110,14 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[hsl(235,25%,9%)] p-4 relative overflow-hidden">
+      <Helmet>
+        <title>登录 / 注册 - 视觉检测配置系统</title>
+        <meta name="description" content="登录视觉检测配置系统，搭建工业相机方案、管理工位与硬件库，并生成可交付的检测方案 PPT。" />
+        <link rel="canonical" href="/auth" />
+        <meta property="og:title" content="登录 / 注册 - 视觉检测配置系统" />
+        <meta property="og:description" content="登录后即可创建工业视觉检测项目、配置工位与硬件，并一键导出方案报告。" />
+        <meta property="og:url" content="/auth" />
+      </Helmet>
       {/* Systematic Cartography grid background */}
       <div className="absolute inset-0" style={{
         backgroundImage: `
