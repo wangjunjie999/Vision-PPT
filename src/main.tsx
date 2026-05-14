@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { HelmetProvider } from "react-helmet-async";
 import App from "./App.tsx";
 import "./index.css";
 
@@ -57,7 +58,11 @@ try {
     throw new Error("Missing #root element");
   }
 
-  createRoot(root).render(<App />);
+  createRoot(root).render(
+    <HelmetProvider>
+      <App />
+    </HelmetProvider>
+  );
 } catch (error) {
   showBootstrapError(error, "React bootstrap failed");
 }
