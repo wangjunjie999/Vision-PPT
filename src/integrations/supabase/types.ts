@@ -1048,10 +1048,12 @@ export type Database = {
           cycle_time: number | null
           description: string | null
           enclosed: boolean | null
+          environment_description: string | null
           id: string
           install_space: Json | null
           motion_description: string | null
           name: string
+          notes: string | null
           observation_target: string | null
           process_stage: string | null
           product_dimensions: Json | null
@@ -1072,10 +1074,12 @@ export type Database = {
           cycle_time?: number | null
           description?: string | null
           enclosed?: boolean | null
+          environment_description?: string | null
           id?: string
           install_space?: Json | null
           motion_description?: string | null
           name: string
+          notes?: string | null
           observation_target?: string | null
           process_stage?: string | null
           product_dimensions?: Json | null
@@ -1096,10 +1100,12 @@ export type Database = {
           cycle_time?: number | null
           description?: string | null
           enclosed?: boolean | null
+          environment_description?: string | null
           id?: string
           install_space?: Json | null
           motion_description?: string | null
           name?: string
+          notes?: string | null
           observation_target?: string | null
           process_stage?: string | null
           product_dimensions?: Json | null
