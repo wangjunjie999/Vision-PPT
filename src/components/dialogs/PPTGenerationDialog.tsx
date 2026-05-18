@@ -1040,16 +1040,20 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         return;
       }
       
-      // PPT生成逻辑 - 上传模板路线是手动选择的并行路线，默认企业模板路线保持不变
+      // ================================================================
+      // 【上传模板通道】独立路径：仅调用 templateBasedGenerator，
+      // 不与默认企业模板共用 pptxGenerator。任何失败都被本块内部
+      // 的逻辑捕获并以 [上传模板] 前缀记录，避免污染企业模板流程。
+      // ================================================================
       if (generationMethod === 'template') {
         if (!selectedTemplateId || !selectedTemplate) {
-          throw new Error('请选择要使用的上传模板');
+          throw new Error('[上传模板] 请先选择要使用的上传模板');
         }
         if (!templateHasFile) {
-          throw new Error('所选模板没有上传 PPTX 文件，请先在管理中心补充模板文件');
+          throw new Error('[上传模板] 所选模板没有上传 PPTX 文件，请先在管理中心补充模板文件');
         }
         if (!selectedTemplate.structure_meta?.parsedSlides?.length) {
-          throw new Error('所选模板缺少解析信息，请在管理中心重新上传或重新解析模板');
+          throw new Error('[上传模板] 所选模板缺少解析信息，请在管理中心重新上传或重新解析模板');
         }
 
         const layoutMapping = selectedTemplate.structure_meta.layoutMapping;
@@ -1061,7 +1065,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             return acc;
           }, {});
 
-        addLog('info', `使用上传模板「${selectedTemplate.name}」生成PPT...`);
+        addLog('info', `[上传模板] 使用「${selectedTemplate.name}」生成 PPT...`);
         setProgress(10);
         setCurrentStep('准备模板生成数据');
 
@@ -1105,7 +1109,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         });
 
         if (!result.success || !result.fileUrl) {
-          throw new Error(result.error || '模板PPT生成失败');
+          throw new Error(`[上传模板] ${result.error || '模板 PPT 生成失败'}`);
         }
 
         generatedBlobRef.current = null;
@@ -1117,12 +1121,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           fileUrl: result.fileUrl,
         });
 
-        addLog('success', `成功生成模板PPT：${result.fileName || '方案.pptx'}`);
+        addLog('success', `[上传模板] 成功生成：${result.fileName || '方案.pptx'}`);
         setProgress(100);
-        setCurrentStep('模板PPT生成完成');
+        setCurrentStep('[上传模板] 生成完成');
         setStage('complete');
         setIsGenerating(false);
-        toast.success('模板PPT生成完成');
+        toast.success('上传模板 PPT 生成完成');
 
         saveGeneratedReferenceToHistory(
           result.filePath || result.fileUrl,
@@ -1133,11 +1137,14 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         return;
       }
 
-      // PPT生成逻辑 - 默认企业风格从零生成
+      // ================================================================
+      // 【默认企业模板通道】独立路径：仅调用 pptxGenerator。
+      // 与上传模板路线完全隔离，互不影响。
+      // ================================================================
       {
-        addLog('info', '使用企业VI风格生成PPT...');
+        addLog('info', '[企业模板] 使用企业 VI 风格生成 PPT...');
         setProgress(10);
-        setCurrentStep('生成PPT内容');
+        setCurrentStep('[企业模板] 生成 PPT 内容');
 
         const blob = await generatePPTX(
           projectData,
@@ -1192,10 +1199,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
         const pptFileName = `${projectData.code}_${projectData.name}_方案.pptx`;
 
-        addLog('success', `成功生成PPT文件`);
+        addLog('success', `[企业模板] 成功生成 PPT 文件`);
         setStage('complete');
         setIsGenerating(false);
-        toast.success('PPT生成完成');
+        toast.success('企业模板 PPT 生成完成');
         // 非阻塞保存历史记录
         saveToHistory(blob, pptFileName, 'ppt', 'scratch', pptPageCount).catch(e => console.warn('保存历史记录失败:', e));
       }
