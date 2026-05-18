@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Pencil, ListChecks, X } from 'lucide-react';
+import { Pencil, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const CUSTOM_SENTINEL = '__custom__';
