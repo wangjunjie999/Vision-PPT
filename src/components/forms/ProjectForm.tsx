@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Save, RotateCcw, Loader2 } from 'lucide-react';
@@ -294,19 +295,13 @@ const [formData, setFormData] = useState({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="process" className="text-xs font-medium">产品/工艺段 <span className="text-destructive ml-0.5">*</span></Label>
-                <Select 
+                <EditableSelect
                   value={formData.product_process}
                   onValueChange={value => setFormData(prev => ({ ...prev, product_process: value }))}
-                >
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="请选择" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {productProcessOptions.map(opt => (
-                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={productProcessOptions}
+                  placeholder="请选择"
+                  inputPlaceholder="请输入工艺段名称"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="responsible" className="text-xs font-medium">项目负责人 <span className="text-destructive ml-0.5">*</span></Label>
