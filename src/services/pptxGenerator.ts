@@ -1006,7 +1006,7 @@ export async function generatePPTX(
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
-    ...createAutoPageTableOptions(wsOverviewY + 0.32),
+    rowH: 0.26,
   });
 
   // ========== SLIDE 3: Revision History ==========
@@ -1069,7 +1069,7 @@ export async function generatePPTX(
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
-    ...createAutoPageTableOptions(0.85),
+    rowH: 0.3,
   });
 
   // (Camera installation guide slide removed)
