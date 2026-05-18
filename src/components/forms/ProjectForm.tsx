@@ -42,7 +42,6 @@ const cameraBrandOptions = [
   'Keyence',
   'Cognex',
   'FLIR',
-  '其他'
 ];
 
 const environmentOptions: { value: string; label: string }[] = [
@@ -402,19 +401,13 @@ const [formData, setFormData] = useState({
             
             <div className="space-y-1.5">
               <Label htmlFor="main_camera_brand" className="text-xs font-medium">主相机品牌</Label>
-              <Select 
+              <EditableSelect
                 value={formData.main_camera_brand}
                 onValueChange={value => setFormData(prev => ({ ...prev, main_camera_brand: value }))}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="请选择品牌" />
-                </SelectTrigger>
-                <SelectContent>
-                  {cameraBrandOptions.map(brand => (
-                    <SelectItem key={brand} value={brand}>{brand}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={cameraBrandOptions}
+                placeholder="请选择品牌"
+                inputPlaceholder="请输入相机品牌"
+              />
             </div>
           </div>
         </div>
