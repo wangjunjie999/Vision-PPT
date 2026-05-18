@@ -1407,6 +1407,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   </Label>
                 </RadioGroup>
 
+                <p className="text-[11px] text-muted-foreground px-1">
+                  两种生成方式互不影响：上传模板出错不会影响默认企业模板，反之亦然。
+                </p>
+
                 {generationMethod === 'template' && (
                   <div className="space-y-2 p-3 border rounded-lg bg-muted/20">
                     <Label className="text-xs text-muted-foreground">选择上传模板</Label>
