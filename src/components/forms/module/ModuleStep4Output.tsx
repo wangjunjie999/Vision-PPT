@@ -1,6 +1,7 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { ModuleFormState } from './types';
@@ -128,18 +129,13 @@ export function ModuleStep4Output({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">通讯方式</Label>
-            <Select 
-              value={form.communicationMethod} 
+            <EditableSelect
+              value={form.communicationMethod}
               onValueChange={v => setForm(p => ({ ...p, communicationMethod: v }))}
-            >
-              <SelectTrigger className="h-9"><SelectValue placeholder="请选择" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="IO">IO</SelectItem>
-                <SelectItem value="PLC">PLC</SelectItem>
-                <SelectItem value="TCP">TCP</SelectItem>
-                <SelectItem value="串口">串口</SelectItem>
-              </SelectContent>
-            </Select>
+              options={['IO', 'PLC', 'TCP', '串口']}
+              placeholder="请选择"
+              inputPlaceholder="请输入协议名称"
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">信号定义</Label>
