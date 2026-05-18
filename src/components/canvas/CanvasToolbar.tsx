@@ -163,17 +163,19 @@ export const CanvasToolbar = memo(function CanvasToolbar({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Select value={saveQuality} onValueChange={(v) => setSaveQuality(v as QualityPreset)}>
-                  <SelectTrigger className="w-20 h-8 text-xs">
-                    <Zap className={cn("h-3 w-3 mr-1", saveQuality === 'fast' ? "text-green-500" : saveQuality === 'high' ? "text-amber-500" : "text-blue-500")} />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fast"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500" />快速</span></SelectItem>
-                    <SelectItem value="standard"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500" />标准</span></SelectItem>
-                    <SelectItem value="high"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />高清</span></SelectItem>
-                  </SelectContent>
-                </Select>
+                <span className="inline-flex">
+                  <Select value={saveQuality} onValueChange={(v) => setSaveQuality(v as QualityPreset)}>
+                    <SelectTrigger className="w-20 h-8 text-xs">
+                      <Zap className={cn("h-3 w-3 mr-1", saveQuality === 'fast' ? "text-green-500" : saveQuality === 'high' ? "text-amber-500" : "text-blue-500")} />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fast"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500" />快速</span></SelectItem>
+                      <SelectItem value="standard"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500" />标准</span></SelectItem>
+                      <SelectItem value="high"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />高清</span></SelectItem>
+                    </SelectContent>
+                  </Select>
+                </span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <div className="text-xs">

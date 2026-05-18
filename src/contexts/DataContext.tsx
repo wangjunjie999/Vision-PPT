@@ -85,20 +85,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [selectedWorkstationId, setSelectedWorkstationId] = useState<string | null>(null);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
 
-  // Claim orphan projects (projects with null user_id) for the current user
-  const claimOrphanProjects = useCallback(async () => {
-    if (!user) return;
-    try {
-      // Update projects with null user_id to be owned by current user
-      await supabase
-        .from('projects')
-        .update({ user_id: user.id })
-        .is('user_id', null);
-    } catch (err) {
-      console.error('Failed to claim orphan projects:', err);
-    }
-  }, [user]);
-
   // Track if initial cache load happened
   const cacheLoadedRef = useRef(false);
 
@@ -142,9 +128,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setLoading(true);
       }
       
-      // First claim any orphan projects
-      await claimOrphanProjects();
-      
       const [projectsRes, workstationsRes, layoutsRes, modulesRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
         supabase.from('workstations').select('*').order('created_at', { ascending: true }),
@@ -184,7 +167,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [user, claimOrphanProjects]);
+  }, [user]);
 
   // Load from cache first, then fetch fresh data
   useEffect(() => {
