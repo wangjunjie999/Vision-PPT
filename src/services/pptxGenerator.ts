@@ -429,6 +429,7 @@ const cell = (text: string, opts?: Partial<TableCell>): TableCell => ({ text, op
 const row = (cells: string[]): TableRow => cells.map(t => cell(t));
 
 // Helper to create auto-page table options
+/** @deprecated autoPage 与 colspan/显式 h 组合会触发 pptxgenjs 报错；新代码请手动分页。 */
 function createAutoPageTableOptions(
   startY: number,
   masterName: string = 'MASTER_SLIDE'
