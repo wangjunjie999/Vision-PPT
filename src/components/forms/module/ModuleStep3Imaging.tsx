@@ -1,6 +1,7 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EditableSelect } from '@/components/ui/editable-select';
 import { Badge } from '@/components/ui/badge';
 import { Calculator, AlertCircle, CheckCircle2, Focus, Crosshair, Zap, ScanEye, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { ModuleFormState } from './types';
@@ -481,17 +482,13 @@ export function ModuleStep3Imaging({ form, setForm }: ModuleStep3ImagingProps) {
         <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">光源模式</Label>
-            <Select 
-              value={form.lightMode} 
+            <EditableSelect
+              value={form.lightMode}
               onValueChange={v => setForm(p => ({ ...p, lightMode: v }))}
-            >
-              <SelectTrigger className="h-9"><SelectValue placeholder="选择" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="常亮">常亮</SelectItem>
-                <SelectItem value="频闪">频闪</SelectItem>
-                <SelectItem value="PWM">PWM</SelectItem>
-              </SelectContent>
-            </Select>
+              options={['常亮', '频闪', 'PWM']}
+              placeholder="选择"
+              inputPlaceholder="请输入工作模式"
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">光源角度</Label>

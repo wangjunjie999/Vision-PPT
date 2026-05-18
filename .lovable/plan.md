@@ -1,48 +1,53 @@
-## 目标
+## 评估结果
 
-把项目里"未来可能扩充"的下拉选项改造成"下拉 + 手动输入"二合一控件，让用户既能从预设里挑，也能输入预设没有的值，并把自定义值正常保存。
+全局梳理所有 `Select` 用法后，按"是否适合手动输入"分类：
 
-## 涉及范围（明确这次只改下面 3 处业务下拉）
+### ✅ 适合改造（开放业务字符串，未来会扩）
 
-1. `ProjectForm.tsx` — **产品/工艺段** (`product_process`)
-2. `WorkstationForm.tsx` — **所属工艺段** (`process_stage`)
-3. `WorkstationForm.tsx` — **被观察对象** (`observation_target`)
+| 文件 | 字段 | 当前选项 | 理由 |
+|---|---|---|---|
+| `ProjectForm.tsx` | 推荐相机品牌 (`recommended_camera_brand`) | Basler/海康/大华/Keyence/Cognex/FLIR/其他 | 品牌会持续扩充，已有"其他"占位，正好替换 |
+| `module/PositioningForm.tsx` | 输出坐标系 | 相机/工位/机器人坐标系 | 客户可能有自定义命名（如"AGV 坐标系"） |
+| `module/ModuleStep4Output.tsx` | 通信协议 | IO/PLC/TCP/串口 | 现场会出现 Profinet/EtherCAT/Modbus/OPC UA 等 |
+| `module/ModuleStep3Imaging.tsx` | 光源工作模式 | 常亮/频闪/PWM | 可能加触发同步/外触发等 |
 
-> 不改动的下拉：工位类型 / 视图方向 / 触发方式 / 模板品牌 / 质量策略 / 母版选择 等——这些是系统枚举或资源引用，不允许自定义。
+### ❌ 不适合（系统枚举，驱动逻辑分支，不能乱填）
+
+- 工位类型 (`line/turntable/robot/platform`) — 驱动布局画布与机械模型
+- 模块类型 (`positioning/defect/ocr/measurement/deeplearning`) — 驱动表单分支
+- 触发方式 (`io/encoder/software/continuous`) — 驱动飞拍计算
+- 视图方向 (`front/side/top/isometric`) — 渲染分支
+- 质量策略 (`no_miss/balanced/allow_pass`) — 影响算法判定
+- 储图策略 (`none/ng_only/all/sampled`)、像素冗余 (`conservative/standard/high`)、缺陷相机数量 (1/2/3) — 有限枚举驱动逻辑
+- OCR 污损程度、表面反光等级 — 定性分级，不允许乱填会破坏 AI 提示
+- PPT 母版下拉 — 引用资源 ID
+
+### 已完成（上一轮）
+
+- `ProjectForm` 产品/工艺段
+- `WorkstationForm` 所属工艺段、被观察对象
 
 ## 方案
 
-### 1. 新增可复用控件 `src/components/ui/editable-select.tsx`
+复用已有的 `src/components/ui/editable-select.tsx`，把上述 4 处 `Select` 替换为 `<EditableSelect>`，并把每处选项列表抽成同一文件内的常量（若尚未抽出）。
 
-一个轻量组件，外观保持 shadcn `Select` 风格：
+具体改动点：
 
-- props：`value`、`onValueChange`、`options: string[]`、`placeholder?`、`customLabel?`（默认"自定义..."）
-- 内部逻辑：
-  - 当 `value` 在 `options` 中 → 走 `Select` 显示
-  - 当 `value` 不在 `options` 中（且非空）→ 自动切换为 `Input` 显示，并在前面带一个小按钮可切回下拉
-  - 下拉末尾追加一项 `自定义...`，选中后切到 `Input` 让用户输入；输入即时 `onValueChange`
-  - 输入框右侧给一个 `×` 按钮，可清空并切回下拉
-- 完全使用现有设计 tokens（`bg-background` / `border-input` / `text-foreground` 等），不写裸色值。
+1. **`src/components/forms/ProjectForm.tsx`** — `cameraBrandOptions` 改用 `EditableSelect`，删除列表里末尾的 `'其他'`（自定义按钮已替代它）。
+2. **`src/components/forms/module/PositioningForm.tsx`** — 输出坐标系 3 项改用 `EditableSelect`，`inputPlaceholder="请输入坐标系名称"`。
+3. **`src/components/forms/module/ModuleStep4Output.tsx`** — 通信协议 4 项改用 `EditableSelect`，`inputPlaceholder="请输入协议名称"`。
+4. **`src/components/forms/module/ModuleStep3Imaging.tsx`** — 光源工作模式 3 项改用 `EditableSelect`，`inputPlaceholder="请输入工作模式"`。
 
-### 2. 替换三处用法
-
-- `ProjectForm.tsx` 行 ~296-309：替换 `Select` → `<EditableSelect options={productProcessOptions} ... />`
-- `WorkstationForm.tsx` 行 ~595-624：把 `所属工艺段` 和 `被观察对象` 两个 `Select` 替换为 `EditableSelect`
-
-### 3. 数据兼容性
-
-- 三个字段类型本来就是 `text`，自定义值原样存库即可，无需迁移。
-- 回显时旧数据若不在预设里，控件自动进入 Input 模式显示原值，行为自然。
+所有改动均不动数据结构、不动业务逻辑、不动 PPT/校验。字段在 DB 都是 `text` / `jsonb` 中字符串，自定义值原样保存。
 
 ## 不做的事
 
-- 不改数据库结构、不改 RLS、不改 PPT/DOCX 生成逻辑
-- 不动其它枚举型下拉（工位类型、视图方向等）
-- 不引入新的依赖
+- 不改任何被列入"❌ 不适合"的下拉
+- 不改 DB schema、RLS、生成器
+- 不引入新依赖
 
 ## 验收
 
-- 三个下拉旁可选"自定义..."后输入任意字符串
-- 保存后刷新，回显仍为自定义值（且控件处于 Input 模式）
-- 选回预设值时也能正常工作
-- 暗/亮主题样式一致
+- 4 个下拉都能选预设或点"自定义..."手动输入
+- 历史自定义值回显时自动进入输入模式
+- 系统枚举类下拉保持原样，业务逻辑不受影响

@@ -1,6 +1,7 @@
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EditableSelect } from '@/components/ui/editable-select';
 import { cn } from '@/lib/utils';
 import type { 
   ModuleFormState, 
@@ -229,17 +230,13 @@ export function PositioningForm({ form, setForm }: PositioningFormProps) {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">输出坐标系</Label>
-              <Select 
-                value={form.outputCoordinateSystem} 
+              <EditableSelect
+                value={form.outputCoordinateSystem}
                 onValueChange={v => setForm(p => ({ ...p, outputCoordinateSystem: v }))}
-              >
-                <SelectTrigger className="h-9"><SelectValue placeholder="请选择" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="相机坐标系">相机坐标系</SelectItem>
-                  <SelectItem value="工位坐标系">工位坐标系</SelectItem>
-                  <SelectItem value="机器人坐标系">机器人坐标系</SelectItem>
-                </SelectContent>
-              </Select>
+                options={['相机坐标系', '工位坐标系', '机器人坐标系']}
+                placeholder="请选择"
+                inputPlaceholder="请输入坐标系名称"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">标定周期</Label>
