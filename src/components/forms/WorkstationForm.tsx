@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle } from 'lucide-react';
@@ -595,31 +596,23 @@ export function WorkstationForm() {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">所属工艺段</Label>
-          <Select 
-            value={wsForm.process_stage} 
+          <EditableSelect
+            value={wsForm.process_stage}
             onValueChange={v => setWsForm(p => ({ ...p, process_stage: v }))}
-          >
-            <SelectTrigger className="h-9"><SelectValue placeholder="请选择" /></SelectTrigger>
-            <SelectContent>
-              {processStageOptions.map(opt => (
-                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={processStageOptions}
+            placeholder="请选择"
+            inputPlaceholder="请输入工艺段"
+          />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">被观察对象</Label>
-          <Select 
-            value={wsForm.observation_target} 
+          <EditableSelect
+            value={wsForm.observation_target}
             onValueChange={v => setWsForm(p => ({ ...p, observation_target: v }))}
-          >
-            <SelectTrigger className="h-9"><SelectValue placeholder="请选择" /></SelectTrigger>
-            <SelectContent>
-              {observationTargetOptions.map(opt => (
-                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={observationTargetOptions}
+            placeholder="请选择"
+            inputPlaceholder="请输入观察对象"
+          />
         </div>
       </div>
       
