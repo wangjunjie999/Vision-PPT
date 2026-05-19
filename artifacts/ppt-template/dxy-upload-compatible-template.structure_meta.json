@@ -1,0 +1,460 @@
+{
+  "sections": [
+    "cover",
+    "overview",
+    "workstation_info",
+    "workstation_annotation",
+    "layout_views",
+    "module_target",
+    "bom"
+  ],
+  "layoutMapping": {
+    "duplicateForEachWorkstation": true,
+    "preserveUnmappedSlides": true,
+    "mappings": [
+      {
+        "templateSlideIndex": 2,
+        "slideType": "basic_info",
+        "enabled": true
+      },
+      {
+        "templateSlideIndex": 3,
+        "slideType": "product_schematic",
+        "enabled": true
+      },
+      {
+        "templateSlideIndex": 4,
+        "slideType": "three_view",
+        "enabled": true
+      },
+      {
+        "templateSlideIndex": 5,
+        "slideType": "technical_requirements",
+        "enabled": true
+      },
+      {
+        "templateSlideIndex": 6,
+        "slideType": "optical_solution",
+        "enabled": true
+      }
+    ]
+  },
+  "parsedSlides": [
+    {
+      "index": 0,
+      "detectedType": "cover",
+      "detectedRole": "cover",
+      "title": "封面",
+      "customFields": [
+        "project_name",
+        "project_code",
+        "customer",
+        "responsible",
+        "date_formatted",
+        "security_level"
+      ]
+    },
+    {
+      "index": 1,
+      "detectedType": "overview",
+      "detectedRole": "content",
+      "title": "项目概览",
+      "customFields": [
+        "project_name",
+        "customer",
+        "project_code",
+        "workstation_count",
+        "total_module_count",
+        "camera_count",
+        "total_hardware_count",
+        "product_process",
+        "quality_strategy",
+        "spec_version",
+        "generated_date",
+        "description",
+        "vision_responsible",
+        "sales_responsible",
+        "date_formatted",
+        "generated_time"
+      ]
+    },
+    {
+      "index": 2,
+      "detectedType": "content",
+      "detectedRole": "content",
+      "title": "工位概览 / Basic Info",
+      "customFields": [
+        "index",
+        "name",
+        "code",
+        "type_label",
+        "cycle_time",
+        "shot_count",
+        "module_count",
+        "observation_target",
+        "motion_description",
+        "risk_notes"
+      ]
+    },
+    {
+      "index": 3,
+      "detectedType": "content",
+      "detectedRole": "content",
+      "title": "产品与模块示意 / Product & Modules",
+      "customFields": [
+        "mod_index",
+        "mod_name",
+        "mod_type_label",
+        "mod_trigger_label",
+        "mod_processing_time",
+        "img:product_snapshot",
+        "img:schematic_image"
+      ]
+    },
+    {
+      "index": 4,
+      "detectedType": "content",
+      "detectedRole": "content",
+      "title": "机械布局三视图 / Three Views",
+      "customFields": [
+        "ws_layout_size",
+        "ws_camera_count",
+        "lens_count",
+        "light_count",
+        "img:front_view",
+        "img:side_view",
+        "img:top_view"
+      ]
+    },
+    {
+      "index": 5,
+      "detectedType": "content",
+      "detectedRole": "content",
+      "title": "技术要求 / Technical Requirements",
+      "customFields": [
+        "observation_target",
+        "motion_description",
+        "risk_notes",
+        "mod_index",
+        "mod_name",
+        "mod_type_label",
+        "mod_roi_strategy",
+        "mod_processing_time"
+      ]
+    },
+    {
+      "index": 6,
+      "detectedType": "content",
+      "detectedRole": "content",
+      "title": "光学方案 / Optical Solution",
+      "customFields": [
+        "camera_count",
+        "lens_count",
+        "light_count",
+        "controller_count",
+        "ws_camera_count",
+        "index",
+        "brand",
+        "model",
+        "resolution",
+        "interface",
+        "focal_length",
+        "mount",
+        "type",
+        "color",
+        "cpu",
+        "memory"
+      ]
+    },
+    {
+      "index": 7,
+      "detectedType": "bom",
+      "detectedRole": "content",
+      "title": "BOM 清单 / Global Hardware",
+      "customFields": [
+        "index",
+        "brand",
+        "model",
+        "resolution",
+        "sensor_size",
+        "interface",
+        "focal_length",
+        "mount",
+        "type",
+        "color",
+        "cpu",
+        "memory"
+      ]
+    },
+    {
+      "index": 8,
+      "detectedType": "closing",
+      "detectedRole": "content",
+      "title": "结束页",
+      "customFields": [
+        "project_name",
+        "generated_date"
+      ]
+    }
+  ],
+  "customFields": [
+    "project_name",
+    "project_code",
+    "customer",
+    "responsible",
+    "date_formatted",
+    "security_level",
+    "workstation_count",
+    "total_module_count",
+    "camera_count",
+    "total_hardware_count",
+    "product_process",
+    "quality_strategy",
+    "spec_version",
+    "generated_date",
+    "description",
+    "vision_responsible",
+    "sales_responsible",
+    "generated_time",
+    "index",
+    "name",
+    "code",
+    "type_label",
+    "cycle_time",
+    "shot_count",
+    "module_count",
+    "observation_target",
+    "motion_description",
+    "risk_notes",
+    "mod_index",
+    "mod_name",
+    "mod_type_label",
+    "mod_trigger_label",
+    "mod_processing_time",
+    "ws_layout_size",
+    "ws_camera_count",
+    "lens_count",
+    "light_count",
+    "mod_roi_strategy",
+    "controller_count",
+    "brand",
+    "model",
+    "resolution",
+    "interface",
+    "focal_length",
+    "mount",
+    "type",
+    "color",
+    "cpu",
+    "memory",
+    "sensor_size"
+  ],
+  "fieldMappings": [
+    {
+      "templateField": "project_name",
+      "systemField": "project_name"
+    },
+    {
+      "templateField": "project_code",
+      "systemField": "project_code"
+    },
+    {
+      "templateField": "customer",
+      "systemField": "customer"
+    },
+    {
+      "templateField": "responsible",
+      "systemField": "responsible"
+    },
+    {
+      "templateField": "date_formatted",
+      "systemField": "date_formatted"
+    },
+    {
+      "templateField": "security_level",
+      "systemField": "security_level"
+    },
+    {
+      "templateField": "workstation_count",
+      "systemField": "workstation_count"
+    },
+    {
+      "templateField": "total_module_count",
+      "systemField": "total_module_count"
+    },
+    {
+      "templateField": "camera_count",
+      "systemField": "camera_count"
+    },
+    {
+      "templateField": "total_hardware_count",
+      "systemField": "total_hardware_count"
+    },
+    {
+      "templateField": "product_process",
+      "systemField": "product_process"
+    },
+    {
+      "templateField": "quality_strategy",
+      "systemField": "quality_strategy"
+    },
+    {
+      "templateField": "spec_version",
+      "systemField": "spec_version"
+    },
+    {
+      "templateField": "generated_date",
+      "systemField": "generated_date"
+    },
+    {
+      "templateField": "description",
+      "systemField": "description"
+    },
+    {
+      "templateField": "vision_responsible",
+      "systemField": "vision_responsible"
+    },
+    {
+      "templateField": "sales_responsible",
+      "systemField": "sales_responsible"
+    },
+    {
+      "templateField": "generated_time",
+      "systemField": "generated_time"
+    },
+    {
+      "templateField": "index",
+      "systemField": "index"
+    },
+    {
+      "templateField": "name",
+      "systemField": "name"
+    },
+    {
+      "templateField": "code",
+      "systemField": "code"
+    },
+    {
+      "templateField": "type_label",
+      "systemField": "type_label"
+    },
+    {
+      "templateField": "cycle_time",
+      "systemField": "cycle_time"
+    },
+    {
+      "templateField": "shot_count",
+      "systemField": "shot_count"
+    },
+    {
+      "templateField": "module_count",
+      "systemField": "module_count"
+    },
+    {
+      "templateField": "observation_target",
+      "systemField": "observation_target"
+    },
+    {
+      "templateField": "motion_description",
+      "systemField": "motion_description"
+    },
+    {
+      "templateField": "risk_notes",
+      "systemField": "risk_notes"
+    },
+    {
+      "templateField": "mod_index",
+      "systemField": "mod_index"
+    },
+    {
+      "templateField": "mod_name",
+      "systemField": "mod_name"
+    },
+    {
+      "templateField": "mod_type_label",
+      "systemField": "mod_type_label"
+    },
+    {
+      "templateField": "mod_trigger_label",
+      "systemField": "mod_trigger_label"
+    },
+    {
+      "templateField": "mod_processing_time",
+      "systemField": "mod_processing_time"
+    },
+    {
+      "templateField": "ws_layout_size",
+      "systemField": "ws_layout_size"
+    },
+    {
+      "templateField": "ws_camera_count",
+      "systemField": "ws_camera_count"
+    },
+    {
+      "templateField": "lens_count",
+      "systemField": "lens_count"
+    },
+    {
+      "templateField": "light_count",
+      "systemField": "light_count"
+    },
+    {
+      "templateField": "mod_roi_strategy",
+      "systemField": "mod_roi_strategy"
+    },
+    {
+      "templateField": "controller_count",
+      "systemField": "controller_count"
+    },
+    {
+      "templateField": "brand",
+      "systemField": "brand"
+    },
+    {
+      "templateField": "model",
+      "systemField": "model"
+    },
+    {
+      "templateField": "resolution",
+      "systemField": "resolution"
+    },
+    {
+      "templateField": "interface",
+      "systemField": "interface"
+    },
+    {
+      "templateField": "focal_length",
+      "systemField": "focal_length"
+    },
+    {
+      "templateField": "mount",
+      "systemField": "mount"
+    },
+    {
+      "templateField": "type",
+      "systemField": "type"
+    },
+    {
+      "templateField": "color",
+      "systemField": "color"
+    },
+    {
+      "templateField": "cpu",
+      "systemField": "cpu"
+    },
+    {
+      "templateField": "memory",
+      "systemField": "memory"
+    },
+    {
+      "templateField": "sensor_size",
+      "systemField": "sensor_size"
+    }
+  ],
+  "roleSummary": {
+    "cover": 1,
+    "content": 8
+  },
+  "generatedBy": "scripts/create-upload-template.mjs",
+  "parsedAt": "2026-05-18T06:59:37.275Z"
+}

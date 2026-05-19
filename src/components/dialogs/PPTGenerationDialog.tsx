@@ -55,6 +55,7 @@ import { resetFailedUrlsCache } from '@/services/pptx/imagePreloader';
 import { useBatchImageCache } from '@/hooks/useImageCache';
 import type { ImageCacheType } from '@/services/imageLocalCache';
 import { PPTImagePreviewDialog } from './PPTImagePreviewDialog';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 type GenerationScope = 'full' | 'workstations' | 'modules';
 type OutputLanguage = 'zh' | 'en';
@@ -741,30 +742,33 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         mechanisms: l.mechanisms,
         mechanisms_labels: l.mechanisms_labels,
         // 转换硬件数据为简单格式，兼容 pptxGenerator 的类型定义
-        selected_cameras: l.selected_cameras?.map(c => ({
+        selected_cameras: safeHardwareArray(l.selected_cameras).map(c => ({
           id: c.id,
           brand: c.brand,
           model: c.model,
           image_url: c.image_url,
-        })) ?? null,
-        selected_lenses: l.selected_lenses?.map(lens => ({
+        })),
+        selected_lenses: safeHardwareArray(l.selected_lenses).map(lens => ({
           id: lens.id,
           brand: lens.brand,
           model: lens.model,
           image_url: lens.image_url,
-        })) ?? null,
-        selected_lights: l.selected_lights?.map(light => ({
+        })),
+        selected_lights: safeHardwareArray(l.selected_lights).map(light => ({
           id: light.id,
           brand: light.brand,
           model: light.model,
           image_url: light.image_url,
-        })) ?? null,
-        selected_controller: l.selected_controller ? {
-          id: l.selected_controller.id,
-          brand: l.selected_controller.brand,
-          model: l.selected_controller.model,
-          image_url: l.selected_controller.image_url,
-        } : null,
+        })),
+        selected_controller: (() => {
+          const controller = safeController(l.selected_controller);
+          return controller ? {
+            id: controller.id,
+            brand: controller.brand,
+            model: controller.model,
+            image_url: controller.image_url,
+          } : null;
+        })(),
         front_view_image_url: l.front_view_image_url,
         side_view_image_url: l.side_view_image_url,
         top_view_image_url: l.top_view_image_url,
@@ -914,8 +918,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           const layoutItem = l as any;
           
           // 处理选用相机，包含完整信息
-          const selectedCameras = layoutItem.selected_cameras?.map((c: any) => {
-            if (!c) return null;
+          const selectedCameras = safeHardwareArray(layoutItem.selected_cameras).map((c: any) => {
             // 如果只有id，尝试从硬件库中获取完整信息
             const fullCam = cameras.find(cam => cam.id === c.id);
             return {
@@ -928,11 +931,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               interface: c.interface || fullCam?.interface || '',
               sensor_size: c.sensor_size || fullCam?.sensor_size || '',
             };
-          }).filter(Boolean) || null;
+          });
 
           // 处理选用镜头
-          const selectedLenses = layoutItem.selected_lenses?.map((l: any) => {
-            if (!l) return null;
+          const selectedLenses = safeHardwareArray(layoutItem.selected_lenses).map((l: any) => {
             const fullLens = lenses.find(lens => lens.id === l.id);
             return {
               id: l.id,
@@ -943,11 +945,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               aperture: l.aperture || fullLens?.aperture || '',
               mount: l.mount || fullLens?.mount || '',
             };
-          }).filter(Boolean) || null;
+          });
 
           // 处理选用光源
-          const selectedLights = layoutItem.selected_lights?.map((lt: any) => {
-            if (!lt) return null;
+          const selectedLights = safeHardwareArray(layoutItem.selected_lights).map((lt: any) => {
             const fullLight = lights.find(light => light.id === lt.id);
             return {
               id: lt.id,
@@ -958,12 +959,13 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               color: lt.color || fullLight?.color || '',
               power: lt.power || fullLight?.power || '',
             };
-          }).filter(Boolean) || null;
+          });
 
           // 处理选用控制器
           let selectedController = null;
-          if (layoutItem.selected_controller) {
-            const c = layoutItem.selected_controller;
+          const controllerItem = safeController(layoutItem.selected_controller) as any;
+          if (controllerItem) {
+            const c = controllerItem;
             const fullCtrl = controllers.find(ctrl => ctrl.id === c.id);
             selectedController = {
               id: c.id,

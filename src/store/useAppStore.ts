@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ViewType, UserRole } from '@/types';
 import type { ProductViewerDisplayMode } from '@/utils/productViewer';
+import type { ModuleFormState } from '@/components/forms/module/types';
 
 // Note: All data CRUD has been moved to DataContext (projects/workstations/layouts/modules)
 // and HardwareContext (cameras/lenses/lights/controllers).
@@ -30,6 +31,13 @@ interface Store {
   // AI Form Fill from chat
   pendingAIFill: { targetType: 'project' | 'workstation' | 'module'; targetId: string; fields: Record<string, string> } | null;
   setPendingAIFill: (fill: { targetType: 'project' | 'workstation' | 'module'; targetId: string; fields: Record<string, string> } | null) => void;
+
+  // Live module form mirror for canvas/form two-way preview.
+  // This is intentionally transient and is not persisted by partialize().
+  moduleLiveForms: Record<string, { form: ModuleFormState; source: 'form' | 'schematic'; revision: number }>;
+  setModuleLiveForm: (moduleId: string, form: ModuleFormState) => void;
+  patchModuleLiveForm: (moduleId: string, patch: Partial<ModuleFormState>) => void;
+  clearModuleLiveForm: (moduleId: string) => void;
 
   enterAnnotationMode: (snapshot: string, assetId: string, scope: 'workstation' | 'module', workstationId?: string, existingData?: { annotations: any[]; remark: string | null; recordId: string }) => void;
   /** Leaves 3D viewer and opens annotation UI in one update (avoids one frame with neither viewer nor annotation). */
@@ -166,6 +174,42 @@ export const useAppStore = create<Store>()(
       // AI Form Fill
       pendingAIFill: null,
       setPendingAIFill: (fill) => set({ pendingAIFill: fill }),
+
+      // Live module form mirror
+      moduleLiveForms: {},
+      setModuleLiveForm: (moduleId, form) => set((state) => {
+        const existing = state.moduleLiveForms[moduleId];
+        return {
+          moduleLiveForms: {
+            ...state.moduleLiveForms,
+            [moduleId]: {
+              form,
+              source: 'form',
+              revision: existing?.revision ?? 0,
+            },
+          },
+        };
+      }),
+      patchModuleLiveForm: (moduleId, patch) => set((state) => {
+        const existing = state.moduleLiveForms[moduleId];
+        if (!existing) return state;
+        return {
+          moduleLiveForms: {
+            ...state.moduleLiveForms,
+            [moduleId]: {
+              form: { ...existing.form, ...patch },
+              source: 'schematic',
+              revision: existing.revision + 1,
+            },
+          },
+        };
+      }),
+      clearModuleLiveForm: (moduleId) => set((state) => {
+        if (!state.moduleLiveForms[moduleId]) return state;
+        const next = { ...state.moduleLiveForms };
+        delete next[moduleId];
+        return { moduleLiveForms: next };
+      }),
 
       enterAnnotationMode: (snapshot, assetId, scope, workstationId, existingData) => set({
         annotationMode: true,

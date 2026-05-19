@@ -131,12 +131,13 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
         {/* 检测参数 */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">最小缺陷尺寸 (mm) <span className="text-destructive ml-0.5">*</span></Label>
+            <Label className="text-xs font-medium">最小缺陷尺寸 (mm)</Label>
             <Input
               type="number"
               step="0.1"
               value={form.minDefectSize}
               onChange={e => setForm(p => ({ ...p, minDefectSize: e.target.value }))}
+              placeholder="可选，例如 0.6"
               className="h-9"
             />
           </div>

@@ -1,7 +1,8 @@
 import { useData } from '@/contexts/DataContext';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { Badge } from '@/components/ui/badge';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
 import { ModuleFormState, getDefaultFormState } from './module/types';
@@ -14,9 +15,24 @@ import { ModuleStep3Imaging } from './module/ModuleStep3Imaging';
 import { ModuleStep4Output } from './module/ModuleStep4Output';
 import { useAIFormFill } from '@/hooks/useAIFormFill';
 import { AIFillButton } from './AIFillButton';
+import { RotateCcw } from 'lucide-react';
+import { stringifyFormDraft, useEntityFormDraft } from '@/hooks/useEntityFormDraft';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
+
+interface ModuleDraftPayload {
+  form: ModuleFormState;
+  currentStep: number;
+}
+
+const createModuleDraftPayload = (
+  form: ModuleFormState,
+  currentStep: number,
+): ModuleDraftPayload => ({
+  form,
+  currentStep,
+});
 
 const moduleTypeLabels: Record<string, string> = {
   positioning: '引导定位',
@@ -33,10 +49,31 @@ export function ModuleForm() {
   const { lights } = useLights();
   const { controllers } = useControllers();
   
-  const module = modules.find(m => m.id === selectedModuleId) as any;
+  const module = modules.find(m => m.id === selectedModuleId);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ModuleFormState>(getDefaultFormState());
   const [currentStep, setCurrentStep] = useState(0);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const [resetVersion, setResetVersion] = useState(0);
+  const initializedModuleIdRef = useRef<string | null>(null);
+  const baselineSnapshotRef = useRef(
+    stringifyFormDraft(createModuleDraftPayload(getDefaultFormState(), 0)),
+  );
+
+  const draftPayload = useMemo(
+    () => createModuleDraftPayload(form, currentStep),
+    [currentStep, form],
+  );
+
+  const { readDraft, clearDraft } = useEntityFormDraft<ModuleDraftPayload>({
+    entityType: 'module',
+    entityId: selectedModuleId,
+    value: draftPayload,
+    isDirty: draftDirty,
+    enabled: draftReady,
+    entityUpdatedAt: module?.updated_at,
+  });
 
   const getModuleFormData = useCallback(() => form as unknown as Record<string, any>, [form]);
   const setModuleFormField = useCallback((field: string, value: string) => {
@@ -50,7 +87,15 @@ export function ModuleForm() {
   });
   
   // Listen for pendingAIFill from chat
-  const { pendingAIFill, setPendingAIFill } = useAppStore();
+  const {
+    pendingAIFill,
+    setPendingAIFill,
+    moduleLiveForms,
+    setModuleLiveForm,
+    clearModuleLiveForm,
+  } = useAppStore();
+  const liveFormSnapshot = selectedModuleId ? moduleLiveForms[selectedModuleId] : undefined;
+  const appliedSchematicRevisionRef = useRef(0);
   useEffect(() => {
     if (pendingAIFill && pendingAIFill.targetType === 'module' && pendingAIFill.targetId === module?.id) {
       aiFill.fillWithSuggestions(pendingAIFill.fields);
@@ -58,11 +103,55 @@ export function ModuleForm() {
     }
   }, [pendingAIFill, module?.id]);
 
+  useEffect(() => {
+    appliedSchematicRevisionRef.current = 0;
+  }, [module?.id]);
+
+  useEffect(() => {
+    if (!module || !draftReady) return;
+    setModuleLiveForm(module.id, form);
+  }, [draftReady, form, module?.id, setModuleLiveForm]);
+
+  useEffect(() => {
+    const moduleId = module?.id;
+    return () => {
+      if (moduleId) clearModuleLiveForm(moduleId);
+    };
+  }, [clearModuleLiveForm, module?.id]);
+
+  useEffect(() => {
+    if (!module || !draftReady || !liveFormSnapshot || liveFormSnapshot.source !== 'schematic') return;
+    if (liveFormSnapshot.revision === appliedSchematicRevisionRef.current) return;
+
+    appliedSchematicRevisionRef.current = liveFormSnapshot.revision;
+    setForm(prev => ({ ...prev, ...liveFormSnapshot.form }));
+  }, [draftReady, liveFormSnapshot, module?.id]);
+
   // Get workstation layout for hardware inheritance
   const workstationLayout = module ? getLayoutByWorkstation(module.workstation_id) : null;
 
   useEffect(() => {
-    if (module) {
+    if (!module) {
+      initializedModuleIdRef.current = null;
+      setDraftReady(false);
+      setDraftDirty(false);
+      return;
+    }
+
+    if (initializedModuleIdRef.current === module.id) return;
+
+    const draft = readDraft();
+    if (draft) {
+      setForm(draft.payload.form);
+      setCurrentStep(draft.payload.currentStep || 0);
+      baselineSnapshotRef.current = stringifyFormDraft(draft.payload);
+      setDraftDirty(true);
+      setDraftReady(true);
+      initializedModuleIdRef.current = module.id;
+      toast.info('已恢复未保存草稿');
+      return;
+    }
+
       const defectCfg = module.defect_config;
       const posCfg = module.positioning_config;
       const ocrCfg = module.ocr_config;
@@ -101,10 +190,10 @@ export function ModuleForm() {
         lightNote: cfg.imaging.lightNote || '',
       } : {};
       
-      setForm({
+      const nextForm: ModuleFormState = {
         ...getDefaultFormState(),
         name: module.name,
-        description: (module as any).description || '',
+        description: module.description || '',
         type: module.type,
         triggerType: module.trigger_type || 'io',
         selectedCamera: module.selected_camera || '',
@@ -117,7 +206,7 @@ export function ModuleForm() {
         // Load defect config
         ...(defectCfg && {
           defectClasses: defectCfg.defectClasses || [],
-          minDefectSize: defectCfg.minDefectSize?.toString() || '0.5',
+          minDefectSize: defectCfg.minDefectSize != null ? defectCfg.minDefectSize.toString() : '',
           detectionAreaLength: defectCfg.detectionAreaLength?.toString() || '',
           detectionAreaWidth: defectCfg.detectionAreaWidth?.toString() || '',
           conveyorType: defectCfg.conveyorType || 'belt',
@@ -191,12 +280,22 @@ export function ModuleForm() {
           calibrationBlockType: measureCfg.calibrationBlockType || '',
           edgeExtractionMethod: measureCfg.edgeExtractionMethod || '',
         }),
-      });
+      };
       
-      // Reset to first step when switching modules
+      setForm(nextForm);
       setCurrentStep(0);
+      baselineSnapshotRef.current = stringifyFormDraft(createModuleDraftPayload(nextForm, 0));
+      setDraftDirty(false);
+      setDraftReady(true);
+      initializedModuleIdRef.current = module.id;
+  }, [module, readDraft, resetVersion]);
+
+  useEffect(() => {
+    if (!draftReady || !module) return;
+    if (stringifyFormDraft(draftPayload) !== baselineSnapshotRef.current) {
+      setDraftDirty(true);
     }
-  }, [module]);
+  }, [draftPayload, draftReady, module]);
 
   // Step completion logic
   const isStep1Complete = useMemo(() => 
@@ -333,7 +432,7 @@ export function ModuleForm() {
           ...commonParams,
           imaging: imagingParams,
           defectClasses: form.defectClasses,
-          minDefectSize: parseFloat(form.minDefectSize) || 0.5,
+          minDefectSize: form.minDefectSize ? parseFloat(form.minDefectSize) : null,
           detectionAreaLength: parseFloat(form.detectionAreaLength) || null,
           detectionAreaWidth: parseFloat(form.detectionAreaWidth) || null,
           conveyorType: form.conveyorType,
@@ -432,6 +531,9 @@ export function ModuleForm() {
         ...configs,
         status: 'incomplete',
       });
+      clearDraft();
+      baselineSnapshotRef.current = stringifyFormDraft(draftPayload);
+      setDraftDirty(false);
       
       toast.success('模块配置已保存');
     } catch (error) {
@@ -440,6 +542,14 @@ export function ModuleForm() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleReset = () => {
+    clearDraft();
+    initializedModuleIdRef.current = null;
+    setDraftReady(false);
+    setDraftDirty(false);
+    setResetVersion(version => version + 1);
   };
 
   return (
@@ -451,11 +561,16 @@ export function ModuleForm() {
         </Badge>
       }
       headerActions={
-        <AIFillButton
-          status={aiFill.status}
-          onStart={aiFill.startFill}
-          onStop={aiFill.stopFill}
-        />
+        <>
+          <AIFillButton
+            status={aiFill.status}
+            onStart={aiFill.startFill}
+            onStop={aiFill.stopFill}
+          />
+          <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving || aiFill.isActive}>
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+        </>
       }
       steps={steps}
       currentStep={currentStep}

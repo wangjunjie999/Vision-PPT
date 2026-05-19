@@ -83,6 +83,76 @@ function buildParsedSlides(template: ParsedTemplate): ParsedSlideInfo[] {
   }));
 }
 
+function inferWorkstationSlideType(slide: ParsedSlideInfo): string | null {
+  const fields = new Set(slide.customFields || []);
+  const text = `${slide.title || ''} ${slide.detectedRole || ''} ${slide.detectedType || ''}`.toLowerCase();
+  const hasAnyField = (...names: string[]) => names.some((name) => fields.has(name));
+  const hasText = (...tokens: string[]) => tokens.some((token) => text.includes(token.toLowerCase()));
+
+  if (
+    hasAnyField('img:front_view', 'img:side_view', 'img:top_view') ||
+    hasText('三视图', 'three view', 'front view', 'side view', 'top view')
+  ) {
+    return 'three_view';
+  }
+
+  if (
+    hasAnyField('img:product_snapshot') ||
+    hasText('产品示意', '产品标注', 'product schematic', 'product snapshot')
+  ) {
+    return 'product_schematic';
+  }
+
+  if (
+    hasAnyField('img:schematic_image') ||
+    hasText('模块示意', '系统示意', 'schematic diagram', 'module schematic')
+  ) {
+    return 'schematic_diagram';
+  }
+
+  if (
+    hasAnyField('mod_name', 'mod_type_label', 'mod_processing_time') ||
+    hasText('技术要求', '检测项目', 'vision list', 'technical requirements')
+  ) {
+    return 'technical_requirements';
+  }
+
+  if (
+    hasAnyField('ws_camera_count', 'camera_count', 'lens_count', 'light_count') ||
+    hasText('光学方案', '相机', '镜头', '光源', 'optical solution')
+  ) {
+    return 'optical_solution';
+  }
+
+  if (
+    hasAnyField('name', 'code', 'type_label', 'cycle_time', 'shot_count', 'observation_target') ||
+    hasText('工位概览', '基本信息', 'workstation summary', 'basic info')
+  ) {
+    return 'basic_info';
+  }
+
+  if (hasText('运动', '检测方式', 'motion method')) {
+    return 'motion_method';
+  }
+
+  return null;
+}
+
+function inferLayoutMapping(parsedSlides: ParsedSlideInfo[]): LayoutMappingConfig {
+  return {
+    duplicateForEachWorkstation: true,
+    preserveUnmappedSlides: true,
+    mappings: parsedSlides
+      .map((slide) => {
+        const slideType = inferWorkstationSlideType(slide);
+        return slideType
+          ? { templateSlideIndex: slide.index, slideType, enabled: true }
+          : null;
+      })
+      .filter((mapping): mapping is NonNullable<typeof mapping> => Boolean(mapping)),
+  };
+}
+
 export function PPTTemplateManager() {
   const {
     templates,
@@ -194,6 +264,7 @@ export function PPTTemplateManager() {
           // 自动映射字段
           const mappings = autoMapFields(result.template.customFields);
           const parsedSlides = buildParsedSlides(result.template);
+          const inferredLayoutMapping = inferLayoutMapping(parsedSlides);
           const bindings = createManualBindings(result.template.detectedBindings);
           setFieldMappings(mappings);
           setManualBindings(bindings);
@@ -201,8 +272,10 @@ export function PPTTemplateManager() {
             ...prev,
             structure_meta: {
               sections: prev.structure_meta?.sections || [],
-              layoutMapping: prev.structure_meta?.layoutMapping || DEFAULT_LAYOUT_MAPPING,
               ...prev.structure_meta,
+              layoutMapping: prev.structure_meta?.layoutMapping?.mappings?.length
+                ? prev.structure_meta.layoutMapping
+                : inferredLayoutMapping,
               fieldMappings: mappings,
               detectedBindings: result.template.detectedBindings,
               manualBindings: bindings,

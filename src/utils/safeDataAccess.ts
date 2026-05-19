@@ -104,32 +104,43 @@ export interface HardwareSelection {
   brand?: string;
   model?: string;
   image_url?: string | null;
+  model_3d_url?: string | null;
+  [key: string]: unknown;
 }
 
-export function safeHardwareArray(value: unknown, defaultValue: HardwareSelection[] = []): HardwareSelection[] {
+export function safeHardwareArray<T extends HardwareSelection = HardwareSelection>(
+  value: unknown,
+  defaultValue: T[] = []
+): T[] {
   if (!Array.isArray(value)) {
     return defaultValue;
   }
   
-  return value.filter((item): item is HardwareSelection => {
-    return item && typeof item === 'object' && typeof (item as HardwareSelection).id === 'string';
+  return value.filter((item): item is T => {
+    return (
+      !!item &&
+      typeof item === 'object' &&
+      !Array.isArray(item) &&
+      typeof (item as HardwareSelection).id === 'string' &&
+      (item as HardwareSelection).id.trim().length > 0
+    );
   });
 }
 
 /**
  * 安全获取布局的 selected_controller 字段
  */
-export function safeController(value: unknown): HardwareSelection | null {
+export function safeController<T extends HardwareSelection = HardwareSelection>(value: unknown): T | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
   }
   
   const controller = value as HardwareSelection;
-  if (typeof controller.id !== 'string') {
+  if (typeof controller.id !== 'string' || controller.id.trim().length === 0) {
     return null;
   }
   
-  return controller;
+  return controller as T;
 }
 
 /**

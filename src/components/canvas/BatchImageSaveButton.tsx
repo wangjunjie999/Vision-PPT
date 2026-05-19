@@ -39,6 +39,7 @@ import {
 import { VisionSystemDiagram } from './VisionSystemDiagram';
 import { SimpleLayoutDiagram } from './SimpleLayoutDiagram';
 import { useCameras, useLights, useLenses, useControllers } from '@/hooks/useHardware';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 interface BatchImageSaveButtonProps {
   projectId: string;
@@ -522,26 +523,27 @@ function OffscreenSimpleLayout({
   const mechanisms = Array.isArray(layout?.mechanisms) ? layout.mechanisms : [];
   const cameraMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
 
-  const selectedCameras = Array.isArray(layout?.selected_cameras) ? layout.selected_cameras : [];
-  const selectedLenses = Array.isArray(layout?.selected_lenses) ? layout.selected_lenses : [];
-  const selectedLights = Array.isArray(layout?.selected_lights) ? layout.selected_lights : [];
+  const selectedCameras = safeHardwareArray(layout?.selected_cameras);
+  const selectedLenses = safeHardwareArray(layout?.selected_lenses);
+  const selectedLights = safeHardwareArray(layout?.selected_lights);
+  const selectedController = safeController(layout?.selected_controller);
 
   const hardwareSummary = {
-    cameras: selectedCameras.filter(Boolean).map((c: any) => {
+    cameras: selectedCameras.map((c: any) => {
       const full = cameras.find((fc: any) => fc.id === c.id);
       return { brand: c.brand, model: c.model, resolution: full?.resolution };
     }),
-    lenses: selectedLenses.filter(Boolean).map((l: any) => {
+    lenses: selectedLenses.map((l: any) => {
       const full = lenses.find((fl: any) => fl.id === l.id);
       return { brand: l.brand, model: l.model, focal_length: full?.focal_length };
     }),
-    lights: selectedLights.filter(Boolean).map((l: any) => {
+    lights: selectedLights.map((l: any) => {
       const full = lights.find((fl: any) => fl.id === l.id);
       return { brand: l.brand, model: l.model, type: full?.type };
     }),
-    controller: layout?.selected_controller ? {
-      brand: layout.selected_controller.brand,
-      model: layout.selected_controller.model,
+    controller: selectedController ? {
+      brand: selectedController.brand,
+      model: selectedController.model,
     } : null,
   };
 

@@ -8,9 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle } from 'lucide-react';
+import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
 import { calculateCycleTime } from '@/utils/visionCalcEngine';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store/useAppStore';
 import { HardwareConfigPanel, HardwareItemData } from '@/components/hardware/HardwareConfigPanel';
@@ -27,6 +27,8 @@ import type { Database } from '@/integrations/supabase/types';
 import { FormStepWizard, FormStep } from './FormStepWizard';
 import { useAIFormFill } from '@/hooks/useAIFormFill';
 import { AIFillButton, getFieldHighlightClass } from './AIFillButton';
+import { stringifyFormDraft, useEntityFormDraft } from '@/hooks/useEntityFormDraft';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 
 
@@ -64,6 +66,180 @@ const mechanismConstraints: Partial<Record<Mechanism, MechanismConstraint>> = {
     reason: '分度盘旋转时侧视受遮挡，建议顶视安装'
   }
 };
+
+const createDefaultWorkstationForm = () => ({
+  code: '',
+  name: '',
+  type: 'line' as WorkstationType,
+  cycleTime: '',
+  length: '',
+  width: '',
+  height: '',
+  enclosed: false,
+  process_stage: '',
+  observation_target: '',
+  environment_description: '',
+  notes: '',
+  acceptance_accuracy: '',
+  acceptance_cycle_time: '',
+  acceptance_compatible_sizes: '',
+  motion_description: '',
+  shot_count: '',
+  action_script: '',
+  risk_notes: '',
+});
+
+type WorkstationFormState = ReturnType<typeof createDefaultWorkstationForm>;
+
+const createDefaultLayoutForm = () => ({
+  conveyorType: '皮带输送线',
+  cameraCount: 1 as 1 | 2 | 3 | 4,
+  lensCount: 1 as 1 | 2 | 3 | 4,
+  lightCount: 1 as 1 | 2 | 3 | 4,
+  cameraMounts: ['top'] as CameraMount[],
+  mountCounts: { top: 1, side: 0, angled: 0 } as Record<CameraMount, number>,
+  mechanisms: [] as Mechanism[],
+  selectedCameras: [] as (HardwareItemData | null)[],
+  selectedLenses: [] as (HardwareItemData | null)[],
+  selectedLights: [] as (HardwareItemData | null)[],
+  selectedController: null as HardwareItemData | null,
+  primaryView: 'front' as 'front' | 'side' | 'top',
+  auxiliaryView: 'side' as 'front' | 'side' | 'top',
+  layoutDescription: '',
+});
+
+type LayoutFormState = ReturnType<typeof createDefaultLayoutForm>;
+
+interface WorkstationDraftPayload {
+  wsForm: WorkstationFormState;
+  layoutForm: LayoutFormState;
+  currentStep: number;
+}
+
+interface WorkstationFormSource {
+  code?: string | null;
+  name?: string | null;
+  type?: WorkstationType | null;
+  cycle_time?: number | null;
+  product_dimensions?: { length?: number; width?: number; height?: number } | null;
+  enclosed?: boolean | null;
+  process_stage?: string | null;
+  observation_target?: string | null;
+  environment_description?: string | null;
+  notes?: string | null;
+  acceptance_criteria?: { accuracy?: string | null; cycle_time?: string | null; compatible_sizes?: string | null } | null;
+  motion_description?: string | null;
+  shot_count?: number | null;
+  action_script?: string | null;
+  risk_notes?: string | null;
+  updated_at?: string | null;
+}
+
+interface LayoutFormSource {
+  conveyor_type?: string | null;
+  camera_count?: number | null;
+  lens_count?: number | null;
+  light_count?: number | null;
+  camera_mounts?: unknown;
+  mechanisms?: unknown;
+  selected_cameras?: unknown;
+  selected_lenses?: unknown;
+  selected_lights?: unknown;
+  selected_controller?: HardwareItemData | null;
+  primary_view?: 'front' | 'side' | 'top' | null;
+  auxiliary_view?: 'front' | 'side' | 'top' | null;
+  layout_description?: string | null;
+}
+
+const workstationToForm = (workstation: WorkstationFormSource): WorkstationFormState => {
+  const dims = workstation.product_dimensions as { length: number; width: number; height: number } | null;
+  const acceptanceCriteria = workstation.acceptance_criteria as { accuracy?: string; cycle_time?: string; compatible_sizes?: string } | null;
+
+  return {
+    code: workstation.code || '',
+    name: workstation.name || '',
+    type: workstation.type || 'line',
+    cycleTime: workstation.cycle_time?.toString() || '',
+    length: dims?.length?.toString() || '100',
+    width: dims?.width?.toString() || '100',
+    height: dims?.height?.toString() || '50',
+    enclosed: workstation.enclosed || false,
+    process_stage: workstation.process_stage || '',
+    observation_target: workstation.observation_target || '',
+    environment_description: workstation.environment_description || '',
+    notes: workstation.notes || '',
+    acceptance_accuracy: acceptanceCriteria?.accuracy || '',
+    acceptance_cycle_time: acceptanceCriteria?.cycle_time || '',
+    acceptance_compatible_sizes: acceptanceCriteria?.compatible_sizes || '',
+    motion_description: workstation.motion_description || '',
+    shot_count: workstation.shot_count?.toString() || '',
+    action_script: workstation.action_script || '',
+    risk_notes: workstation.risk_notes || '',
+  };
+};
+
+const layoutToForm = (
+  layout: LayoutFormSource | null | undefined,
+  controllers: Pick<HardwareItemData, 'id' | 'image_url'>[],
+): LayoutFormState => {
+  if (!layout) return createDefaultLayoutForm();
+
+  const rawCameras = layout.selected_cameras;
+  const rawLenses = layout.selected_lenses;
+  const rawLights = layout.selected_lights;
+  const selectedCameras = safeHardwareArray<HardwareItemData>(rawCameras);
+  const selectedLenses = safeHardwareArray<HardwareItemData>(rawLenses);
+  const selectedLights = safeHardwareArray<HardwareItemData>(rawLights);
+  let selectedController = safeController<HardwareItemData>(layout.selected_controller);
+
+  if (selectedController?.id && controllers.length > 0) {
+    const latestController = controllers.find(c => c.id === selectedController.id);
+    if (latestController) {
+      selectedController = {
+        ...selectedController,
+        image_url: latestController.image_url,
+      };
+    }
+  }
+
+  const rawMounts = layout.camera_mounts;
+  const mounts = (Array.isArray(rawMounts) ? rawMounts : ['top']) as CameraMount[];
+  const mountCounts = { top: 0, side: 0, angled: 0 };
+  mounts.forEach((mount: CameraMount) => {
+    if (mountCounts[mount] !== undefined) mountCounts[mount]++;
+  });
+
+  if (mountCounts.top === 0 && mountCounts.side === 0 && mountCounts.angled === 0) {
+    mountCounts.top = layout.camera_count || 1;
+  }
+
+  return {
+    conveyorType: layout.conveyor_type || '皮带输送线',
+    cameraCount: (layout.camera_count || 1) as 1 | 2 | 3 | 4,
+    lensCount: (layout.lens_count || 1) as 1 | 2 | 3 | 4,
+    lightCount: (layout.light_count || 1) as 1 | 2 | 3 | 4,
+    cameraMounts: mounts,
+    mountCounts,
+    mechanisms: (Array.isArray(layout.mechanisms) ? layout.mechanisms : []) as Mechanism[],
+    selectedCameras,
+    selectedLenses,
+    selectedLights,
+    selectedController,
+    primaryView: layout.primary_view || 'front',
+    auxiliaryView: layout.auxiliary_view || 'side',
+    layoutDescription: layout.layout_description || '',
+  };
+};
+
+const createWorkstationDraftPayload = (
+  wsForm: WorkstationFormState,
+  layoutForm: LayoutFormState,
+  currentStep: number,
+): WorkstationDraftPayload => ({
+  wsForm,
+  layoutForm,
+  currentStep,
+});
 
 const cameraMountOptions: { value: CameraMount; label: string }[] = [
   { value: 'top', label: '顶视' },
@@ -113,43 +289,27 @@ export function WorkstationForm() {
 
   const [saving, setSaving] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
-  const [wsForm, setWsForm] = useState({ 
-    code: '', 
-    name: '', 
-    type: 'line' as WorkstationType, 
-    cycleTime: '', 
-    length: '', 
-    width: '', 
-    height: '',
-    enclosed: false,
-    process_stage: '',
-    observation_target: '',
-    environment_description: '',
-    notes: '',
-    // New SOP fields (Step 1-6)
-    acceptance_accuracy: '',
-    acceptance_cycle_time: '',
-    acceptance_compatible_sizes: '',
-    motion_description: '',
-    shot_count: '',
-    action_script: '',
-    risk_notes: '',
-  });
-  const [layoutForm, setLayoutForm] = useState({ 
-    conveyorType: '皮带输送线', 
-    cameraCount: 1 as 1|2|3|4, 
-    lensCount: 1 as 1|2|3|4,
-    lightCount: 1 as 1|2|3|4,
-    cameraMounts: ['top'] as CameraMount[], 
-    mountCounts: { top: 1, side: 0, angled: 0 } as Record<CameraMount, number>,
-    mechanisms: [] as Mechanism[],
-    selectedCameras: [] as (HardwareItemData | null)[],
-    selectedLenses: [] as (HardwareItemData | null)[],
-    selectedLights: [] as (HardwareItemData | null)[],
-    selectedController: null as HardwareItemData | null,
-    primaryView: 'front' as 'front' | 'side' | 'top',
-    auxiliaryView: 'side' as 'front' | 'side' | 'top',
-    layoutDescription: '',
+  const [wsForm, setWsForm] = useState<WorkstationFormState>(createDefaultWorkstationForm);
+  const [layoutForm, setLayoutForm] = useState<LayoutFormState>(createDefaultLayoutForm);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const initializedWorkstationIdRef = useRef<string | null>(null);
+  const baselineSnapshotRef = useRef(
+    stringifyFormDraft(createWorkstationDraftPayload(createDefaultWorkstationForm(), createDefaultLayoutForm(), 0)),
+  );
+
+  const draftPayload = useMemo(
+    () => createWorkstationDraftPayload(wsForm, layoutForm, currentStep),
+    [currentStep, layoutForm, wsForm],
+  );
+
+  const { readDraft, clearDraft } = useEntityFormDraft<WorkstationDraftPayload>({
+    entityType: 'workstation',
+    entityId: selectedWorkstationId,
+    value: draftPayload,
+    isDirty: draftDirty,
+    enabled: draftReady,
+    entityUpdatedAt: workstation?.updated_at,
   });
 
   const getWsFormData = useCallback(() => wsForm, [wsForm]);
@@ -173,88 +333,41 @@ export function WorkstationForm() {
   }, [pendingAIFill, workstation?.id]);
 
   useEffect(() => {
-    if (workstation) {
-      const ws = workstation as any;
-      const dims = ws.product_dimensions as { length: number; width: number; height: number } | null;
-      const acceptanceCriteria = ws.acceptance_criteria as { accuracy?: string; cycle_time?: string; compatible_sizes?: string } | null;
-      setWsForm({ 
-        code: ws.code || '', 
-        name: ws.name || '', 
-        type: ws.type || 'line', 
-        cycleTime: ws.cycle_time?.toString() || '', 
-        length: dims?.length?.toString() || '100', 
-        width: dims?.width?.toString() || '100', 
-        height: dims?.height?.toString() || '50',
-        enclosed: ws.enclosed || false,
-        process_stage: ws.process_stage || '',
-        observation_target: ws.observation_target || '',
-        environment_description: ws.environment_description || '',
-        notes: ws.notes || '',
-        acceptance_accuracy: acceptanceCriteria?.accuracy || '',
-        acceptance_cycle_time: acceptanceCriteria?.cycle_time || '',
-        acceptance_compatible_sizes: acceptanceCriteria?.compatible_sizes || '',
-        motion_description: ws.motion_description || '',
-        shot_count: ws.shot_count?.toString() || '',
-        action_script: ws.action_script || '',
-        risk_notes: ws.risk_notes || '',
-      });
-      setCurrentStep(0);
+    if (!workstation) {
+      initializedWorkstationIdRef.current = null;
+      setDraftReady(false);
+      setDraftDirty(false);
+      return;
     }
-    if (layout) {
-      // Defensive checks for all JSON array fields
-      const rawCameras = (layout as any).selected_cameras;
-      const rawLenses = (layout as any).selected_lenses;
-      const rawLights = (layout as any).selected_lights;
-      const selectedCameras = Array.isArray(rawCameras) ? rawCameras : [];
-      const selectedLenses = Array.isArray(rawLenses) ? rawLenses : [];
-      const selectedLights = Array.isArray(rawLights) ? rawLights : [];
-      let selectedController = (layout as any).selected_controller || null;
-      
-      // Merge controller data with latest from HardwareContext to get updated image_url
-      if (selectedController && selectedController.id && controllers.length > 0) {
-        const latestController = controllers.find(c => c.id === selectedController.id);
-        if (latestController) {
-          selectedController = {
-            ...selectedController,
-            image_url: latestController.image_url, // Use latest image_url from HardwareContext
-          };
-        }
-      }
-      
-      // Parse mount counts from camera_mounts array - with defensive check for legacy object data
-      const rawMounts = layout.camera_mounts;
-      const mounts = (Array.isArray(rawMounts) ? rawMounts : ['top']) as CameraMount[];
-      const mountCounts = { top: 0, side: 0, angled: 0 };
-      mounts.forEach((m: CameraMount) => {
-        if (mountCounts[m] !== undefined) mountCounts[m]++;
-      });
-      // Ensure at least one mount if all are 0
-      if (mountCounts.top === 0 && mountCounts.side === 0 && mountCounts.angled === 0) {
-        mountCounts.top = layout.camera_count || 1;
-      }
-      
-      // Defensive check for mechanisms - ensure it's an array
-      const rawMechanisms = layout.mechanisms;
-      const mechanisms = Array.isArray(rawMechanisms) ? rawMechanisms : [];
-      
-      setLayoutForm({ 
-        conveyorType: layout.conveyor_type || '皮带输送线', 
-        cameraCount: (layout.camera_count || 1) as 1|2|3|4, 
-        lensCount: ((layout as any).lens_count || 1) as 1|2|3|4,
-        lightCount: ((layout as any).light_count || 1) as 1|2|3|4,
-        cameraMounts: mounts, 
-        mountCounts,
-        mechanisms: mechanisms as Mechanism[],
-        selectedCameras: selectedCameras,
-        selectedLenses: selectedLenses,
-        selectedLights: selectedLights,
-        selectedController: selectedController,
-        primaryView: (layout as any).primary_view || 'front',
-        auxiliaryView: (layout as any).auxiliary_view || 'side',
-        layoutDescription: (layout as any).layout_description || '',
-      });
+
+    if (initializedWorkstationIdRef.current === workstation.id) return;
+
+    const draft = readDraft();
+    const nextPayload = draft?.payload || createWorkstationDraftPayload(
+      workstationToForm(workstation),
+      layoutToForm(layout, controllers),
+      0,
+    );
+
+    setWsForm(nextPayload.wsForm);
+    setLayoutForm(nextPayload.layoutForm);
+    setCurrentStep(nextPayload.currentStep || 0);
+    baselineSnapshotRef.current = stringifyFormDraft(nextPayload);
+    setDraftDirty(Boolean(draft));
+    setDraftReady(true);
+    initializedWorkstationIdRef.current = workstation.id;
+
+    if (draft) {
+      toast.info('已恢复未保存草稿');
     }
-  }, [workstation, layout, controllers]);
+  }, [controllers, layout, readDraft, workstation]);
+
+  useEffect(() => {
+    if (!draftReady || !workstation) return;
+    if (stringifyFormDraft(draftPayload) !== baselineSnapshotRef.current) {
+      setDraftDirty(true);
+    }
+  }, [draftPayload, draftReady, workstation]);
 
   // Calculate active constraints based on selected mechanisms
   const activeConstraints = useMemo(() => {
@@ -347,7 +460,7 @@ export function WorkstationForm() {
   );
   
   const isStep3Complete = useMemo(() => 
-    layoutForm.selectedCameras.some(c => c !== null),
+    safeHardwareArray(layoutForm.selectedCameras).length > 0,
     [layoutForm.selectedCameras]
   );
 
@@ -385,6 +498,11 @@ export function WorkstationForm() {
         status: 'incomplete' 
       } as any);
       
+      const selectedCameras = safeHardwareArray(layoutForm.selectedCameras);
+      const selectedLenses = safeHardwareArray(layoutForm.selectedLenses);
+      const selectedLights = safeHardwareArray(layoutForm.selectedLights);
+      const selectedController = safeController(layoutForm.selectedController);
+
       // Upsert layout - this will update context state and trigger canvas re-render
       await upsertLayout(workstation.id, {
         name: wsForm.name || '布局',
@@ -392,14 +510,17 @@ export function WorkstationForm() {
         camera_count: layoutForm.cameraCount,
         camera_mounts: layoutForm.cameraMounts,
         mechanisms: layoutForm.mechanisms,
-        selected_cameras: layoutForm.selectedCameras,
-        selected_lenses: layoutForm.selectedLenses,
-        selected_lights: layoutForm.selectedLights,
-        selected_controller: layoutForm.selectedController,
+        selected_cameras: selectedCameras,
+        selected_lenses: selectedLenses,
+        selected_lights: selectedLights,
+        selected_controller: selectedController,
         primary_view: layoutForm.primaryView,
         auxiliary_view: layoutForm.auxiliaryView,
         layout_description: layoutForm.layoutDescription,
       } as any);
+      clearDraft();
+      baselineSnapshotRef.current = stringifyFormDraft(draftPayload);
+      setDraftDirty(false);
       
       toast.success('工位配置已保存');
     } catch (error) {
@@ -408,6 +529,22 @@ export function WorkstationForm() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleReset = () => {
+    if (!workstation) return;
+
+    const nextPayload = createWorkstationDraftPayload(
+      workstationToForm(workstation),
+      layoutToForm(layout, controllers),
+      0,
+    );
+    clearDraft();
+    setWsForm(nextPayload.wsForm);
+    setLayoutForm(nextPayload.layoutForm);
+    setCurrentStep(nextPayload.currentStep);
+    baselineSnapshotRef.current = stringifyFormDraft(nextPayload);
+    setDraftDirty(false);
   };
 
   const mechanisms: { value: Mechanism; label: string }[] = [
@@ -685,7 +822,7 @@ export function WorkstationForm() {
           }),
           0
         );
-        const firstCam = layout && Array.isArray((layout as any).selected_cameras) && (layout as any).selected_cameras[0];
+        const firstCam = safeHardwareArray((layout as any)?.selected_cameras)[0] as any;
         const camFrameRate = firstCam?.frame_rate || 0;
 
         const ctResult = calculateCycleTime({
@@ -1111,11 +1248,16 @@ export function WorkstationForm() {
     <FormStepWizard
       title="工位配置"
       headerActions={
-        <AIFillButton
-          status={aiFill.status}
-          onStart={aiFill.startFill}
-          onStop={aiFill.stopFill}
-        />
+        <>
+          <AIFillButton
+            status={aiFill.status}
+            onStart={aiFill.startFill}
+            onStop={aiFill.stopFill}
+          />
+          <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving || aiFill.isActive}>
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+        </>
       }
       steps={steps}
       currentStep={currentStep}

@@ -349,13 +349,6 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     }
     
     // 检查类型专属配置的关键参数
-    if (mod.type === 'defect' && mod.defect_config) {
-      const cfg = mod.defect_config as any;
-      if (!cfg.minDefectSize) {
-        modWarnings.push('未设置最小缺陷尺寸');
-      }
-    }
-    
     if (mod.type === 'positioning' && mod.positioning_config) {
       const cfg = mod.positioning_config as any;
       if (!cfg.accuracyRequirement) {
@@ -392,5 +385,4 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     },
   };
 }
-
 

@@ -73,17 +73,58 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | null>(null);
 
+const SELECTION_STORAGE_KEY = 'vision-ppt:selected-entity:v1';
+
+interface StoredSelection {
+  selectedProjectId: string | null;
+  selectedWorkstationId: string | null;
+  selectedModuleId: string | null;
+}
+
+const emptyStoredSelection: StoredSelection = {
+  selectedProjectId: null,
+  selectedWorkstationId: null,
+  selectedModuleId: null,
+};
+
+function readStoredSelection(): StoredSelection {
+  if (typeof window === 'undefined') return emptyStoredSelection;
+
+  try {
+    const raw = window.sessionStorage.getItem(SELECTION_STORAGE_KEY);
+    if (!raw) return emptyStoredSelection;
+    return { ...emptyStoredSelection, ...JSON.parse(raw) };
+  } catch {
+    return emptyStoredSelection;
+  }
+}
+
+function writeStoredSelection(selection: StoredSelection) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.setItem(SELECTION_STORAGE_KEY, JSON.stringify(selection));
+  } catch {
+    // Selection restore is best effort and should never interrupt editing.
+  }
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const initialSelectionRef = useRef<StoredSelection | null>(null);
+  if (!initialSelectionRef.current) {
+    initialSelectionRef.current = readStoredSelection();
+  }
+
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [workstations, setWorkstations] = useState<DbWorkstation[]>([]);
   const [layouts, setLayouts] = useState<DbLayout[]>([]);
   const [modules, setModules] = useState<DbModule[]>([]);
   const [loading, setLoading] = useState(true);
   
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [selectedWorkstationId, setSelectedWorkstationId] = useState<string | null>(null);
-  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialSelectionRef.current.selectedProjectId);
+  const [selectedWorkstationId, setSelectedWorkstationId] = useState<string | null>(initialSelectionRef.current.selectedWorkstationId);
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(initialSelectionRef.current.selectedModuleId);
 
   // Track if initial cache load happened
   const cacheLoadedRef = useRef(false);
@@ -177,6 +218,51 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetchAll();
   }, [fetchAll, user]);
+
+  useEffect(() => {
+    writeStoredSelection({
+      selectedProjectId,
+      selectedWorkstationId,
+      selectedModuleId,
+    });
+  }, [selectedModuleId, selectedProjectId, selectedWorkstationId]);
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (selectedModuleId) {
+      const selectedModule = modules.find(m => m.id === selectedModuleId);
+      if (!selectedModule) {
+        setSelectedModuleId(null);
+      } else if (selectedWorkstationId !== selectedModule.workstation_id) {
+        setSelectedWorkstationId(selectedModule.workstation_id);
+      }
+    }
+
+    if (selectedWorkstationId) {
+      const selectedWorkstation = workstations.find(w => w.id === selectedWorkstationId);
+      if (!selectedWorkstation) {
+        setSelectedWorkstationId(null);
+        setSelectedModuleId(null);
+      } else if (selectedProjectId !== selectedWorkstation.project_id) {
+        setSelectedProjectId(selectedWorkstation.project_id);
+      }
+    }
+
+    if (selectedProjectId && !projects.some(p => p.id === selectedProjectId)) {
+      setSelectedProjectId(null);
+      setSelectedWorkstationId(null);
+      setSelectedModuleId(null);
+    }
+  }, [
+    loading,
+    modules,
+    projects,
+    selectedModuleId,
+    selectedProjectId,
+    selectedWorkstationId,
+    workstations,
+  ]);
 
   // Selection functions
   const selectProject = useCallback((id: string | null) => {

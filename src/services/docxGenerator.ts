@@ -14,6 +14,7 @@ import {
   convertInchesToTwip,
   ImageRun,
 } from 'docx';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 // ==================== DATA INTERFACES ====================
 
@@ -523,30 +524,35 @@ export async function generateDOCX(
 
     // Layout hardware info
     if (layout) {
+      const selectedCameras = safeHardwareArray(layout.selected_cameras);
+      const selectedLenses = safeHardwareArray(layout.selected_lenses);
+      const selectedLights = safeHardwareArray(layout.selected_lights);
+      const selectedController = safeController(layout.selected_controller);
+
       sections.push(
         createHeading(isZh ? '硬件配置' : 'Hardware Configuration', HeadingLevel.HEADING_3),
         createLabelValue(isZh ? '相机数量' : 'Camera Count', layout.camera_count?.toString() || '-'),
         createLabelValue(isZh ? '输送线类型' : 'Conveyor Type', layout.conveyor_type || '-'),
       );
 
-      if (layout.selected_cameras && layout.selected_cameras.length > 0) {
+      if (selectedCameras.length > 0) {
         sections.push(createLabelValue(isZh ? '相机型号' : 'Cameras', 
-          layout.selected_cameras.map(c => `${c.brand} ${c.model}`).join(', ')
+          selectedCameras.map(c => `${c.brand || ''} ${c.model || ''}`.trim()).filter(Boolean).join(', ')
         ));
       }
-      if (layout.selected_lenses && layout.selected_lenses.length > 0) {
+      if (selectedLenses.length > 0) {
         sections.push(createLabelValue(isZh ? '镜头型号' : 'Lenses', 
-          layout.selected_lenses.map(l => `${l.brand} ${l.model}`).join(', ')
+          selectedLenses.map(l => `${l.brand || ''} ${l.model || ''}`.trim()).filter(Boolean).join(', ')
         ));
       }
-      if (layout.selected_lights && layout.selected_lights.length > 0) {
+      if (selectedLights.length > 0) {
         sections.push(createLabelValue(isZh ? '光源型号' : 'Lights', 
-          layout.selected_lights.map(l => `${l.brand} ${l.model}`).join(', ')
+          selectedLights.map(l => `${l.brand || ''} ${l.model || ''}`.trim()).filter(Boolean).join(', ')
         ));
       }
-      if (layout.selected_controller) {
+      if (selectedController) {
         sections.push(createLabelValue(isZh ? '控制器' : 'Controller', 
-          `${layout.selected_controller.brand} ${layout.selected_controller.model}`
+          `${selectedController.brand || ''} ${selectedController.model || ''}`.trim()
         ));
       }
       

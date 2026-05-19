@@ -17,11 +17,12 @@ import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Save, RotateCcw, Loader2 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
 import { useAIFormFill } from '@/hooks/useAIFormFill';
 import { AIFillButton, getFieldHighlightClass } from './AIFillButton';
+import { stringifyFormDraft, useEntityFormDraft } from '@/hooks/useEntityFormDraft';
 
 type QualityStrategy = 'no_miss' | 'balanced' | 'allow_pass';
 
@@ -58,33 +59,72 @@ const qualityStrategyOptions: { value: QualityStrategy; label: string }[] = [
   { value: 'allow_pass', label: '宁可放行' },
 ];
 
+const createEmptyProjectFormData = () => ({
+  code: '',
+  name: '',
+  customer: '',
+  production_line: '',
+  product_process: '',
+  date: '',
+  responsible: '',
+  sales_responsible: '',
+  vision_responsible: '',
+  template_id: '',
+  cycle_time_target: '',
+  environment: [] as string[],
+  quality_strategy: '' as QualityStrategy | '',
+  use_3d: false,
+  use_ai: false,
+  main_camera_brand: '',
+  spec_version: '',
+  notes: '',
+});
+
+type ProjectFormData = ReturnType<typeof createEmptyProjectFormData>;
+type ProjectRow = Database['public']['Tables']['projects']['Row'];
+
+const projectToFormData = (project: ProjectRow): ProjectFormData => ({
+  code: project.code || '',
+  name: project.name || '',
+  customer: project.customer || '',
+  production_line: project.production_line || '',
+  product_process: project.product_process || '',
+  date: project.date || '',
+  responsible: project.responsible || '',
+  sales_responsible: project.sales_responsible || '',
+  vision_responsible: project.vision_responsible || '',
+  template_id: project.template_id || '',
+  cycle_time_target: project.cycle_time_target?.toString() || '',
+  environment: project.environment ? (typeof project.environment === 'string' ? project.environment.split(',') : []) : [],
+  quality_strategy: project.quality_strategy || '',
+  use_3d: project.use_3d || false,
+  use_ai: project.use_ai || false,
+  main_camera_brand: project.main_camera_brand || '',
+  spec_version: project.spec_version || '',
+  notes: project.notes || '',
+});
+
 export function ProjectForm() {
   const { selectedProjectId, projects, updateProject } = useData();
   const { templates, isLoading: templatesLoading } = usePPTTemplates();
   
   const project = projects.find(p => p.id === selectedProjectId);
   
-const [formData, setFormData] = useState({
-    code: '',
-    name: '',
-    customer: '',
-    production_line: '',
-    product_process: '',
-    date: '',
-    responsible: '',
-    sales_responsible: '',
-    vision_responsible: '',
-    template_id: '',
-    cycle_time_target: '',
-    environment: [] as string[],
-    quality_strategy: '' as QualityStrategy | '',
-    use_3d: false,
-    use_ai: false,
-    main_camera_brand: '',
-    spec_version: '',
-    notes: '',
-  });
+  const [formData, setFormData] = useState<ProjectFormData>(createEmptyProjectFormData);
   const [saving, setSaving] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const initializedProjectIdRef = useRef<string | null>(null);
+  const baselineSnapshotRef = useRef(stringifyFormDraft(createEmptyProjectFormData()));
+
+  const { readDraft, clearDraft } = useEntityFormDraft<ProjectFormData>({
+    entityType: 'project',
+    entityId: selectedProjectId,
+    value: formData,
+    isDirty: draftDirty,
+    enabled: draftReady,
+    entityUpdatedAt: project?.updated_at,
+  });
 
   const getFormData = useCallback(() => formData, [formData]);
   const setFormField = useCallback((field: string, value: string) => {
@@ -107,30 +147,34 @@ const [formData, setFormData] = useState({
   }, [pendingAIFill, project?.id]);
 
   useEffect(() => {
-    if (project) {
-      const proj = project as any;
-      setFormData({
-        code: proj.code || '',
-        name: proj.name || '',
-        customer: proj.customer || '',
-        production_line: proj.production_line || '',
-        product_process: proj.product_process || '',
-        date: proj.date || '',
-        responsible: proj.responsible || '',
-        sales_responsible: proj.sales_responsible || '',
-        vision_responsible: proj.vision_responsible || '',
-        template_id: proj.template_id || '',
-        cycle_time_target: proj.cycle_time_target?.toString() || '',
-        environment: proj.environment ? (typeof proj.environment === 'string' ? proj.environment.split(',') : []) : [],
-        quality_strategy: proj.quality_strategy || '',
-        use_3d: proj.use_3d || false,
-        use_ai: proj.use_ai || false,
-        main_camera_brand: proj.main_camera_brand || '',
-        spec_version: proj.spec_version || '',
-        notes: proj.notes || '',
-      });
+    if (!project) {
+      initializedProjectIdRef.current = null;
+      setDraftReady(false);
+      setDraftDirty(false);
+      return;
     }
-  }, [project]);
+
+    if (initializedProjectIdRef.current === project.id) return;
+
+    const draft = readDraft();
+    const nextFormData = draft?.payload || projectToFormData(project);
+    setFormData(nextFormData);
+    baselineSnapshotRef.current = stringifyFormDraft(nextFormData);
+    setDraftDirty(Boolean(draft));
+    setDraftReady(true);
+    initializedProjectIdRef.current = project.id;
+
+    if (draft) {
+      toast.info('已恢复未保存草稿');
+    }
+  }, [project, readDraft]);
+
+  useEffect(() => {
+    if (!draftReady || !project) return;
+    if (stringifyFormDraft(formData) !== baselineSnapshotRef.current) {
+      setDraftDirty(true);
+    }
+  }, [draftReady, formData, project]);
 
   if (!project) return null;
 
@@ -159,6 +203,9 @@ const [formData, setFormData] = useState({
         status: formData.code && formData.name && formData.customer && formData.template_id 
           ? 'complete' : 'incomplete',
       } as any);
+      clearDraft();
+      baselineSnapshotRef.current = stringifyFormDraft(formData);
+      setDraftDirty(false);
     } catch (error) {
       console.error('Failed to save project:', error);
       toast.error('保存失败');
@@ -169,27 +216,11 @@ const [formData, setFormData] = useState({
 
   const handleReset = () => {
     if (project) {
-      const proj = project as any;
-      setFormData({
-        code: proj.code || '',
-        name: proj.name || '',
-        customer: proj.customer || '',
-        production_line: proj.production_line || '',
-        product_process: proj.product_process || '',
-        date: proj.date || '',
-        responsible: proj.responsible || '',
-        sales_responsible: proj.sales_responsible || '',
-        vision_responsible: proj.vision_responsible || '',
-        template_id: proj.template_id || '',
-        cycle_time_target: proj.cycle_time_target?.toString() || '',
-        environment: proj.environment ? (typeof proj.environment === 'string' ? proj.environment.split(',') : []) : [],
-        quality_strategy: proj.quality_strategy || '',
-        use_3d: proj.use_3d || false,
-        use_ai: proj.use_ai || false,
-        main_camera_brand: proj.main_camera_brand || '',
-        spec_version: proj.spec_version || '',
-        notes: proj.notes || '',
-      });
+      const nextFormData = projectToFormData(project);
+      clearDraft();
+      setFormData(nextFormData);
+      baselineSnapshotRef.current = stringifyFormDraft(nextFormData);
+      setDraftDirty(false);
     }
   };
 

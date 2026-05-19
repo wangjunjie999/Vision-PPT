@@ -28,6 +28,7 @@ import {
   safeStringify,
   FIELD_DISPLAY_NAMES,
 } from './labelMaps';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -619,10 +620,10 @@ export function buildReportData(input: BuilderInput): ReportData {
         }).filter(Boolean)
       : null;
     
-    const selectedCameras = layout.selected_cameras as Array<{ id: string; brand?: string; model?: string; image_url?: string | null }> | null;
-    const selectedLenses = layout.selected_lenses as Array<{ id: string; brand?: string; model?: string; image_url?: string | null }> | null;
-    const selectedLights = layout.selected_lights as Array<{ id: string; brand?: string; model?: string; image_url?: string | null }> | null;
-    const selectedController = layout.selected_controller as { id: string; brand?: string; model?: string; image_url?: string | null } | null;
+    const selectedCameras = safeHardwareArray(layout.selected_cameras);
+    const selectedLenses = safeHardwareArray(layout.selected_lenses);
+    const selectedLights = safeHardwareArray(layout.selected_lights);
+    const selectedController = safeController(layout.selected_controller);
     
     return {
       workstation_id: layout.workstation_id,

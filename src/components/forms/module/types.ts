@@ -423,7 +423,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   lightNote: '',
   
   defectClasses: [],
-  minDefectSize: '0.5',
+  minDefectSize: '',
   missTolerance: 'none',
   falseRejectTolerance: 'acceptable',
   judgmentRule: 'any',

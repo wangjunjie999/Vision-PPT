@@ -39,6 +39,7 @@ import { ProductRenderer } from './ProductRenderer';
 import { CameraRenderer } from './CameraRenderer';
 
 import { ResizeHandles } from './ResizeHandles';
+import { safeHardwareArray } from '@/utils/safeDataAccess';
 
 interface DraggableLayoutCanvasProps {
   workstationId: string;
@@ -61,6 +62,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     primaryView === auxiliaryView ? [primaryView] : [primaryView, auxiliaryView],
     [primaryView, auxiliaryView]
   );
+  const selectedCameraData = useMemo(() => safeHardwareArray(layout?.selected_cameras), [layout?.selected_cameras]);
 
   // ========== State ==========
   const [currentView, setCurrentView] = useState<ViewType>('front');
@@ -729,8 +731,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   }, [objects, project3DTo2D, currentView]);
 
   const addCamera = useCallback(() => {
-    const selectedCameraData = layout?.selected_cameras as any[];
-    if (!selectedCameraData || selectedCameraData.length === 0) {
+    if (selectedCameraData.length === 0) {
       // No cameras configured, add generic
       doAddCamera();
     } else if (selectedCameraData.length === 1) {
@@ -740,7 +741,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       // Multiple cameras, show picker
       setCameraPickerOpen(true);
     }
-  }, [layout, doAddCamera]);
+  }, [selectedCameraData, doAddCamera]);
 
   const addMechanism = useCallback((mechanism: Mechanism) => {
     const existingMechs = objects.filter(o => o.type === 'mechanism');
@@ -1239,22 +1240,25 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             <DialogTitle>选择相机型号</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2 max-h-60 overflow-y-auto">
-            {(layout?.selected_cameras as any[] || []).map((cam: any, idx: number) => (
-              <button
-                key={idx}
-                className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent text-left transition-colors"
-                onClick={() => {
-                  setCameraPickerOpen(false);
-                  doAddCamera(cam);
-                }}
-              >
-                <Camera className="h-5 w-5 text-muted-foreground shrink-0" />
-                <div>
-                  <div className="font-medium text-sm">{cam.brand} {cam.model}</div>
-                  {cam.resolution && <div className="text-xs text-muted-foreground">{cam.resolution}</div>}
-                </div>
-              </button>
-            ))}
+            {selectedCameraData.map((cam: any, idx: number) => {
+              const displayName = `${cam.brand || ''} ${cam.model || ''}`.trim() || `CAM${idx + 1}`;
+              return (
+                <button
+                  key={cam.id || idx}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent text-left transition-colors"
+                  onClick={() => {
+                    setCameraPickerOpen(false);
+                    doAddCamera(cam);
+                  }}
+                >
+                  <Camera className="h-5 w-5 text-muted-foreground shrink-0" />
+                  <div>
+                    <div className="font-medium text-sm">{displayName}</div>
+                    {cam.resolution && <div className="text-xs text-muted-foreground">{cam.resolution}</div>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>

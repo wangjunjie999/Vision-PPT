@@ -7,6 +7,7 @@ import { useData } from '@/contexts/DataContext';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 
@@ -32,16 +33,10 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
       const layout = getLayoutByWorkstation(workstationId);
       
       // Safely extract hardware from layout - handle both array formats
-      const selectedCameras = Array.isArray((layout as any)?.selected_cameras) 
-        ? (layout as any).selected_cameras 
-        : [];
-      const selectedLenses = Array.isArray((layout as any)?.selected_lenses) 
-        ? (layout as any).selected_lenses 
-        : [];
-      const selectedLights = Array.isArray((layout as any)?.selected_lights) 
-        ? (layout as any).selected_lights 
-        : [];
-      const selectedController = (layout as any)?.selected_controller;
+      const selectedCameras = safeHardwareArray((layout as any)?.selected_cameras);
+      const selectedLenses = safeHardwareArray((layout as any)?.selected_lenses);
+      const selectedLights = safeHardwareArray((layout as any)?.selected_lights);
+      const selectedController = safeController((layout as any)?.selected_controller);
       
       // Get first camera/lens/light ID - handle both object and string formats
       const getFirstId = (arr: any[]): string | null => {

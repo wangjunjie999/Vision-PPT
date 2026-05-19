@@ -11,6 +11,7 @@ import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMemo } from 'react';
 import { parseShutterType } from '@/utils/visionCalcEngine';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 interface ModuleStep4OutputProps {
   form: ModuleFormState;
@@ -34,14 +35,10 @@ export function ModuleStep4Output({
   const handleInheritHardware = () => {
     if (!workstationLayout) return;
     
-    // Defensive checks - ensure arrays even if data is malformed
-    const rawCameras = workstationLayout?.selected_cameras;
-    const rawLenses = workstationLayout?.selected_lenses;
-    const rawLights = workstationLayout?.selected_lights;
-    const selectedCameras = Array.isArray(rawCameras) ? rawCameras : [];
-    const selectedLenses = Array.isArray(rawLenses) ? rawLenses : [];
-    const selectedLights = Array.isArray(rawLights) ? rawLights : [];
-    const selectedController = workstationLayout?.selected_controller;
+    const selectedCameras = safeHardwareArray(workstationLayout?.selected_cameras);
+    const selectedLenses = safeHardwareArray(workstationLayout?.selected_lenses);
+    const selectedLights = safeHardwareArray(workstationLayout?.selected_lights);
+    const selectedController = safeController(workstationLayout?.selected_controller);
     
     setForm(p => ({
       ...p,

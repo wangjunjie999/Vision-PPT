@@ -162,6 +162,13 @@ interface VisionSystemDiagramProps {
   fovAngle?: number;
   onFovAngleChange?: (angle: number) => void;
   onLightDistanceChange?: (distance: number) => void;
+  workingDistanceInput?: string;
+  workingDistanceMm?: number | null;
+  fovWidthMm?: number | null;
+  onWorkingDistanceChange?: (value: string) => void;
+  lightDistanceInput?: string;
+  lightDistanceMm?: number | null;
+  onDiagramLightDistanceChange?: (value: string) => void;
   roiStrategy?: string;
   moduleType?: string;
   interactive?: boolean;
@@ -625,6 +632,8 @@ export function VisionSystemDiagram({
   onCameraSelect, onLensSelect, onLightSelect, onControllerSelect,
   lightDistance = 335, fovAngle = 45,
   onFovAngleChange, onLightDistanceChange,
+  workingDistanceInput, workingDistanceMm, fovWidthMm, onWorkingDistanceChange,
+  lightDistanceInput, lightDistanceMm, onDiagramLightDistanceChange,
   roiStrategy = 'full', moduleType = 'defect',
   interactive = true, className,
   cameraPos, lightPos, cameraRotation, lightRotation,
@@ -668,13 +677,13 @@ export function VisionSystemDiagram({
 
   // Derived measurements (rotation-aware)
   const rotRad = camRotation * Math.PI / 180;
-  const lensOffsetFromCenter = 105; // camera height ~85 + lens ~20
+  const lensBottomOffsetFromRotationCenter = 82; // lens starts at y=85 and renders in a 52px box; rotation center is y=55
 
   // Rotated lens exit point (rotation pivot = camLensDrag.pos which is group top-left, rotation center at (45,55) inside group)
-  // The lens bottom in local coords is at (45, 110) relative to group origin; rotation center is (45, 55)
-  // Local offset from rotation center to lens bottom: (0, 55)
+  // The working distance is measured from the rendered lens image bottom, not from an estimated optical center.
+  // Lens bottom local coords: (45, 137); rotation center local coords: (45, 55).
   const localLensX = 0;
-  const localLensY = 55;
+  const localLensY = lensBottomOffsetFromRotationCenter;
   // Standard 2D rotation: x' = x*cos - y*sin, y' = x*sin + y*cos
   const rotatedLensLocalX = localLensX * Math.cos(rotRad) - localLensY * Math.sin(rotRad);
   const rotatedLensLocalY = localLensX * Math.sin(rotRad) + localLensY * Math.cos(rotRad);
@@ -684,15 +693,50 @@ export function VisionSystemDiagram({
   const lensExitX = rotCenterX + rotatedLensLocalX;
   const lensExitY = rotCenterY + rotatedLensLocalY;
 
-  // For backward compat: unrotated values
-  const lensBottomY = camLensDrag.pos.y + lensOffsetFromCenter;
   const workingDistance = Math.max(0, Math.round(productY - lensExitY));
-  const workingDistanceMM = Math.max(50, Math.round(workingDistance * (lightDistance / (productY - 175))));
+  const legacyWorkingDistanceMM = Math.max(50, Math.round(workingDistance * (lightDistance / (productY - 175))));
+  const controlledWorkingDistanceMM =
+    typeof workingDistanceMm === 'number' && Number.isFinite(workingDistanceMm) && workingDistanceMm > 0
+      ? Math.round(workingDistanceMm)
+      : null;
+  const hasControlledWorkingDistance =
+    workingDistanceInput !== undefined || workingDistanceMm !== undefined || Boolean(onWorkingDistanceChange);
+  const workingDistanceMM = controlledWorkingDistanceMM ?? legacyWorkingDistanceMM;
+  const workingDistanceValue = hasControlledWorkingDistance
+    ? (workingDistanceInput ?? (controlledWorkingDistanceMM !== null ? String(controlledWorkingDistanceMM) : ''))
+    : String(workingDistanceMM);
+  const workingDistanceDisplay = hasControlledWorkingDistance && !controlledWorkingDistanceMM
+    ? '待填写'
+    : `${workingDistanceMM}`;
+  const workingDistanceDimensionLabel = hasControlledWorkingDistance && !controlledWorkingDistanceMM
+    ? '待填写'
+    : `${workingDistanceMM}±20mm`;
 
   const fovRadians = (fovAngle / 2) * (Math.PI / 180);
   const fovPixelHeight = Math.max(productY - lensExitY, 50);
   const fovOffsetX = Math.tan(fovRadians) * fovPixelHeight;
-  const fovWidthMM = Math.round(2 * Math.tan(fovRadians) * workingDistanceMM);
+  const fovWidthMM =
+    typeof fovWidthMm === 'number' && Number.isFinite(fovWidthMm) && fovWidthMm > 0
+      ? Math.round(fovWidthMm)
+      : Math.round(2 * Math.tan(fovRadians) * workingDistanceMM);
+
+  const legacyDiagramLightDistanceMM = Math.round(Math.abs(productY - lightDrag.pos.y) * (lightDistance / (productY - 175)));
+  const controlledLightDistanceMM =
+    typeof lightDistanceMm === 'number' && Number.isFinite(lightDistanceMm) && lightDistanceMm > 0
+      ? Math.round(lightDistanceMm)
+      : null;
+  const hasControlledLightDistance =
+    lightDistanceInput !== undefined || lightDistanceMm !== undefined || Boolean(onDiagramLightDistanceChange);
+  const diagramLightDistanceMM = controlledLightDistanceMM ?? legacyDiagramLightDistanceMM;
+  const diagramLightDistanceValue = hasControlledLightDistance
+    ? (lightDistanceInput ?? (controlledLightDistanceMM !== null ? String(controlledLightDistanceMM) : ''))
+    : String(diagramLightDistanceMM);
+  const diagramLightDistanceDisplay = hasControlledLightDistance && !controlledLightDistanceMM
+    ? '待填写'
+    : `${diagramLightDistanceMM}`;
+  const diagramLightDistanceWithUnit = hasControlledLightDistance && !controlledLightDistanceMM
+    ? diagramLightDistanceDisplay
+    : `${diagramLightDistanceDisplay}mm`;
 
   // FOV direction vector (rotation of downward (0,1) by camRotation)
   const fovDirX = -Math.sin(rotRad);
@@ -756,6 +800,9 @@ export function VisionSystemDiagram({
           </marker>
           <marker id="arrowDown" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
             <path d="M1,1 L4,7 L7,1" fill="none" stroke="hsl(220, 80%, 50%)" strokeWidth="1.5" />
+          </marker>
+          <marker id="dimensionArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">
+            <path d="M1,1 L7,4 L1,7" fill="none" stroke="hsl(220, 80%, 50%)" strokeWidth="1.5" />
           </marker>
           <marker id="arrowLeft" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
             <path d="M7,1 L1,4 L7,7" fill="none" stroke="hsl(220, 80%, 50%)" strokeWidth="1.5" />
@@ -826,10 +873,10 @@ export function VisionSystemDiagram({
           <line x1="100" y1={lensExitY} x2="130" y2={lensExitY} stroke="hsl(220, 80%, 55%)" strokeWidth="1" strokeDasharray="3,2" />
           <line x1="100" y1={productY} x2="130" y2={productY} stroke="hsl(220, 80%, 55%)" strokeWidth="1" strokeDasharray="3,2" />
           <line x1="115" y1={lensExitY + 10} x2="115" y2={productY - 10} 
-            stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" markerStart="url(#arrowUp)" markerEnd="url(#arrowDown)" />
+            stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" markerStart="url(#dimensionArrow)" markerEnd="url(#dimensionArrow)" />
           <text x="98" y={(lensExitY + productY) / 2} textAnchor="middle" fill="#333333"
             style={{ fontSize: '11px', fontWeight: 500 }} transform={`rotate(-90, 98, ${(lensExitY + productY) / 2})`}>
-            {workingDistanceMM}±20mm
+            {workingDistanceDimensionLabel}
           </text>
         </g>
 
@@ -1012,7 +1059,21 @@ export function VisionSystemDiagram({
                   <>
                     <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>{light.color}{light.type} · {light.power}</p>
                     <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{light.brand} {light.model}</p>
-                    <p style={{ fontSize: '10px', color: '#666666', margin: '2px 0 0 0' }}>光源距产品: {Math.round(Math.abs(productY - lightDrag.pos.y) * (lightDistance / (productY - 175)))}mm</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '10px', color: '#666666' }}>光源距产品:</span>
+                      {onDiagramLightDistanceChange ? (
+                        <input
+                          type="number"
+                          value={diagramLightDistanceValue}
+                          onChange={(e) => onDiagramLightDistanceChange(e.target.value)}
+                          style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
+                          min="0"
+                        />
+                      ) : (
+                        <span style={{ fontSize: '10px', color: '#666666' }}>{diagramLightDistanceDisplay}</span>
+                      )}
+                      {diagramLightDistanceDisplay !== '待填写' && <span style={{ fontSize: '10px', color: '#666666' }}>mm</span>}
+                    </div>
                   </>
                 ) : (
                   <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>点击左侧光源图标选择</p>
@@ -1040,13 +1101,20 @@ export function VisionSystemDiagram({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '10px', color: '#333333', width: '56px' }}>工作距离:</span>
-                    {onLightDistanceChange ? (
-                      <input type="number" value={workingDistanceMM}
-                        onChange={(e) => onLightDistanceChange(parseFloat(e.target.value) || 335)}
+                    {onWorkingDistanceChange || onLightDistanceChange ? (
+                      <input type="number" value={workingDistanceValue}
+                        onChange={(e) => {
+                          if (onWorkingDistanceChange) {
+                            onWorkingDistanceChange(e.target.value);
+                            return;
+                          }
+                          const next = parseFloat(e.target.value);
+                          if (Number.isFinite(next)) onLightDistanceChange?.(next);
+                        }}
                         style={{ width: '56px', height: '24px', fontSize: '11px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
                         min="50" max="1000" />
                     ) : (
-                      <span style={{ fontSize: '11px', color: '#333333' }}>{workingDistanceMM}</span>
+                      <span style={{ fontSize: '11px', color: '#333333' }}>{workingDistanceDisplay}</span>
                     )}
                     <span style={{ fontSize: '10px', color: '#333333' }}>mm</span>
                   </div>
@@ -1116,7 +1184,7 @@ export function VisionSystemDiagram({
                     <>
                       <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{light.color}{light.type} · {light.power}</text>
                       <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{light.brand} {light.model}</text>
-                      <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>工作距离: {workingDistanceMM}mm</text>
+                      <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>光源距产品: {diagramLightDistanceWithUnit}</text>
                     </>
                   ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择光源</text>}
                 </g>
@@ -1128,7 +1196,7 @@ export function VisionSystemDiagram({
                   <rect width={cardW} height={62} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
                   <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
                   <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
-                  <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceMM}mm</text>
+                  <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}mm</text>
                   <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthMM}mm</text>
                 </g>
               );
