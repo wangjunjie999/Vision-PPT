@@ -230,6 +230,10 @@ export function HardwareResourceManager({ type }: Props) {
         }
       }
       setEditDialogOpen(false);
+    } catch (e) {
+      const msg = (e as { message?: string })?.message || '未知错误';
+      console.error('Hardware save failed:', e);
+      toast.error(`保存失败：${msg}`);
     } finally {
       setSaving(false);
     }
