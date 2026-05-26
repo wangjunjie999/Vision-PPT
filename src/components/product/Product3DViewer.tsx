@@ -17,6 +17,7 @@ import {
   MIN_MEANINGFUL_CAPTURE_DATA_URL_LENGTH,
 } from '@/utils/webglFrameCapture';
 import { Eye, Loader2 } from 'lucide-react';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
 
 export interface Product3DViewerHandle {
   takeScreenshot: () => Promise<string | null>;
@@ -85,7 +86,8 @@ function Model({
   activeBrush: string | null;
   onPaintPart: (key: string) => void;
 }) {
-  const { scene: gltfScene } = useGLTF(url, true, true, (loader) => {
+  const proxiedUrl = toLocalProxyUrl(url);
+  const { scene: gltfScene } = useGLTF(proxiedUrl, true, true, (loader) => {
     loader.setCrossOrigin('anonymous');
   });
   const modelRef = useRef<THREE.Group>(null);
