@@ -157,11 +157,11 @@ interface SimpleLayoutDiagramProps {
 }
 
 const MODULE_TYPE_LABELS_ZH: Record<string, string> = {
-  positioning: '定位检测',
-  defect: '缺陷检测',
-  ocr: 'OCR识别',
-  deeplearning: '深度学习',
-  measurement: '尺寸测量',
+  ocr: '识别',
+  measurement: '测量',
+  positioning: '定位',
+  defect: '检测',
+  deeplearning: '深度学习（算法手段）',
 };
 
 const MECH_COLORS: Record<string, string> = {
@@ -483,11 +483,11 @@ export function SimpleLayoutDiagram({
       ])}
 
       {/* Detection methods */}
-      {renderInfoSection(infoX, 38 + Math.min(nodes.length, 10) * 20 + 12 + (Math.min(cameraInfo.length + lensInfo.length + lightInfo.length + (hardware.controller ? 1 : 0), 5) + 1) * 18 + 20, infoContentW, '检测方式', moduleTypes)}
+      {renderInfoSection(infoX, 38 + Math.min(nodes.length, 10) * 20 + 12 + (Math.min(cameraInfo.length + lensInfo.length + lightInfo.length + (hardware.controller ? 1 : 0), 5) + 1) * 18 + 20, infoContentW, '模块分类', moduleTypes)}
 
       {/* Cycle info */}
-      {renderInfoSection(infoX, height - 110, infoContentW, '节拍信息', [
-        `目标节拍: ${cycleTime ? `${cycleTime} s/pcs` : '待定'}`,
+      {renderInfoSection(infoX, height - 110, infoContentW, '工位节拍信息', [
+        `目标工位节拍: ${cycleTime ? `${cycleTime} s/pcs` : '待定'}`,
         `拍照次数: ${shotCount || camNodes.length} 次`,
         `相机数量: ${camNodes.length} 台`,
       ])}

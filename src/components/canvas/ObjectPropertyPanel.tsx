@@ -149,6 +149,23 @@ function GLBUploadField({ currentUrl, onUpdate }: { currentUrl?: string; onUpdat
   );
 }
 
+const NUMERIC_UPDATE_DELAY_MS = 3000;
+
+function parseEditableNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatRoundedInput(value: number | null | undefined, fallback = 0) {
+  return Math.round(value ?? fallback).toString();
+}
+
+function stopCanvasShortcutPropagation(event: React.KeyboardEvent<HTMLInputElement>) {
+  event.stopPropagation();
+}
+
 export function ObjectPropertyPanel({
   object,
   onUpdate,
@@ -165,12 +182,23 @@ export function ObjectPropertyPanel({
   onUpdateProductPosition,
 }: ObjectPropertyPanelProps) {
   const [localValues, setLocalValues] = useState({
-    x: 0,
-    y: 0,
+    x: '0',
+    y: '0',
     rotation: 0,
-    width: 0,
-    height: 0,
+    width: '0',
+    height: '0',
+    depth: '200',
     name: '',
+  });
+  const [productDimensionInputs, setProductDimensionInputs] = useState({
+    length: '0',
+    width: '0',
+    height: '0',
+  });
+  const [productPositionInputs, setProductPositionInputs] = useState({
+    posX: '0',
+    posY: '0',
+    posZ: '0',
   });
   const [isMinimized, setIsMinimized] = useState(false);
   
@@ -179,6 +207,43 @@ export function ObjectPropertyPanel({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartY, setDragStartY] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
+  const pendingUpdateTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const editingFieldsRef = useRef<Set<string>>(new Set());
+  const lastObjectIdRef = useRef<string | null>(null);
+  const latestObjectRef = useRef(object);
+  const latestProductDimensionsRef = useRef(productDimensions);
+  const latestProductPositionRef = useRef(productPosition);
+
+  latestObjectRef.current = object;
+  latestProductDimensionsRef.current = productDimensions;
+  latestProductPositionRef.current = productPosition;
+
+  const clearPendingUpdate = (key: string) => {
+    const timer = pendingUpdateTimersRef.current[key];
+    if (timer) {
+      clearTimeout(timer);
+      delete pendingUpdateTimersRef.current[key];
+    }
+  };
+
+  const clearAllPendingUpdates = () => {
+    Object.keys(pendingUpdateTimersRef.current).forEach(clearPendingUpdate);
+  };
+
+  const scheduleNumericUpdate = (key: string, callback: () => void) => {
+    clearPendingUpdate(key);
+    pendingUpdateTimersRef.current[key] = setTimeout(() => {
+      delete pendingUpdateTimersRef.current[key];
+      editingFieldsRef.current.delete(key);
+      callback();
+    }, NUMERIC_UPDATE_DELAY_MS);
+  };
+
+  const runNumericUpdateNow = (key: string, callback: () => void) => {
+    clearPendingUpdate(key);
+    editingFieldsRef.current.delete(key);
+    callback();
+  };
 
   // Handle panel drag
   const handleDragStart = (e: React.MouseEvent) => {
@@ -209,26 +274,96 @@ export function ObjectPropertyPanel({
   }, [isDragging, dragStartY]);
 
   useEffect(() => {
-    if (object) {
-      // Convert canvas coordinates to mm (relative to center)
-      setLocalValues({
-        x: Math.round((object.x - canvasCenter.x) / scale),
-        y: Math.round((canvasCenter.y - object.y) / scale), // Invert Y for intuitive input
-        rotation: object.rotation,
-        width: Math.round(object.width / scale),
-        height: Math.round(object.height / scale),
-        name: object.name,
-      });
+    return () => {
+      clearAllPendingUpdates();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!object) return;
+
+    const objectChanged = lastObjectIdRef.current !== object.id;
+    if (objectChanged) {
+      clearAllPendingUpdates();
+      editingFieldsRef.current.clear();
+      lastObjectIdRef.current = object.id;
     }
-  }, [object, scale, canvasCenter]);
+
+    // Convert canvas coordinates to mm (relative to center)
+    const nextValues = {
+      x: formatRoundedInput((object.x - canvasCenter.x) / scale),
+      y: formatRoundedInput((canvasCenter.y - object.y) / scale), // Invert Y for intuitive input
+      rotation: object.rotation,
+      width: formatRoundedInput(object.width / scale),
+      height: formatRoundedInput(object.height / scale),
+      depth: formatRoundedInput((object as any).depth, 200),
+      name: object.name,
+    };
+
+    setLocalValues(prev => {
+      if (objectChanged) return nextValues;
+      return {
+        x: editingFieldsRef.current.has('object:x') ? prev.x : nextValues.x,
+        y: editingFieldsRef.current.has('object:y') ? prev.y : nextValues.y,
+        rotation: nextValues.rotation,
+        width: editingFieldsRef.current.has('object:width') ? prev.width : nextValues.width,
+        height: editingFieldsRef.current.has('object:height') ? prev.height : nextValues.height,
+        depth: editingFieldsRef.current.has('object:depth') ? prev.depth : nextValues.depth,
+        name: nextValues.name,
+      };
+    });
+  }, [
+    object?.id,
+    object?.x,
+    object?.y,
+    object?.rotation,
+    object?.width,
+    object?.height,
+    (object as any)?.depth,
+    object?.name,
+    scale,
+    canvasCenter.x,
+    canvasCenter.y,
+  ]);
+
+  useEffect(() => {
+    if (!productDimensions) return;
+
+    const nextValues = {
+      length: formatRoundedInput(productDimensions.length),
+      width: formatRoundedInput(productDimensions.width),
+      height: formatRoundedInput(productDimensions.height),
+    };
+
+    setProductDimensionInputs(prev => ({
+      length: editingFieldsRef.current.has('product-dimensions:length') ? prev.length : nextValues.length,
+      width: editingFieldsRef.current.has('product-dimensions:width') ? prev.width : nextValues.width,
+      height: editingFieldsRef.current.has('product-dimensions:height') ? prev.height : nextValues.height,
+    }));
+  }, [productDimensions?.length, productDimensions?.width, productDimensions?.height]);
+
+  useEffect(() => {
+    if (!productPosition) return;
+
+    const nextValues = {
+      posX: formatRoundedInput(productPosition.posX),
+      posY: formatRoundedInput(productPosition.posY),
+      posZ: formatRoundedInput(productPosition.posZ),
+    };
+
+    setProductPositionInputs(prev => ({
+      posX: editingFieldsRef.current.has('product-position:posX') ? prev.posX : nextValues.posX,
+      posY: editingFieldsRef.current.has('product-position:posY') ? prev.posY : nextValues.posY,
+      posZ: editingFieldsRef.current.has('product-position:posZ') ? prev.posZ : nextValues.posZ,
+    }));
+  }, [productPosition?.posX, productPosition?.posY, productPosition?.posZ]);
 
   // Early return moved after all hooks - see below
 
-  const handlePositionChange = (axis: 'x' | 'y', value: string) => {
-    if (!object) return;
-    const num = parseFloat(value) || 0;
-    setLocalValues(prev => ({ ...prev, [axis]: num }));
-    
+  const applyPositionChange = (axis: 'x' | 'y', num: number) => {
+    const currentObject = latestObjectRef.current;
+    if (!currentObject) return;
+
     const posUpdate: Record<string, number> = {};
     if (axis === 'x') {
       posUpdate.x = canvasCenter.x + num * scale;
@@ -239,23 +374,41 @@ export function ObjectPropertyPanel({
       if (currentView === 'front' || currentView === 'side') posUpdate.posZ = num;
       else if (currentView === 'top') posUpdate.posY = num;
     }
-    onUpdate(object.id, posUpdate);
+    onUpdate(currentObject.id, posUpdate);
+  };
+
+  const handlePositionChange = (axis: 'x' | 'y', value: string, immediate = false) => {
+    setLocalValues(prev => ({ ...prev, [axis]: value }));
+
+    const key = `object:${axis}`;
+    editingFieldsRef.current.add(key);
+    const num = parseEditableNumber(value);
+    if (num === null) {
+      clearPendingUpdate(key);
+      return;
+    }
+
+    const update = () => applyPositionChange(axis, num);
+    if (immediate) runNumericUpdateNow(key, update);
+    else scheduleNumericUpdate(key, update);
   };
 
   const handleNudge = (direction: 'up' | 'down' | 'left' | 'right', amount: number = 1) => {
     const nudgeMm = amount;
+    const currentX = parseEditableNumber(localValues.x) ?? 0;
+    const currentY = parseEditableNumber(localValues.y) ?? 0;
     switch (direction) {
       case 'up':
-        handlePositionChange('y', (localValues.y + nudgeMm).toString());
+        handlePositionChange('y', (currentY + nudgeMm).toString(), true);
         break;
       case 'down':
-        handlePositionChange('y', (localValues.y - nudgeMm).toString());
+        handlePositionChange('y', (currentY - nudgeMm).toString(), true);
         break;
       case 'left':
-        handlePositionChange('x', (localValues.x - nudgeMm).toString());
+        handlePositionChange('x', (currentX - nudgeMm).toString(), true);
         break;
       case 'right':
-        handlePositionChange('x', (localValues.x + nudgeMm).toString());
+        handlePositionChange('x', (currentX + nudgeMm).toString(), true);
         break;
     }
   };
@@ -274,11 +427,48 @@ export function ObjectPropertyPanel({
     onUpdate(object.id, { rotation: newRotation });
   };
 
-  const handleSizeChange = (dim: 'width' | 'height', value: string) => {
-    if (!object) return;
-    const num = Math.max(20, parseFloat(value) || 0);
-    setLocalValues(prev => ({ ...prev, [dim]: num }));
-    onUpdate(object.id, { [dim]: num * scale });
+  const handleSizeChange = (dim: 'width' | 'height', value: string, immediate = false) => {
+    setLocalValues(prev => ({ ...prev, [dim]: value }));
+
+    const key = `object:${dim}`;
+    editingFieldsRef.current.add(key);
+    const parsed = parseEditableNumber(value);
+    if (parsed === null) {
+      clearPendingUpdate(key);
+      return;
+    }
+
+    const update = () => {
+      const currentObject = latestObjectRef.current;
+      if (!currentObject) return;
+      const num = Math.max(20, parsed);
+      onUpdate(currentObject.id, { [dim]: num * scale });
+    };
+
+    if (immediate) runNumericUpdateNow(key, update);
+    else scheduleNumericUpdate(key, update);
+  };
+
+  const handleDepthChange = (value: string, immediate = false) => {
+    setLocalValues(prev => ({ ...prev, depth: value }));
+
+    const key = 'object:depth';
+    editingFieldsRef.current.add(key);
+    const parsed = parseEditableNumber(value);
+    if (parsed === null) {
+      clearPendingUpdate(key);
+      return;
+    }
+
+    const update = () => {
+      const currentObject = latestObjectRef.current;
+      if (!currentObject) return;
+      const depth = Math.max(10, Math.round(parsed));
+      onUpdate(currentObject.id, { depth } as any);
+    };
+
+    if (immediate) runNumericUpdateNow(key, update);
+    else scheduleNumericUpdate(key, update);
   };
 
   const handleNameChange = (value: string) => {
@@ -295,13 +485,76 @@ export function ObjectPropertyPanel({
 
   const handleCenterObject = () => {
     if (!object) return;
-    setLocalValues(prev => ({ ...prev, x: 0, y: 0 }));
+    clearPendingUpdate('object:x');
+    clearPendingUpdate('object:y');
+    editingFieldsRef.current.delete('object:x');
+    editingFieldsRef.current.delete('object:y');
+    setLocalValues(prev => ({ ...prev, x: '0', y: '0' }));
     onUpdate(object.id, { x: canvasCenter.x, y: canvasCenter.y });
   };
 
+  const handleProductDimensionChange = (
+    dim: 'length' | 'width' | 'height',
+    value: string,
+    immediate = false,
+  ) => {
+    setProductDimensionInputs(prev => ({ ...prev, [dim]: value }));
+
+    const key = `product-dimensions:${dim}`;
+    editingFieldsRef.current.add(key);
+    const parsed = parseEditableNumber(value);
+    if (parsed === null) {
+      clearPendingUpdate(key);
+      return;
+    }
+
+    const update = () => {
+      const currentDimensions = latestProductDimensionsRef.current;
+      if (!currentDimensions || !onUpdateProductDimensions) return;
+      onUpdateProductDimensions({
+        ...currentDimensions,
+        [dim]: Math.max(1, Math.round(parsed)),
+      });
+    };
+
+    if (immediate) runNumericUpdateNow(key, update);
+    else scheduleNumericUpdate(key, update);
+  };
+
+  const handleProductPositionChange = (
+    axis: 'posX' | 'posY' | 'posZ',
+    value: string,
+    immediate = false,
+  ) => {
+    setProductPositionInputs(prev => ({ ...prev, [axis]: value }));
+
+    const key = `product-position:${axis}`;
+    editingFieldsRef.current.add(key);
+    const parsed = parseEditableNumber(value);
+    if (parsed === null) {
+      clearPendingUpdate(key);
+      return;
+    }
+
+    const update = () => {
+      const currentPosition = latestProductPositionRef.current;
+      if (!currentPosition || !onUpdateProductPosition) return;
+      onUpdateProductPosition({
+        ...currentPosition,
+        [axis]: Math.round(parsed),
+      });
+    };
+
+    if (immediate) runNumericUpdateNow(key, update);
+    else scheduleNumericUpdate(key, update);
+  };
+
+  const localXNumber = parseEditableNumber(localValues.x) ?? 0;
+  const localYNumber = parseEditableNumber(localValues.y) ?? 0;
+
   const distanceFromCenter = Math.round(
     Math.sqrt(
-      Math.pow(localValues.x, 2) + Math.pow(localValues.y, 2)
+      Math.pow(localXNumber, 2) + Math.pow(localYNumber, 2)
     )
   );
 
@@ -332,8 +585,8 @@ export function ObjectPropertyPanel({
     return allObjects
       .filter(o => o.id !== object.id)
       .map(o => {
-        const dx = ((o.x - canvasCenter.x) / scale) - localValues.x;
-        const dy = ((canvasCenter.y - o.y) / scale) - localValues.y;
+        const dx = ((o.x - canvasCenter.x) / scale) - localXNumber;
+        const dy = ((canvasCenter.y - o.y) / scale) - localYNumber;
         const distance = Math.round(Math.sqrt(dx * dx + dy * dy));
         return {
           name: o.name,
@@ -345,7 +598,7 @@ export function ObjectPropertyPanel({
       })
       .sort((a, b) => a.distance - b.distance)
       .slice(0, 3); // Show top 3 nearest
-  }, [allObjects, object?.id, localValues.x, localValues.y, scale, canvasCenter]);
+  }, [allObjects, object?.id, localXNumber, localYNumber, scale, canvasCenter]);
 
   // Early return after all hooks
   if (!object) return null;
@@ -457,6 +710,11 @@ export function ObjectPropertyPanel({
                   type="number"
                   value={localValues.x}
                   onChange={(e) => handlePositionChange('x', e.target.value)}
+                  onBlur={() => handlePositionChange('x', localValues.x, true)}
+                  onKeyDown={(e) => {
+                    stopCanvasShortcutPropagation(e);
+                    if (e.key === 'Enter') handlePositionChange('x', e.currentTarget.value, true);
+                  }}
                   className="h-8 text-sm font-mono"
                   disabled={object.locked}
                 />
@@ -489,6 +747,11 @@ export function ObjectPropertyPanel({
                   type="number"
                   value={localValues.y}
                   onChange={(e) => handlePositionChange('y', e.target.value)}
+                  onBlur={() => handlePositionChange('y', localValues.y, true)}
+                  onKeyDown={(e) => {
+                    stopCanvasShortcutPropagation(e);
+                    if (e.key === 'Enter') handlePositionChange('y', e.currentTarget.value, true);
+                  }}
                   className="h-8 text-sm font-mono"
                   disabled={object.locked}
                 />
@@ -654,6 +917,11 @@ export function ObjectPropertyPanel({
                   type="number"
                   value={localValues.width}
                   onChange={(e) => handleSizeChange('width', e.target.value)}
+                  onBlur={() => handleSizeChange('width', localValues.width, true)}
+                  onKeyDown={(e) => {
+                    stopCanvasShortcutPropagation(e);
+                    if (e.key === 'Enter') handleSizeChange('width', e.currentTarget.value, true);
+                  }}
                   className="h-8 text-sm font-mono"
                   disabled={object.locked}
                 />
@@ -664,6 +932,11 @@ export function ObjectPropertyPanel({
                   type="number"
                   value={localValues.height}
                   onChange={(e) => handleSizeChange('height', e.target.value)}
+                  onBlur={() => handleSizeChange('height', localValues.height, true)}
+                  onKeyDown={(e) => {
+                    stopCanvasShortcutPropagation(e);
+                    if (e.key === 'Enter') handleSizeChange('height', e.currentTarget.value, true);
+                  }}
                   className="h-8 text-sm font-mono"
                   disabled={object.locked}
                 />
@@ -677,10 +950,12 @@ export function ObjectPropertyPanel({
               <Label className="text-[10px] text-muted-foreground">深度 (D)</Label>
               <Input
                 type="number"
-                value={(object as any).depth || 200}
-                onChange={(e) => {
-                  const v = Math.max(10, Math.round(parseFloat(e.target.value) || 200));
-                  onUpdate(object.id, { depth: v } as any);
+                value={localValues.depth}
+                onChange={(e) => handleDepthChange(e.target.value)}
+                onBlur={() => handleDepthChange(localValues.depth, true)}
+                onKeyDown={(e) => {
+                  stopCanvasShortcutPropagation(e);
+                  if (e.key === 'Enter') handleDepthChange(e.currentTarget.value, true);
                 }}
                 className="h-8 text-sm font-mono"
                 disabled={object.locked}
@@ -768,10 +1043,12 @@ export function ObjectPropertyPanel({
                           <Label className="text-[10px] text-muted-foreground">{dim === 'length' ? 'L' : dim === 'width' ? 'W' : 'H'}</Label>
                           <Input
                             type="number"
-                            value={productDimensions[dim]}
-                            onChange={(e) => {
-                              const v = Math.max(1, Math.round(parseFloat(e.target.value) || 1));
-                              onUpdateProductDimensions({ ...productDimensions, [dim]: v });
+                            value={productDimensionInputs[dim]}
+                            onChange={(e) => handleProductDimensionChange(dim, e.target.value)}
+                            onBlur={() => handleProductDimensionChange(dim, productDimensionInputs[dim], true)}
+                            onKeyDown={(e) => {
+                              stopCanvasShortcutPropagation(e);
+                              if (e.key === 'Enter') handleProductDimensionChange(dim, e.currentTarget.value, true);
                             }}
                             className="h-7 text-xs font-mono px-1.5"
                           />
@@ -794,10 +1071,12 @@ export function ObjectPropertyPanel({
                           </Label>
                           <Input
                             type="number"
-                            value={productPosition[axis]}
-                            onChange={(e) => {
-                              const v = Math.round(parseFloat(e.target.value) || 0);
-                              onUpdateProductPosition({ ...productPosition, [axis]: v });
+                            value={productPositionInputs[axis]}
+                            onChange={(e) => handleProductPositionChange(axis, e.target.value)}
+                            onBlur={() => handleProductPositionChange(axis, productPositionInputs[axis], true)}
+                            onKeyDown={(e) => {
+                              stopCanvasShortcutPropagation(e);
+                              if (e.key === 'Enter') handleProductPositionChange(axis, e.currentTarget.value, true);
                             }}
                             className="h-7 text-xs font-mono px-1.5"
                           />

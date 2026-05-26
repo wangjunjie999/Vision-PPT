@@ -5,6 +5,8 @@
  */
 
 import type { jsPDF } from 'jspdf';
+import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
+import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 
 // ==================== DATA INTERFACES ====================
 
@@ -145,29 +147,38 @@ interface ModuleData {
 function getHardwareDisplayName(
   id: string | null | undefined, 
   hardware: HardwareData, 
-  type: 'camera' | 'lens' | 'light' | 'controller'
+  type: 'camera' | 'lens' | 'light' | 'controller',
+  layout?: LayoutData | null,
 ): string {
   if (!id) return '—';
   
   if (type === 'camera') {
-    const cam = hardware.cameras.find(c => c.id === id);
+    const resolved = resolveModuleHardwareSelection(id, layout, 'camera', hardware.cameras);
+    const cam = resolved?.item;
     if (cam) {
-      return `${cam.brand} ${cam.model} | ${cam.resolution} @ ${cam.frame_rate}fps | ${cam.interface}`;
+      const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
+      return `${prefix}${cam.brand} ${cam.model} | ${cam.resolution} @ ${cam.frame_rate}fps | ${cam.interface}`;
     }
   } else if (type === 'lens') {
-    const lens = hardware.lenses.find(l => l.id === id);
+    const resolved = resolveModuleHardwareSelection(id, layout, 'lens', hardware.lenses);
+    const lens = resolved?.item;
     if (lens) {
-      return `${lens.brand} ${lens.model} | ${lens.focal_length} ${lens.aperture} | ${lens.mount}`;
+      const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
+      return `${prefix}${lens.brand} ${lens.model} | ${lens.focal_length} ${lens.aperture} | ${lens.mount}`;
     }
   } else if (type === 'light') {
-    const light = hardware.lights.find(l => l.id === id);
+    const resolved = resolveModuleHardwareSelection(id, layout, 'light', hardware.lights);
+    const light = resolved?.item;
     if (light) {
-      return `${light.brand} ${light.model} | ${light.type} ${light.color} | ${light.power}`;
+      const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
+      return `${prefix}${light.brand} ${light.model} | ${light.type} ${light.color} | ${light.power}`;
     }
   } else if (type === 'controller') {
-    const ctrl = hardware.controllers.find(c => c.id === id);
+    const resolved = resolveModuleHardwareSelection(id, layout, 'controller', hardware.controllers);
+    const ctrl = resolved?.item;
     if (ctrl) {
-      return `${ctrl.brand} ${ctrl.model} | ${ctrl.cpu} | ${ctrl.memory}`;
+      const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
+      return `${prefix}${ctrl.brand} ${ctrl.model} | ${ctrl.cpu} | ${ctrl.memory}`;
     }
   }
   
@@ -298,11 +309,11 @@ type ProgressCallback = (progress: number, step: string, log: string) => void;
 // ==================== LABELS ====================
 
 const MODULE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  positioning: { zh: '定位检测', en: 'Positioning' },
-  defect: { zh: '缺陷检测', en: 'Defect Detection' },
-  ocr: { zh: 'OCR识别', en: 'OCR Recognition' },
-  deeplearning: { zh: '深度学习', en: 'Deep Learning' },
-  measurement: { zh: '尺寸测量', en: 'Measurement' },
+  ocr: { zh: '识别', en: 'Recognition' },
+  measurement: { zh: '测量', en: 'Measurement' },
+  positioning: { zh: '定位', en: 'Positioning' },
+  defect: { zh: '检测', en: 'Inspection' },
+  deeplearning: { zh: '深度学习（算法手段）', en: 'Deep Learning (Algorithm)' },
 };
 
 const WS_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
@@ -818,7 +829,7 @@ export async function generatePDF(
     helper.addLabelValue(isZh ? '主要相机品牌' : 'Main Camera Brand', project.main_camera_brand);
   }
   if (project.cycle_time_target) {
-    helper.addLabelValue(isZh ? '目标节拍' : 'Target Cycle Time', `${project.cycle_time_target}s`);
+    helper.addLabelValue(isZh ? '整线目标节拍' : 'Target Line Cycle Time', `${project.cycle_time_target}s/pcs`);
   }
   helper.addLabelValue(isZh ? '使用AI' : 'Use AI', project.use_ai ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No'));
   helper.addLabelValue(isZh ? '使用3D' : 'Use 3D', project.use_3d ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No'));
@@ -860,8 +871,8 @@ export async function generatePDF(
   // 工作站汇总表
   helper.addSubtitle(isZh ? '工作站汇总' : 'Workstation Summary');
   const wsHeaders = isZh 
-    ? ['编号', '名称', '类型', '节拍(s)', '模块数']
-    : ['Code', 'Name', 'Type', 'Cycle(s)', 'Modules'];
+    ? ['编号', '名称', '类型', '工位节拍(s)', '模块数']
+    : ['Code', 'Name', 'Type', 'Station Cycle(s)', 'Modules'];
   
   const wsRows = workstations.map(ws => {
     const modCount = modules.filter(m => m.workstation_id === ws.id).length;
@@ -900,7 +911,7 @@ export async function generatePDF(
     helper.addLabelValue(isZh ? '工作站编号' : 'Workstation Code', ws.code || '');
     helper.addLabelValue(isZh ? '工作站名称' : 'Workstation Name', ws.name);
     helper.addLabelValue(isZh ? '工作站类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type || '');
-    helper.addLabelValue(isZh ? '节拍时间' : 'Cycle Time', ws.cycle_time ? `${ws.cycle_time}s` : '');
+    helper.addLabelValue(isZh ? '工位节拍' : 'Station Cycle Time', ws.cycle_time ? `${ws.cycle_time}s/pcs` : '');
     helper.addLabelValue(isZh ? '工艺阶段' : 'Process Stage', ws.process_stage || '');
     helper.addLabelValue(isZh ? '封闭环境' : 'Enclosed', ws.enclosed ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No'));
     
@@ -928,7 +939,7 @@ export async function generatePDF(
         helper.addLabelValue(isZh ? '运动描述' : 'Motion Description', ws.motion_description);
       }
       if (ws.shot_count) {
-        helper.addLabelValue(isZh ? '拍摄数量' : 'Shot Count', String(ws.shot_count));
+        helper.addLabelValue(isZh ? '拍照次数' : 'Shot Count', String(ws.shot_count));
       }
       helper.addSpace(5);
     }
@@ -940,7 +951,7 @@ export async function generatePDF(
         helper.addLabelValue(isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria.accuracy);
       }
       if (ws.acceptance_criteria.cycle_time) {
-        helper.addLabelValue(isZh ? '节拍要求' : 'Cycle Time Requirement', ws.acceptance_criteria.cycle_time);
+        helper.addLabelValue(isZh ? '工位节拍要求' : 'Station Cycle Requirement', ws.acceptance_criteria.cycle_time);
       }
       if (ws.acceptance_criteria.compatible_sizes) {
         helper.addLabelValue(isZh ? '兼容规格' : 'Compatible Sizes', ws.acceptance_criteria.compatible_sizes);
@@ -1144,7 +1155,7 @@ export async function generatePDF(
         // ========== 1. 模块基本信息 ==========
         helper.addTextImage(isZh ? '【基本信息】' : '【Basic Info】', margin + 5, 12, 'bold', '#2d3748');
         helper.y += 12;
-        helper.addLabelValue(isZh ? '模块类型' : 'Type', MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type || '', 5);
+        helper.addLabelValue(isZh ? '模块分类' : 'Category', MODULE_TYPE_LABELS[mod.type]?.[isZh ? 'zh' : 'en'] || mod.type || '', 5);
         helper.addLabelValue(isZh ? '触发方式' : 'Trigger', TRIGGER_LABELS[mod.trigger_type || '']?.[isZh ? 'zh' : 'en'] || mod.trigger_type || '', 5);
         helper.addLabelValue(isZh ? 'ROI策略' : 'ROI Strategy', ROI_LABELS[mod.roi_strategy || '']?.[isZh ? 'zh' : 'en'] || mod.roi_strategy || '', 5);
         helper.addLabelValue(isZh ? '处理时限' : 'Time Limit', mod.processing_time_limit ? `${mod.processing_time_limit}ms` : '', 5);
@@ -1157,7 +1168,7 @@ export async function generatePDF(
           helper.addLabelValue(isZh ? '输出类型' : 'Output Types', mod.output_types.join(', '), 5);
         }
 
-        // ========== 2. 获取模块类型对应的配置 ==========
+        // ========== 2. 获取模块分类对应的配置 ==========
         const config: Record<string, unknown> = 
           mod.type === 'positioning' ? (mod.positioning_config || {}) :
           mod.type === 'defect' ? (mod.defect_config || {}) :
@@ -1166,8 +1177,11 @@ export async function generatePDF(
           mod.type === 'deeplearning' ? (mod.deep_learning_config || {}) : {};
 
         // ========== 3. 成像配置 ==========
-        const hasImagingConfig = config.workingDistance || config.fieldOfView || config.exposure || config.gain || 
-                                 config.lightMode || config.lightAngle || config.cameraLayout;
+        const lightItems = Array.isArray(config.lightItems)
+          ? config.lightItems.filter((item: any) => item && typeof item === 'object')
+          : [];
+        const hasImagingConfig = config.workingDistance || config.fieldOfView || config.exposure || config.gain ||
+                                 config.lightMode || config.lightAngle || lightItems.length > 0 || config.cameraLayout;
         
         if (hasImagingConfig) {
           helper.addNewPageIfNeeded(40);
@@ -1190,12 +1204,21 @@ export async function generatePDF(
           if (config.gain) {
             helper.addLabelValue(isZh ? '增益' : 'Gain', `${config.gain}dB`, 5);
           }
-          if (config.lightMode) {
+          if (lightItems.length > 0) {
+            lightItems.forEach((item: any, index: number) => {
+              const parts = [
+                item.lightMode ? `模式 ${item.lightMode}` : '',
+                item.lightAngle ? `角度 ${item.lightAngle}°` : '',
+                item.lightDistance ? `距离 ${item.lightDistance}mm` : '',
+              ].filter(Boolean);
+              helper.addLabelValue(`LIGHT${index + 1}`, parts.join(' / ') || item.selectedLight || '-', 5);
+            });
+          } else if (config.lightMode) {
             const lightModeLabel = config.lightMode === 'continuous' ? (isZh ? '常亮' : 'Continuous') :
                                    config.lightMode === 'strobe' ? (isZh ? '频闪' : 'Strobe') : String(config.lightMode);
             helper.addLabelValue(isZh ? '光源模式' : 'Light Mode', lightModeLabel, 5);
           }
-          if (config.lightAngle) {
+          if (lightItems.length === 0 && config.lightAngle) {
             helper.addLabelValue(isZh ? '光源角度' : 'Light Angle', `${config.lightAngle}°`, 5);
           }
           if (config.cameraLayout) {
@@ -1206,7 +1229,7 @@ export async function generatePDF(
           }
         }
 
-        // ========== 4. 检测参数（根据模块类型） ==========
+        // ========== 4. 功能参数（根据模块分类） ==========
         helper.addNewPageIfNeeded(40);
         
         // 定位检测参数
@@ -1240,7 +1263,8 @@ export async function generatePDF(
         // 缺陷检测参数
         if (mod.type === 'defect' && mod.defect_config) {
           const defConfig = mod.defect_config as Record<string, unknown>;
-          const hasDefectParams = defConfig.surfaces || defConfig.defectTypes || defConfig.minDefectSize || defConfig.materialProperty;
+          const defectItems = normalizeDefectItemsFromConfig(defConfig);
+          const hasDefectParams = defectItems.length > 0 || defConfig.surfaces || defConfig.materialProperty;
           
           if (hasDefectParams) {
             helper.addSpace(3);
@@ -1251,12 +1275,8 @@ export async function generatePDF(
               const surfaces = Array.isArray(defConfig.surfaces) ? defConfig.surfaces.join(', ') : String(defConfig.surfaces);
               helper.addLabelValue(isZh ? '检测面' : 'Surfaces', surfaces, 5);
             }
-            if (defConfig.defectTypes) {
-              const defTypes = Array.isArray(defConfig.defectTypes) ? defConfig.defectTypes.join(', ') : String(defConfig.defectTypes);
-              helper.addLabelValue(isZh ? '缺陷类型' : 'Defect Types', defTypes, 5);
-            }
-            if (defConfig.minDefectSize) {
-              helper.addLabelValue(isZh ? '最小缺陷尺寸' : 'Min Defect Size', `${defConfig.minDefectSize}mm`, 5);
+            if (defectItems.length > 0) {
+              helper.addLabelValue(isZh ? '缺陷类别/最小尺寸' : 'Defect / Min Size', formatDefectItems(defectItems), 5);
             }
             if (defConfig.materialProperty) {
               helper.addLabelValue(isZh ? '材质属性' : 'Material Property', String(defConfig.materialProperty), 5);
@@ -1419,16 +1439,16 @@ export async function generatePDF(
           helper.y += 12;
           
           if (mod.selected_camera) {
-            helper.addLabelValue(isZh ? '相机' : 'Camera', getHardwareDisplayName(mod.selected_camera, hardware, 'camera'), 5);
+            helper.addLabelValue(isZh ? '相机' : 'Camera', getHardwareDisplayName(mod.selected_camera, hardware, 'camera', layout), 5);
           }
           if (mod.selected_lens) {
-            helper.addLabelValue(isZh ? '镜头' : 'Lens', getHardwareDisplayName(mod.selected_lens, hardware, 'lens'), 5);
+            helper.addLabelValue(isZh ? '镜头' : 'Lens', getHardwareDisplayName(mod.selected_lens, hardware, 'lens', layout), 5);
           }
           if (mod.selected_light) {
-            helper.addLabelValue(isZh ? '光源' : 'Light', getHardwareDisplayName(mod.selected_light, hardware, 'light'), 5);
+            helper.addLabelValue(isZh ? '光源' : 'Light', getHardwareDisplayName(mod.selected_light, hardware, 'light', layout), 5);
           }
           if (mod.selected_controller) {
-            helper.addLabelValue(isZh ? '控制器' : 'Controller', getHardwareDisplayName(mod.selected_controller, hardware, 'controller'), 5);
+            helper.addLabelValue(isZh ? '控制器' : 'Controller', getHardwareDisplayName(mod.selected_controller, hardware, 'controller', layout), 5);
           }
         }
 

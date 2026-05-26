@@ -58,6 +58,7 @@ const typeConfig = {
       { key: 'focal_length', label: '焦距', required: true, placeholder: '如: 25mm' },
       { key: 'aperture', label: '光圈', required: true, placeholder: '如: F1.4' },
       { key: 'mount', label: '卡口', required: true, placeholder: '如: C-Mount' },
+      { key: 'max_sensor_size', label: '靶面尺寸', required: false, placeholder: '如: 2/3"、1"' },
     ],
   },
   lights: {
@@ -261,7 +262,9 @@ export function HardwareResourceManager({ type }: Props) {
       }
       case 'lenses': {
         const lens = item as Lens;
-        return `${lens.focal_length} ${lens.aperture}`;
+        return [lens.focal_length, lens.aperture, lens.max_sensor_size ? `靶面 ${lens.max_sensor_size}` : '']
+          .filter(Boolean)
+          .join(' · ');
       }
       case 'lights': {
         const light = item as Light;

@@ -4,11 +4,11 @@
  */
 
 export const MODULE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  positioning: { zh: '定位检测', en: 'Positioning' },
-  defect: { zh: '缺陷检测', en: 'Defect Detection' },
-  ocr: { zh: 'OCR识别', en: 'OCR Recognition' },
-  deeplearning: { zh: '深度学习', en: 'Deep Learning' },
-  measurement: { zh: '尺寸测量', en: 'Measurement' },
+  ocr: { zh: '识别', en: 'Recognition' },
+  measurement: { zh: '测量', en: 'Measurement' },
+  positioning: { zh: '定位', en: 'Positioning' },
+  defect: { zh: '检测', en: 'Inspection' },
+  deeplearning: { zh: '深度学习（算法手段）', en: 'Deep Learning (Algorithm)' },
 };
 
 export const WS_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
@@ -355,20 +355,20 @@ export const FIELD_DISPLAY_NAMES: Record<string, { zh: string; en: string }> = {
   main_camera_brand: { zh: '主相机品牌', en: 'Main Camera Brand' },
   use_ai: { zh: '使用AI', en: 'Use AI' },
   use_3d: { zh: '使用3D', en: 'Use 3D' },
-  cycle_time_target: { zh: '目标节拍', en: 'Target Cycle Time' },
+  cycle_time_target: { zh: '整线目标节拍', en: 'Target Line Cycle Time' },
   revision_history: { zh: '修订历史', en: 'Revision History' },
   template_id: { zh: '模板ID', en: 'Template ID' },
   
   // 工位字段
   type: { zh: '类型', en: 'Type' },
-  cycle_time: { zh: '节拍', en: 'Cycle Time' },
+  cycle_time: { zh: '工位节拍', en: 'Station Cycle Time' },
   product_dimensions: { zh: '产品尺寸', en: 'Product Dimensions' },
   enclosed: { zh: '封闭环境', en: 'Enclosed' },
   process_stage: { zh: '工艺阶段', en: 'Process Stage' },
   observation_target: { zh: '观测目标', en: 'Observation Target' },
   motion_description: { zh: '运动描述', en: 'Motion Description' },
   risk_notes: { zh: '风险备注', en: 'Risk Notes' },
-  shot_count: { zh: '拍照数量', en: 'Shot Count' },
+  shot_count: { zh: '拍照次数', en: 'Shot Count' },
   acceptance_criteria: { zh: '验收标准', en: 'Acceptance Criteria' },
   action_script: { zh: '动作脚本', en: 'Action Script' },
   install_space: { zh: '安装空间', en: 'Install Space' },

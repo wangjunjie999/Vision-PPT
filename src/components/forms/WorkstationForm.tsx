@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle, RotateCcw, Plus, Minus } from 'lucide-react';
 import { calculateCycleTime } from '@/utils/visionCalcEngine';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -29,6 +29,7 @@ import { useAIFormFill } from '@/hooks/useAIFormFill';
 import { AIFillButton, getFieldHighlightClass } from './AIFillButton';
 import { stringifyFormDraft, useEntityFormDraft } from '@/hooks/useEntityFormDraft';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { sanitizeController, sanitizeHardwareArray } from '@/utils/hardwareSerialization';
 
 
 
@@ -93,9 +94,9 @@ type WorkstationFormState = ReturnType<typeof createDefaultWorkstationForm>;
 
 const createDefaultLayoutForm = () => ({
   conveyorType: '皮带输送线',
-  cameraCount: 1 as 1 | 2 | 3 | 4,
-  lensCount: 1 as 1 | 2 | 3 | 4,
-  lightCount: 1 as 1 | 2 | 3 | 4,
+  cameraCount: 1,
+  lensCount: 1,
+  lightCount: 1,
   cameraMounts: ['top'] as CameraMount[],
   mountCounts: { top: 1, side: 0, angled: 0 } as Record<CameraMount, number>,
   mechanisms: [] as Mechanism[],
@@ -190,6 +191,10 @@ const layoutToForm = (
   const selectedCameras = safeHardwareArray<HardwareItemData>(rawCameras);
   const selectedLenses = safeHardwareArray<HardwareItemData>(rawLenses);
   const selectedLights = safeHardwareArray<HardwareItemData>(rawLights);
+  const clampSlotCount = (value: number) => Math.max(1, Math.round(value));
+  const cameraCount = clampSlotCount(Math.max(layout.camera_count || 0, selectedCameras.length, 1));
+  const lensCount = clampSlotCount(Math.max(layout.lens_count || 0, selectedLenses.length, 1));
+  const lightCount = clampSlotCount(Math.max(layout.light_count || 0, selectedLights.length, 1));
   let selectedController = safeController<HardwareItemData>(layout.selected_controller);
 
   if (selectedController?.id && controllers.length > 0) {
@@ -197,7 +202,7 @@ const layoutToForm = (
     if (latestController) {
       selectedController = {
         ...selectedController,
-        image_url: latestController.image_url,
+        ...latestController,
       };
     }
   }
@@ -210,14 +215,14 @@ const layoutToForm = (
   });
 
   if (mountCounts.top === 0 && mountCounts.side === 0 && mountCounts.angled === 0) {
-    mountCounts.top = layout.camera_count || 1;
+    mountCounts.top = cameraCount;
   }
 
   return {
     conveyorType: layout.conveyor_type || '皮带输送线',
-    cameraCount: (layout.camera_count || 1) as 1 | 2 | 3 | 4,
-    lensCount: (layout.lens_count || 1) as 1 | 2 | 3 | 4,
-    lightCount: (layout.light_count || 1) as 1 | 2 | 3 | 4,
+    cameraCount,
+    lensCount,
+    lightCount,
     cameraMounts: mounts,
     mountCounts,
     mechanisms: (Array.isArray(layout.mechanisms) ? layout.mechanisms : []) as Mechanism[],
@@ -230,6 +235,46 @@ const layoutToForm = (
     layoutDescription: layout.layout_description || '',
   };
 };
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    return [
+      record.message,
+      record.details,
+      record.hint,
+      record.code,
+    ].filter(value => typeof value === 'string').join(' ');
+  }
+  return String(error || '');
+}
+
+function isLegacyControllerColumnError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes('selected_controller')
+    && (
+      message.includes('json')
+      || message.includes('text')
+      || message.includes('type')
+      || message.includes('syntax')
+    );
+}
+
+function isMissingLayoutSlotCountColumnError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  return (message.includes('lens_count') || message.includes('light_count'))
+    && (
+      message.includes('column')
+      || message.includes('schema cache')
+      || message.includes('could not find')
+    );
+}
+
+function omitLayoutSlotCountColumns<T extends Record<string, unknown>>(payload: T) {
+  const { lens_count, light_count, ...rest } = payload;
+  return rest;
+}
 
 const createWorkstationDraftPayload = (
   wsForm: WorkstationFormState,
@@ -392,7 +437,7 @@ export function WorkstationForm() {
 
   // Calculate effective limits
   const effectiveLimits = useMemo(() => {
-    let maxCameras = 4;
+    let maxCameras = Number.MAX_SAFE_INTEGER;
     const disabledMounts = new Set<CameraMount>();
     const forcedMounts = new Set<CameraMount>();
     const reasons: string[] = [];
@@ -416,7 +461,7 @@ export function WorkstationForm() {
 
     // Adjust camera count if exceeds max
     if (layoutForm.cameraCount > effectiveLimits.maxCameras) {
-      newLayoutForm.cameraCount = effectiveLimits.maxCameras as 1|2|3|4;
+      newLayoutForm.cameraCount = effectiveLimits.maxCameras;
       updated = true;
     }
 
@@ -496,18 +541,19 @@ export function WorkstationForm() {
         risk_notes: wsForm.risk_notes || null,
         notes: wsForm.notes || null,
         status: 'incomplete' 
-      } as any);
+      } as any, { silent: true });
       
-      const selectedCameras = safeHardwareArray(layoutForm.selectedCameras);
-      const selectedLenses = safeHardwareArray(layoutForm.selectedLenses);
-      const selectedLights = safeHardwareArray(layoutForm.selectedLights);
-      const selectedController = safeController(layoutForm.selectedController);
+      const selectedCameras = sanitizeHardwareArray(layoutForm.selectedCameras);
+      const selectedLenses = sanitizeHardwareArray(layoutForm.selectedLenses);
+      const selectedLights = sanitizeHardwareArray(layoutForm.selectedLights);
+      const selectedController = sanitizeController(layoutForm.selectedController);
 
-      // Upsert layout - this will update context state and trigger canvas re-render
-      await upsertLayout(workstation.id, {
+      const layoutPayload: Record<string, unknown> = {
         name: wsForm.name || '布局',
         conveyor_type: layoutForm.conveyorType,
         camera_count: layoutForm.cameraCount,
+        lens_count: layoutForm.lensCount,
+        light_count: layoutForm.lightCount,
         camera_mounts: layoutForm.cameraMounts,
         mechanisms: layoutForm.mechanisms,
         selected_cameras: selectedCameras,
@@ -517,7 +563,50 @@ export function WorkstationForm() {
         primary_view: layoutForm.primaryView,
         auxiliary_view: layoutForm.auxiliaryView,
         layout_description: layoutForm.layoutDescription,
-      } as any);
+      };
+
+      const upsertLayoutWithCompatibility = async () => {
+        let payload = layoutPayload;
+        let retriedWithoutSlotCounts = false;
+        let retriedWithLegacyController = false;
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await upsertLayout(workstation.id, payload as any);
+            return;
+          } catch (layoutError) {
+            let nextPayload = payload;
+            let canRetry = false;
+
+            if (!retriedWithoutSlotCounts && isMissingLayoutSlotCountColumnError(layoutError)) {
+              nextPayload = omitLayoutSlotCountColumns(nextPayload);
+              retriedWithoutSlotCounts = true;
+              canRetry = true;
+            }
+
+            if (!retriedWithLegacyController && selectedController?.id && isLegacyControllerColumnError(layoutError)) {
+              nextPayload = {
+                ...nextPayload,
+                selected_controller: selectedController.id,
+              };
+              retriedWithLegacyController = true;
+              canRetry = true;
+            }
+
+            if (!canRetry) {
+              throw layoutError;
+            }
+
+            console.warn('Retrying layout save with legacy schema compatibility:', layoutError);
+            payload = nextPayload;
+          }
+        }
+
+        throw new Error('Layout save failed after compatibility retries');
+      };
+
+      // Upsert layout - this will update context state and trigger canvas re-render
+      await upsertLayoutWithCompatibility();
       clearDraft();
       baselineSnapshotRef.current = stringifyFormDraft(draftPayload);
       setDraftDirty(false);
@@ -582,7 +671,8 @@ export function WorkstationForm() {
   };
 
   // Handle camera count change - auto-adjust mount counts
-  const handleCameraCountChange = (newCount: 1|2|3|4) => {
+  const handleCameraCountChange = (newCount: number) => {
+    if (isCameraCountDisabled(newCount)) return;
     const currentTotal = totalMountCount;
     let newMountCounts = { ...layoutForm.mountCounts };
     
@@ -625,8 +715,9 @@ export function WorkstationForm() {
 
   const updateMountCount = (mount: CameraMount, count: number) => {
     if (isMountDisabled(mount)) return;
+    const nextCount = Math.max(0, Math.min(getMaxForMount(mount), Math.round(count)));
     
-    const newMountCounts = { ...layoutForm.mountCounts, [mount]: count };
+    const newMountCounts = { ...layoutForm.mountCounts, [mount]: nextCount };
     
     // Rebuild cameraMounts array
     const newMounts: CameraMount[] = [];
@@ -659,7 +750,7 @@ export function WorkstationForm() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">节拍 (s/pcs) <span className="text-destructive ml-0.5">*</span></Label>
+          <Label className="text-xs font-medium">工位节拍 (s/pcs) <span className="text-destructive ml-0.5">*</span></Label>
           <Input 
             type="number" 
             value={wsForm.cycleTime} 
@@ -764,40 +855,6 @@ export function WorkstationForm() {
         />
       </div>
       
-      {/* New SOP fields: motion, shot count, action script, risk */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">运动方式</Label>
-          <Input 
-            value={wsForm.motion_description} 
-            onChange={e => setWsForm(p => ({ ...p, motion_description: e.target.value }))} 
-            placeholder="例如: 2D×2固定在伺服上"
-            className="h-9"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">拍照次数 (次/节拍)</Label>
-          <Input 
-            type="number" 
-            value={wsForm.shot_count} 
-            onChange={e => setWsForm(p => ({ ...p, shot_count: e.target.value }))} 
-            placeholder="1"
-            className="h-9"
-          />
-        </div>
-      </div>
-      
-      <div className="space-y-1.5">
-        <Label className="text-xs font-medium">测量方法/动作分解</Label>
-        <textarea 
-          value={wsForm.action_script} 
-          onChange={e => setWsForm(p => ({ ...p, action_script: e.target.value }))} 
-          placeholder={"1. 两个相机分别固定在伺服上，从上往下拍摄产品...\n2. 对离型纸有无进行检测"}
-          className="w-full min-h-[80px] p-2 text-sm border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
-          maxLength={1000}
-        />
-      </div>
-      
       <div className="space-y-1.5">
         <Label className="text-xs font-medium">风险/待确认事项</Label>
         <textarea 
@@ -836,7 +893,7 @@ export function WorkstationForm() {
           <div className="p-3 rounded-lg border border-border/50 bg-muted/30 space-y-2">
             <div className="flex items-center gap-2">
               <Timer className="h-4 w-4 text-muted-foreground" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">节拍分析</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">工位节拍分析</span>
               {ctResult.isFeasible ? (
                 <CheckCircle2 className="h-3.5 w-3.5 text-primary ml-auto" />
               ) : (
@@ -990,45 +1047,36 @@ export function WorkstationForm() {
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <Label className="text-xs">相机数量</Label>
-          {effectiveLimits.maxCameras < 4 && (
+          {effectiveLimits.maxCameras < Number.MAX_SAFE_INTEGER && (
             <span className="text-xs text-warning">
               (最多 {effectiveLimits.maxCameras} 台)
             </span>
           )}
         </div>
-        <div className="flex gap-2">
-          {[1, 2, 3, 4].map(n => {
-            const disabled = isCameraCountDisabled(n);
-            const isSelected = layoutForm.cameraCount === n;
-            
-            return (
-              <TooltipProvider key={n}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => !disabled && handleCameraCountChange(n as 1|2|3|4)}
-                      className={cn(
-                        "flex-1 h-9 rounded-md border text-sm font-medium transition-colors",
-                        isSelected 
-                          ? "bg-primary text-primary-foreground border-primary" 
-                          : "bg-background hover:bg-secondary",
-                        disabled && "opacity-40 cursor-not-allowed bg-muted"
-                      )}
-                    >
-                      {n}台
-                    </button>
-                  </TooltipTrigger>
-                  {disabled && (
-                    <TooltipContent>
-                      <p className="text-xs">受执行机构约束限制</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            );
-          })}
+        <div className="flex items-center gap-2 rounded-md border bg-background p-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8"
+            disabled={layoutForm.cameraCount <= 1}
+            onClick={() => handleCameraCountChange(layoutForm.cameraCount - 1)}
+          >
+            <Minus className="h-4 w-4" />
+          </Button>
+          <span className="min-w-14 text-center text-sm font-semibold">
+            {layoutForm.cameraCount}台
+          </span>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8"
+            disabled={isCameraCountDisabled(layoutForm.cameraCount + 1)}
+            onClick={() => handleCameraCountChange(layoutForm.cameraCount + 1)}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
@@ -1069,25 +1117,29 @@ export function WorkstationForm() {
                         )}
                       </div>
                       <div className="flex items-center gap-1">
-                        {[0, 1, 2, 3, 4].filter(n => n <= layoutForm.cameraCount).map(n => (
-                          <button
-                            key={n}
-                            type="button"
-                            disabled={disabled || n > maxCount}
-                            onClick={() => !disabled && n <= maxCount && updateMountCount(mount.value, n)}
-                            className={cn(
-                              "w-7 h-7 rounded text-xs font-medium transition-colors",
-                              currentCount === n 
-                                ? "bg-primary text-primary-foreground" 
-                                : n > maxCount
-                                  ? "bg-muted text-muted-foreground cursor-not-allowed"
-                                  : "bg-secondary hover:bg-secondary/80",
-                              disabled && "cursor-not-allowed"
-                            )}
-                          >
-                            {n}
-                          </button>
-                        ))}
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={disabled || currentCount <= 0}
+                          onClick={() => !disabled && updateMountCount(mount.value, currentCount - 1)}
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </Button>
+                        <span className="min-w-8 text-center text-xs font-semibold">
+                          {currentCount}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={disabled || currentCount >= maxCount}
+                          onClick={() => !disabled && currentCount < maxCount && updateMountCount(mount.value, currentCount + 1)}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
                   </TooltipTrigger>
@@ -1183,9 +1235,9 @@ export function WorkstationForm() {
         cameraCount={layoutForm.cameraCount}
         lensCount={layoutForm.lensCount}
         lightCount={layoutForm.lightCount}
-        onCameraCountChange={(n) => setLayoutForm(p => ({ ...p, cameraCount: n as 1|2|3|4 }))}
-        onLensCountChange={(n) => setLayoutForm(p => ({ ...p, lensCount: n as 1|2|3|4 }))}
-        onLightCountChange={(n) => setLayoutForm(p => ({ ...p, lightCount: n as 1|2|3|4 }))}
+        onCameraCountChange={(n) => setLayoutForm(p => ({ ...p, cameraCount: n }))}
+        onLensCountChange={(n) => setLayoutForm(p => ({ ...p, lensCount: n }))}
+        onLightCountChange={(n) => setLayoutForm(p => ({ ...p, lightCount: n }))}
         initialCameras={layoutForm.selectedCameras}
         initialLenses={layoutForm.selectedLenses}
         initialLights={layoutForm.selectedLights}
@@ -1218,7 +1270,7 @@ export function WorkstationForm() {
       isComplete: isStep1Complete,
       nextHint: isStep1Complete 
         ? '工位信息已完成，点击"下一步"配置机械布局' 
-        : '请填写工位编号、名称和节拍后继续',
+        : '请填写工位编号、名称和工位节拍后继续',
     },
     {
       id: 'layout',

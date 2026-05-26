@@ -7,7 +7,7 @@ import { useData } from '@/contexts/DataContext';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { getModuleHardwareSlots } from '@/utils/moduleHardwareSlots';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 
@@ -32,27 +32,10 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
       // Get workstation layout to inherit hardware
       const layout = getLayoutByWorkstation(workstationId);
       
-      // Safely extract hardware from layout - handle both array formats
-      const selectedCameras = safeHardwareArray((layout as any)?.selected_cameras);
-      const selectedLenses = safeHardwareArray((layout as any)?.selected_lenses);
-      const selectedLights = safeHardwareArray((layout as any)?.selected_lights);
-      const selectedController = safeController((layout as any)?.selected_controller);
-      
-      // Get first camera/lens/light ID - handle both object and string formats
-      const getFirstId = (arr: any[]): string | null => {
-        if (!arr || arr.length === 0) return null;
-        const first = arr[0];
-        if (typeof first === 'string') return first;
-        if (first && typeof first === 'object') return first.id || null;
-        return null;
-      };
-      
-      const getControllerId = (ctrl: any): string | null => {
-        if (!ctrl) return null;
-        if (typeof ctrl === 'string') return ctrl;
-        if (typeof ctrl === 'object') return ctrl.id || null;
-        return null;
-      };
+      const cameraSlot = getModuleHardwareSlots(layout, 'camera')[0]?.value || null;
+      const lensSlot = getModuleHardwareSlots(layout, 'lens')[0]?.value || null;
+      const lightSlot = getModuleHardwareSlots(layout, 'light')[0]?.value || null;
+      const controllerSlot = getModuleHardwareSlots(layout, 'controller')[0]?.value || null;
       
       // Inherit hardware from workstation (take first item of each type)
       const moduleData: any = {
@@ -62,10 +45,10 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
         trigger_type: 'io', 
         output_types: ['okng'],
         status: 'incomplete',
-        selected_camera: getFirstId(selectedCameras),
-        selected_lens: getFirstId(selectedLenses),
-        selected_light: getFirstId(selectedLights),
-        selected_controller: getControllerId(selectedController),
+        selected_camera: cameraSlot,
+        selected_lens: lensSlot,
+        selected_light: lightSlot,
+        selected_controller: controllerSlot,
       };
       
       const mod = await addModule(moduleData);
@@ -95,15 +78,14 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">模块类型</Label>
+            <Label className="text-xs font-medium">模块分类</Label>
             <Select value={form.type} onValueChange={v => setForm(p => ({ ...p, type: v as ModuleType }))}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="positioning">引导定位</SelectItem>
-                <SelectItem value="defect">缺陷检测</SelectItem>
-                <SelectItem value="ocr">OCR识别</SelectItem>
-                <SelectItem value="deeplearning">深度学习</SelectItem>
-                <SelectItem value="measurement">尺寸测量</SelectItem>
+                <SelectItem value="ocr">识别</SelectItem>
+                <SelectItem value="measurement">测量</SelectItem>
+                <SelectItem value="positioning">定位</SelectItem>
+                <SelectItem value="defect">检测</SelectItem>
               </SelectContent>
             </Select>
           </div>

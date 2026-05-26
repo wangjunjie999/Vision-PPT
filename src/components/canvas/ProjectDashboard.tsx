@@ -39,6 +39,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Bookmark } from 'lucide-react';
+import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
 
 export function ProjectDashboard() {
   const { 
@@ -79,7 +80,9 @@ export function ProjectDashboard() {
   // Count modules with saved schematic images
   const schematicsComplete = projectWorkstations.reduce((acc, ws) => {
     const wsModules = getWorkstationModules(ws.id);
-    return acc + wsModules.filter(m => !!(m as any).schematic_image_url).length;
+    return acc + wsModules.filter(m =>
+      !!(m as any).schematic_image_url && hasCurrentSchematicLayoutSignature((m as any).schematic_layout)
+    ).length;
   }, 0);
 
   const canGenerate = workstationCount > 0 && layoutsComplete === workstationCount && schematicsComplete === moduleCount;
@@ -105,7 +108,9 @@ export function ProjectDashboard() {
   
   const missingSchematicsCount = projectWorkstations.reduce((acc, ws) => {
     const wsModules = getWorkstationModules(ws.id);
-    return acc + wsModules.filter(m => !(m as any).schematic_image_url).length;
+    return acc + wsModules.filter(m =>
+      !(m as any).schematic_image_url || !hasCurrentSchematicLayoutSignature((m as any).schematic_layout)
+    ).length;
   }, 0);
   
   const totalMissingImages = missingLayoutsCount * 3 + missingSchematicsCount; // Approximate

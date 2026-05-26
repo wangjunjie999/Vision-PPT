@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Check } from 'lucide-react';
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { type DistanceUnit, formatDistanceInput, formatDistanceLabel, normalizeDistanceUnit } from '@/utils/distanceUnits';
 
 // ─── Hardware image with fallback ───
 function HardwareImage({ 
@@ -41,7 +42,10 @@ function HardwareSelectPopover({ type, items, selectedId, onSelect, children, di
 
   const getItemDetails = (item: Camera | Lens | Light | Controller) => {
     if ('resolution' in item && 'frame_rate' in item) return `${(item as Camera).resolution} @ ${(item as Camera).frame_rate}fps`;
-    if ('focal_length' in item) return `${(item as Lens).focal_length} · ${(item as Lens).aperture}`;
+    if ('focal_length' in item) {
+      const sensorSize = (item as Lens).max_sensor_size || '-';
+      return `${(item as Lens).focal_length} · 靶面${sensorSize}`;
+    }
     if ('color' in item && 'power' in item) return `${(item as Light).color}${(item as Light).type} · ${(item as Light).power}`;
     if ('cpu' in item) return `${(item as Controller).cpu} · ${(item as Controller).memory}`;
     return '';
@@ -150,6 +154,7 @@ interface VisionSystemDiagramProps {
   lens: Lens | null;
   light: Light | null;
   controller?: Controller | null;
+  is3DCamera?: boolean;
   cameras?: Camera[];
   lenses?: Lens[];
   lights?: Light[];
@@ -159,16 +164,30 @@ interface VisionSystemDiagramProps {
   onLightSelect?: (id: string) => void;
   onControllerSelect?: (id: string) => void;
   lightDistance?: number;
+  lightCount?: number;
   fovAngle?: number;
   onFovAngleChange?: (angle: number) => void;
   onLightDistanceChange?: (distance: number) => void;
   workingDistanceInput?: string;
   workingDistanceMm?: number | null;
   fovWidthMm?: number | null;
+  distanceUnit?: DistanceUnit;
   onWorkingDistanceChange?: (value: string) => void;
   lightDistanceInput?: string;
   lightDistanceMm?: number | null;
   onDiagramLightDistanceChange?: (value: string) => void;
+  diagramLightItems?: Array<{
+    id: string;
+    label?: string;
+    light: Light | null;
+    position: { x: number; y: number };
+    rotation?: number;
+    distanceInput?: string;
+    distanceMm?: number | null;
+  }>;
+  onDiagramLightItemPositionChange?: (id: string, p: { x: number; y: number }) => void;
+  onDiagramLightItemDistanceChange?: (id: string, value: string) => void;
+  onDiagramLightItemRotationChange?: (id: string, angle: number) => void;
   roiStrategy?: string;
   moduleType?: string;
   interactive?: boolean;
@@ -628,12 +647,14 @@ function RotationHandle({ cx, cy, radius, angle, onAngleChange, enabled }: {
 // ═══════════════════════════════════════════════
 export function VisionSystemDiagram({ 
   camera, lens, light, controller,
+  is3DCamera = false,
   cameras = [], lenses = [], lights = [], controllers = [],
   onCameraSelect, onLensSelect, onLightSelect, onControllerSelect,
-  lightDistance = 335, fovAngle = 45,
+  lightDistance = 335, lightCount = 1, fovAngle = 45,
   onFovAngleChange, onLightDistanceChange,
-  workingDistanceInput, workingDistanceMm, fovWidthMm, onWorkingDistanceChange,
+  workingDistanceInput, workingDistanceMm, fovWidthMm, distanceUnit: distanceUnitProp, onWorkingDistanceChange,
   lightDistanceInput, lightDistanceMm, onDiagramLightDistanceChange,
+  diagramLightItems = [], onDiagramLightItemPositionChange, onDiagramLightItemDistanceChange, onDiagramLightItemRotationChange,
   roiStrategy = 'full', moduleType = 'defect',
   interactive = true, className,
   cameraPos, lightPos, cameraRotation, lightRotation,
@@ -642,6 +663,43 @@ export function VisionSystemDiagram({
 }: VisionSystemDiagramProps) {
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const distanceUnit = normalizeDistanceUnit(distanceUnitProp);
+  const multiLightDragRef = useRef<{ id: string; offset: { x: number; y: number } } | null>(null);
+
+  const toSvgCoords = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: clientX, y: clientY };
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: clientX, y: clientY };
+    const svgPt = pt.matrixTransform(ctm.inverse());
+    return { x: svgPt.x, y: svgPt.y };
+  }, []);
+
+  const handleDiagramLightPointerDown = useCallback((id: string, pos: { x: number; y: number }, e: React.PointerEvent) => {
+    if (!interactive || !onDiagramLightItemPositionChange) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const svgPt = toSvgCoords(e.clientX, e.clientY);
+    multiLightDragRef.current = { id, offset: { x: svgPt.x - pos.x, y: svgPt.y - pos.y } };
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }, [interactive, onDiagramLightItemPositionChange, toSvgCoords]);
+
+  const handleDiagramLightPointerMove = useCallback((e: React.PointerEvent) => {
+    const dragging = multiLightDragRef.current;
+    if (!dragging || !onDiagramLightItemPositionChange) return;
+    const svgPt = toSvgCoords(e.clientX, e.clientY);
+    onDiagramLightItemPositionChange(dragging.id, {
+      x: svgPt.x - dragging.offset.x,
+      y: svgPt.y - dragging.offset.y,
+    });
+  }, [onDiagramLightItemPositionChange, toSvgCoords]);
+
+  const handleDiagramLightPointerUp = useCallback(() => {
+    multiLightDragRef.current = null;
+  }, []);
 
   // Product is fixed
   const productY = 420;
@@ -677,7 +735,7 @@ export function VisionSystemDiagram({
 
   // Derived measurements (rotation-aware)
   const rotRad = camRotation * Math.PI / 180;
-  const lensBottomOffsetFromRotationCenter = 82; // lens starts at y=85 and renders in a 52px box; rotation center is y=55
+  const lensBottomOffsetFromRotationCenter = is3DCamera ? 30 : 82; // 3D camera measures from camera bottom; 2D measures from lens bottom.
 
   // Rotated lens exit point (rotation pivot = camLensDrag.pos which is group top-left, rotation center at (45,55) inside group)
   // The working distance is measured from the rendered lens image bottom, not from an estimated optical center.
@@ -707,10 +765,13 @@ export function VisionSystemDiagram({
     : String(workingDistanceMM);
   const workingDistanceDisplay = hasControlledWorkingDistance && !controlledWorkingDistanceMM
     ? '待填写'
-    : `${workingDistanceMM}`;
+    : formatDistanceLabel(workingDistanceMM, distanceUnit);
+  const workingDistanceNumberDisplay = hasControlledWorkingDistance && !controlledWorkingDistanceMM
+    ? '待填写'
+    : formatDistanceInput(workingDistanceMM, distanceUnit);
   const workingDistanceDimensionLabel = hasControlledWorkingDistance && !controlledWorkingDistanceMM
     ? '待填写'
-    : `${workingDistanceMM}±20mm`;
+    : `${formatDistanceInput(workingDistanceMM, distanceUnit)}±20${distanceUnit}`;
 
   const fovRadians = (fovAngle / 2) * (Math.PI / 180);
   const fovPixelHeight = Math.max(productY - lensExitY, 50);
@@ -719,6 +780,7 @@ export function VisionSystemDiagram({
     typeof fovWidthMm === 'number' && Number.isFinite(fovWidthMm) && fovWidthMm > 0
       ? Math.round(fovWidthMm)
       : Math.round(2 * Math.tan(fovRadians) * workingDistanceMM);
+  const fovWidthDisplay = formatDistanceLabel(fovWidthMM, distanceUnit);
 
   const legacyDiagramLightDistanceMM = Math.round(Math.abs(productY - lightDrag.pos.y) * (lightDistance / (productY - 175)));
   const controlledLightDistanceMM =
@@ -733,10 +795,10 @@ export function VisionSystemDiagram({
     : String(diagramLightDistanceMM);
   const diagramLightDistanceDisplay = hasControlledLightDistance && !controlledLightDistanceMM
     ? '待填写'
-    : `${diagramLightDistanceMM}`;
+    : formatDistanceInput(diagramLightDistanceMM, distanceUnit);
   const diagramLightDistanceWithUnit = hasControlledLightDistance && !controlledLightDistanceMM
     ? diagramLightDistanceDisplay
-    : `${diagramLightDistanceDisplay}mm`;
+    : `${diagramLightDistanceDisplay}${distanceUnit}`;
 
   // FOV direction vector (rotation of downward (0,1) by camRotation)
   const fovDirX = -Math.sin(rotRad);
@@ -753,8 +815,9 @@ export function VisionSystemDiagram({
   const fovEndRightY = fovEndCenterY + fovPerpY * fovOffsetX;
 
   const hasCamera = !!camera;
-  const hasLens = !!lens;
-  const hasLight = !!light;
+  const hasLens = !is3DCamera && !!lens;
+  const hasMultiLights = diagramLightItems.length > 0;
+  const hasLight = hasMultiLights ? diagramLightItems.some(item => !!item.light) : !!light;
   const hasController = !!controller;
 
   // Camera+lens group center for drawing connections
@@ -762,8 +825,21 @@ export function VisionSystemDiagram({
   const camTopY = camLensDrag.pos.y;
   const lensCenterY = camTopY + 85 + 24;
 
-  const lightCenterX = lightDrag.pos.x;
-  const lightCenterY = lightDrag.pos.y;
+  const primaryLightPosition = hasMultiLights ? diagramLightItems[0].position : lightDrag.pos;
+  const lightCenterX = primaryLightPosition.x;
+  const lightCenterY = primaryLightPosition.y;
+  const boundedLightCount = Math.max(1, Math.min(12, Math.round(lightCount || 1)));
+  const lightGroupSpread = boundedLightCount > 1
+    ? Math.min(96, Math.max(42, Math.abs(lightDrag.pos.x - productCenterX) || 56))
+    : 0;
+  const lightInstances = Array.from({ length: boundedLightCount }, (_, index) => {
+    const offset = (index - (boundedLightCount - 1) / 2) * lightGroupSpread;
+    return {
+      key: `light-${index}`,
+      x: lightDrag.pos.x + offset,
+      y: lightDrag.pos.y,
+    };
+  });
 
   return (
     <div className={cn("relative w-full h-full min-h-[500px]", className)} style={{ backgroundColor: '#ffffff', contain: 'layout style paint' }}>
@@ -887,14 +963,14 @@ export function VisionSystemDiagram({
           <line x1={fovEndLeftX + 8} y1={productY + 53} x2={fovEndRightX - 8} y2={productY + 53}
             stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" markerStart="url(#arrowLeft)" markerEnd="url(#arrowRight)" />
           <text x={(fovEndLeftX + fovEndRightX) / 2} y={productY + 72} textAnchor="middle" fill="#333333" style={{ fontSize: '10px' }}>
-            视野宽度 ~{fovWidthMM}mm
+            视野宽度 ~{fovWidthDisplay}
           </text>
         </g>
 
         {/* ===== Connection lines to annotation panel (dynamic) ===== */}
         <g stroke="hsl(220, 80%, 50%)" strokeWidth="1" strokeDasharray="4,2" opacity="0.5">
           <line x1={rotCenterX + 45} y1={rotCenterY - 19} x2="495" y2="55" />
-          <line x1={lensExitX + 10} y1={lensExitY - 10} x2="495" y2="140" />
+          {!is3DCamera && <line x1={lensExitX + 10} y1={lensExitY - 10} x2="495" y2="140" />}
           <line x1={lightCenterX + 80} y1={lightCenterY} x2="495" y2="210" />
         </g>
 
@@ -935,32 +1011,34 @@ export function VisionSystemDiagram({
             )}
           </g>
 
-          {/* Lens - below camera */}
-          <g transform="translate(-3, 85)">
-            {interactive ? (
-              <foreignObject x="0" y="0" width="96" height="52">
-                <div className="w-full h-full" style={{ transform: 'translateZ(0)' }}>
-                  <HardwareSelectPopover
-                    type="lens" items={lenses} selectedId={lens?.id || null}
-                    onSelect={onLensSelect || (() => {})} disabled={!onLensSelect}
-                  >
-                    <button className="relative w-full h-full cursor-pointer group bg-transparent border-0 p-0">
-                      <svg width="96" height="48" viewBox="0 0 96 48">
-                        <LensSVGShape hasImage={!!lens?.front_view_url} imageUrl={lens?.front_view_url} brand={lens?.brand} />
-                      </svg>
-                      {!hasLens && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded">
-                          <span className="text-xs text-muted-foreground">点击选择</span>
-                        </div>
-                      )}
-                    </button>
-                  </HardwareSelectPopover>
-                </div>
-              </foreignObject>
-            ) : (
-              <LensSVGShape hasImage={!!lens?.front_view_url} imageUrl={lens?.front_view_url} brand={lens?.brand} />
-            )}
-          </g>
+          {/* Lens - hidden for 3D cameras */}
+          {!is3DCamera && (
+            <g transform="translate(-3, 85)">
+              {interactive ? (
+                <foreignObject x="0" y="0" width="96" height="52">
+                  <div className="w-full h-full" style={{ transform: 'translateZ(0)' }}>
+                    <HardwareSelectPopover
+                      type="lens" items={lenses} selectedId={lens?.id || null}
+                      onSelect={onLensSelect || (() => {})} disabled={!onLensSelect}
+                    >
+                      <button className="relative w-full h-full cursor-pointer group bg-transparent border-0 p-0">
+                        <svg width="96" height="48" viewBox="0 0 96 48">
+                          <LensSVGShape hasImage={!!lens?.front_view_url} imageUrl={lens?.front_view_url} brand={lens?.brand} />
+                        </svg>
+                        {!hasLens && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded">
+                            <span className="text-xs text-muted-foreground">点击选择</span>
+                          </div>
+                        )}
+                      </button>
+                    </HardwareSelectPopover>
+                  </div>
+                </foreignObject>
+              ) : (
+                <LensSVGShape hasImage={!!lens?.front_view_url} imageUrl={lens?.front_view_url} brand={lens?.brand} />
+              )}
+            </g>
+          )}
         </g>
 
         {/* Camera rotation handle */}
@@ -973,50 +1051,94 @@ export function VisionSystemDiagram({
         )}
 
         {/* ===== Light (draggable + rotatable) ===== */}
-        <g
-          transform={`translate(${lightDrag.pos.x - 80}, ${lightDrag.pos.y - 16}) rotate(${lightRotationVal}, 80, 16)`}
-          style={{ cursor: interactive ? 'grab' : 'default' }}
-          {...(interactive ? lightDrag.handlers : {})}
-        >
-          {interactive ? (
-            <foreignObject x="0" y="0" width="160" height="32">
-              <div className="w-full h-full" style={{ transform: 'translateZ(0)' }}>
-                <HardwareSelectPopover
-                  type="light" items={lights} selectedId={light?.id || null}
-                  onSelect={onLightSelect || (() => {})} disabled={!onLightSelect}
+        {hasMultiLights ? (
+          <g>
+            {diagramLightItems.map((item) => {
+              const itemLight = item.light;
+              const rotation = item.rotation ?? 0;
+              return (
+                <g key={item.id}>
+                  <g
+                    transform={`translate(${item.position.x}, ${item.position.y}) rotate(${rotation}) scale(0.65) translate(-80, -16)`}
+                    style={{ cursor: interactive ? 'grab' : 'default' }}
+                    onPointerDown={interactive ? (e) => handleDiagramLightPointerDown(item.id, item.position, e) : undefined}
+                    onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
+                    onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
+                  >
+                    <LightSVGShape hasImage={!!itemLight?.front_view_url} imageUrl={itemLight?.front_view_url} brand={itemLight?.brand} lightType={itemLight?.type} />
+                  </g>
+                  <circle cx={item.position.x} cy={item.position.y} r="4" fill="hsl(220, 80%, 55%)" opacity="0.9" />
+                  <text x={item.position.x + 10} y={item.position.y - 10} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
+                    {item.label || 'LIGHT'}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        ) : (
+          <>
+            <g
+              style={{ cursor: interactive ? 'grab' : 'default' }}
+              {...(interactive ? lightDrag.handlers : {})}
+            >
+              {lightInstances.map((instance, index) => (
+                <g
+                  key={instance.key}
+                  transform={`translate(${instance.x - 80}, ${instance.y - 16}) rotate(${lightRotationVal}, 80, 16)`}
                 >
-                  <button className="relative w-full h-full cursor-pointer group bg-transparent border-0 p-0">
-                    <svg width="160" height="32" viewBox="0 0 160 32">
-                      <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
-                    </svg>
-                    {!hasLight && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded">
-                        <span className="text-xs text-muted-foreground">点击选择</span>
+                  {interactive && index === 0 ? (
+                    <foreignObject x="0" y="0" width="160" height="32">
+                      <div className="w-full h-full" style={{ transform: 'translateZ(0)' }}>
+                        <HardwareSelectPopover
+                          type="light" items={lights} selectedId={light?.id || null}
+                          onSelect={onLightSelect || (() => {})} disabled={!onLightSelect}
+                        >
+                          <button className="relative w-full h-full cursor-pointer group bg-transparent border-0 p-0">
+                            <svg width="160" height="32" viewBox="0 0 160 32">
+                              <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
+                            </svg>
+                            {!hasLight && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded">
+                                <span className="text-xs text-muted-foreground">点击选择</span>
+                              </div>
+                            )}
+                          </button>
+                        </HardwareSelectPopover>
                       </div>
-                    )}
-                  </button>
-                </HardwareSelectPopover>
-              </div>
-            </foreignObject>
-          ) : (
-            <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
-          )}
-        </g>
+                    </foreignObject>
+                  ) : (
+                    <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
+                  )}
+                </g>
+              ))}
+            </g>
 
-        {/* Light rotation handle */}
-        {interactive && (
-          <RotationHandle
-            cx={lightDrag.pos.x} cy={lightDrag.pos.y}
-            radius={50} angle={lightRotationVal}
-            onAngleChange={setLightRotation} enabled={interactive}
-          />
+            {interactive && (
+              <RotationHandle
+                cx={lightDrag.pos.x} cy={lightDrag.pos.y}
+                radius={50} angle={lightRotationVal}
+                onAngleChange={setLightRotation} enabled={interactive}
+              />
+            )}
+          </>
         )}
 
 
         {/* ===== Right annotation panel ===== */}
         {interactive ? (
-          <foreignObject x="500" y="20" width="290" height="680">
-            <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <foreignObject x="500" y="20" width="290" height="500">
+            <div
+              style={{
+                height: '100%',
+                boxSizing: 'border-box',
+                padding: '8px 10px 8px 8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+              }}
+            >
               {/* Camera specs */}
               <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
@@ -1034,20 +1156,22 @@ export function VisionSystemDiagram({
               </div>
 
               {/* Lens specs */}
-              <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                  <span style={{ fontSize: '14px' }}>🔭</span>
-                  <span style={{ fontWeight: 600, fontSize: '12px', color: '#333333' }}>工业镜头</span>
+              {!is3DCamera && (
+                <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '14px' }}>🔭</span>
+                    <span style={{ fontWeight: 600, fontSize: '12px', color: '#333333' }}>工业镜头</span>
+                  </div>
+                  {hasLens ? (
+                    <>
+                      <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>焦距 {lens.focal_length} · 靶面 {lens.max_sensor_size || '-'}</p>
+                      <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{lens.brand} {lens.model}</p>
+                    </>
+                  ) : (
+                    <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>点击左侧镜头图标选择</p>
+                  )}
                 </div>
-                {hasLens ? (
-                  <>
-                    <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>焦距 {lens.focal_length} · 光圈 {lens.aperture}</p>
-                    <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{lens.brand} {lens.model}</p>
-                  </>
-                ) : (
-                  <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>点击左侧镜头图标选择</p>
-                )}
-              </div>
+              )}
 
               {/* Light specs */}
               <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
@@ -1055,10 +1179,40 @@ export function VisionSystemDiagram({
                   <span style={{ fontSize: '14px' }}>💡</span>
                   <span style={{ fontWeight: 600, fontSize: '12px', color: '#333333' }}>光源</span>
                 </div>
-                {hasLight ? (
+                {hasMultiLights ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '210px', overflowY: 'auto', paddingRight: '2px' }}>
+                    {diagramLightItems.map((item, index) => {
+                      const itemLight = item.light;
+                      const distanceDisplay = item.distanceMm
+                        ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}`
+                        : '待填写';
+                      return (
+                        <div key={item.id} style={{ borderTop: index === 0 ? 'none' : '1px solid hsl(220, 15%, 86%)', paddingTop: index === 0 ? 0 : 4 }}>
+                          <p style={{ fontSize: '10px', color: '#333333', margin: 0, fontWeight: 600 }}>{item.label || `LIGHT${index + 1}`}</p>
+                          <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{itemLight ? `${itemLight.brand} ${itemLight.model}` : '未选择型号'}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                            <span style={{ fontSize: '10px', color: '#666666' }}>距离:</span>
+                            {onDiagramLightItemDistanceChange ? (
+                              <input
+                                type="number"
+                                value={item.distanceInput || ''}
+                                onChange={(e) => onDiagramLightItemDistanceChange(item.id, e.target.value)}
+                                style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
+                                min="0"
+                              />
+                            ) : (
+                              <span style={{ fontSize: '10px', color: '#666666' }}>{distanceDisplay}</span>
+                            )}
+                            {onDiagramLightItemDistanceChange && <span style={{ fontSize: '10px', color: '#666666' }}>{distanceUnit}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : hasLight ? (
                   <>
                     <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>{light.color}{light.type} · {light.power}</p>
-                    <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{light.brand} {light.model}</p>
+                    <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{light.brand} {light.model} · 数量 {boundedLightCount}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                       <span style={{ fontSize: '10px', color: '#666666' }}>光源距产品:</span>
                       {onDiagramLightDistanceChange ? (
@@ -1072,7 +1226,7 @@ export function VisionSystemDiagram({
                       ) : (
                         <span style={{ fontSize: '10px', color: '#666666' }}>{diagramLightDistanceDisplay}</span>
                       )}
-                      {diagramLightDistanceDisplay !== '待填写' && <span style={{ fontSize: '10px', color: '#666666' }}>mm</span>}
+                      {diagramLightDistanceDisplay !== '待填写' && <span style={{ fontSize: '10px', color: '#666666' }}>{distanceUnit}</span>}
                     </div>
                   </>
                 ) : (
@@ -1114,11 +1268,11 @@ export function VisionSystemDiagram({
                         style={{ width: '56px', height: '24px', fontSize: '11px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
                         min="50" max="1000" />
                     ) : (
-                      <span style={{ fontSize: '11px', color: '#333333' }}>{workingDistanceDisplay}</span>
+                      <span style={{ fontSize: '11px', color: '#333333' }}>{workingDistanceNumberDisplay}</span>
                     )}
-                    <span style={{ fontSize: '10px', color: '#333333' }}>mm</span>
+                    <span style={{ fontSize: '10px', color: '#333333' }}>{distanceUnit}</span>
                   </div>
-                  <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>视野宽度约 {fovWidthMM}mm</p>
+                  <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>视野宽度约 {fovWidthDisplay}</p>
                 </div>
               </div>
 
@@ -1161,30 +1315,41 @@ export function VisionSystemDiagram({
               );
               y += cardH + cardGap;
 
-              cards.push(
-                <g key="lens" transform={`translate(${cardX}, ${y})`}>
-                  <rect width={cardW} height={cardH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                  <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🔭 工业镜头</text>
-                  {hasLens ? (
-                    <>
-                      <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>焦距 {lens.focal_length} · 光圈 {lens.aperture}</text>
-                      <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{lens.brand} {lens.model}</text>
-                    </>
-                  ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择镜头</text>}
-                </g>
-              );
-              y += cardH + cardGap;
+              if (!is3DCamera) {
+                cards.push(
+                  <g key="lens" transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={cardH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🔭 工业镜头</text>
+                    {hasLens ? (
+                      <>
+                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>焦距 {lens.focal_length} · 靶面 {lens.max_sensor_size || '-'}</text>
+                        <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{lens.brand} {lens.model}</text>
+                      </>
+                    ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择镜头</text>}
+                  </g>
+                );
+                y += cardH + cardGap;
+              }
 
-              const lh = hasLight ? 62 : cardH;
+              const lightLineHeight = 14;
+              const lh = hasMultiLights ? 28 + diagramLightItems.length * lightLineHeight : (hasLight ? 62 : cardH);
               cards.push(
                 <g key="light" transform={`translate(${cardX}, ${y})`}>
                   <rect width={cardW} height={lh} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
                   <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>💡 光源</text>
-                  {hasLight ? (
+                  {hasMultiLights ? (
+                    <>
+                      {diagramLightItems.map((item, index) => (
+                        <text key={item.id} x="12" y={34 + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: '9px' }}>
+                          {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {item.distanceMm ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}` : '待填写'}
+                        </text>
+                      ))}
+                    </>
+                  ) : hasLight ? (
                     <>
                       <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{light.color}{light.type} · {light.power}</text>
                       <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{light.brand} {light.model}</text>
-                      <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>光源距产品: {diagramLightDistanceWithUnit}</text>
+                      <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>数量 {boundedLightCount} · 光源距产品: {diagramLightDistanceWithUnit}</text>
                     </>
                   ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择光源</text>}
                 </g>
@@ -1196,10 +1361,25 @@ export function VisionSystemDiagram({
                   <rect width={cardW} height={62} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
                   <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
                   <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
-                  <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}mm</text>
-                  <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthMM}mm</text>
+                  <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}</text>
+                  <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthDisplay}</text>
                 </g>
               );
+
+              y += 62 + cardGap;
+
+              if (hasController) {
+                cards.push(
+                  <g key="controller" transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={78} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🖥️ 工控机</text>
+                    <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>{controller.cpu || '-'}</text>
+                    <text x="12" y="48" fill={tc} style={{ fontSize: '11px' }}>{controller.memory || '-'} · {controller.storage || '-'}</text>
+                    <text x="12" y="62" fill={ts} style={{ fontSize: '10px' }}>{controller.brand} {controller.model}</text>
+                    {controller.gpu && <text x="12" y="74" fill={ts} style={{ fontSize: '10px' }}>GPU: {controller.gpu}</text>}
+                  </g>
+                );
+              }
 
               return cards;
             })()}

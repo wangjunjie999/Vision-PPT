@@ -12,11 +12,11 @@ interface ModuleStep2DetectionProps {
 }
 
 const typeLabels: Record<string, string> = {
-  positioning: '引导定位',
-  defect: '缺陷检测',
-  ocr: 'OCR识别',
-  deeplearning: '深度学习',
-  measurement: '尺寸测量',
+  ocr: '识别',
+  measurement: '测量',
+  positioning: '定位',
+  defect: '检测',
+  deeplearning: '深度学习（算法手段）',
 };
 
 export function ModuleStep2Detection({ form, setForm }: ModuleStep2DetectionProps) {
@@ -24,9 +24,9 @@ export function ModuleStep2Detection({ form, setForm }: ModuleStep2DetectionProp
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle className="w-12 h-12 text-muted-foreground mb-4" />
-        <h3 className="text-sm font-medium text-muted-foreground">请先选择模块类型</h3>
+        <h3 className="text-sm font-medium text-muted-foreground">请先选择模块分类</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          返回上一步选择模块类型后，这里会显示对应的检测参数配置
+          返回上一步选择模块分类后，这里会显示对应的功能参数配置
         </p>
       </div>
     );
@@ -36,7 +36,7 @@ export function ModuleStep2Detection({ form, setForm }: ModuleStep2DetectionProp
     <div className="space-y-4">
       <div className="p-3 bg-primary/5 rounded-lg border border-primary/20">
         <p className="text-xs text-muted-foreground">
-          当前模块类型：<span className="font-medium text-foreground">{typeLabels[form.type]}</span>
+          当前模块分类：<span className="font-medium text-foreground">{typeLabels[form.type]}</span>
         </p>
       </div>
 

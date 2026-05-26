@@ -25,6 +25,10 @@ type WorkstationUpdate = Database['public']['Tables']['workstations']['Update'];
 type LayoutUpdate = Database['public']['Tables']['mechanical_layouts']['Update'];
 type ModuleUpdate = Database['public']['Tables']['function_modules']['Update'];
 
+interface MutationOptions {
+  silent?: boolean;
+}
+
 interface DataContextType {
   // Data
   projects: DbProject[];
@@ -49,7 +53,7 @@ interface DataContextType {
   
   // Workstation CRUD
   addWorkstation: (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbWorkstation>;
-  updateWorkstation: (id: string, updates: WorkstationUpdate) => Promise<DbWorkstation>;
+  updateWorkstation: (id: string, updates: WorkstationUpdate, options?: MutationOptions) => Promise<DbWorkstation>;
   deleteWorkstation: (id: string) => Promise<void>;
   duplicateWorkstation: (id: string) => Promise<DbWorkstation>;
   
@@ -372,11 +376,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return data;
   };
 
-  const updateWorkstation = async (id: string, updates: WorkstationUpdate) => {
+  const updateWorkstation = async (id: string, updates: WorkstationUpdate, options?: MutationOptions) => {
     const { data, error } = await supabase.from('workstations').update(updates).eq('id', id).select().single();
     if (error) throw error;
     setWorkstations(prev => prev.map(w => w.id === id ? data : w));
-    toast.success('工位更新成功');
+    if (!options?.silent) {
+      toast.success('工位更新成功');
+    }
     return data;
   };
 

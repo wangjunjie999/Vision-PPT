@@ -17,6 +17,10 @@ import { useAIFormFill } from '@/hooks/useAIFormFill';
 import { AIFillButton } from './AIFillButton';
 import { RotateCcw } from 'lucide-react';
 import { stringifyFormDraft, useEntityFormDraft } from '@/hooks/useEntityFormDraft';
+import { normalizeModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
+import { getMinimumDefectSize, normalizeDefectItems } from '@/utils/defectItems';
+import { normalizeDistanceUnit } from '@/utils/distanceUnits';
+import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/moduleLightItems';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -35,11 +39,11 @@ const createModuleDraftPayload = (
 });
 
 const moduleTypeLabels: Record<string, string> = {
-  positioning: '引导定位',
-  defect: '缺陷检测',
-  ocr: 'OCR识别',
-  deeplearning: '深度学习',
-  measurement: '尺寸测量',
+  ocr: '识别',
+  measurement: '测量',
+  positioning: '定位',
+  defect: '检测',
+  deeplearning: '深度学习（算法手段）',
 };
 
 export function ModuleForm() {
@@ -142,7 +146,29 @@ export function ModuleForm() {
 
     const draft = readDraft();
     if (draft) {
-      setForm(draft.payload.form);
+      const draftForm = draft.payload.form;
+      const normalizedDraftLightItems = normalizeModuleLightItems((draftForm as any).lightItems, {
+        selectedLight: draftForm.selectedLight,
+        lightMode: draftForm.lightMode,
+        lightAngle: draftForm.lightAngle,
+        lightDistance: draftForm.lightDistance,
+        lightDistanceHorizontal: draftForm.lightDistanceHorizontal,
+        lightDistanceVertical: draftForm.lightDistanceVertical,
+        lightNote: draftForm.lightNote,
+      }).map(item => ({
+        ...item,
+        selectedLight: normalizeModuleHardwareSelection(item.selectedLight, workstationLayout, 'light'),
+      }));
+      const firstDraftLightItem = getFirstModuleLightItem(normalizedDraftLightItems);
+      setForm({
+        ...getDefaultFormState(),
+        ...draftForm,
+        selectedCamera: normalizeModuleHardwareSelection(draftForm.selectedCamera, workstationLayout, 'camera'),
+        selectedLens: draftForm.is3DCamera ? '' : normalizeModuleHardwareSelection(draftForm.selectedLens, workstationLayout, 'lens'),
+        selectedLight: firstDraftLightItem?.selectedLight || '',
+        selectedController: normalizeModuleHardwareSelection(draftForm.selectedController, workstationLayout, 'controller'),
+        lightItems: normalizedDraftLightItems,
+      });
       setCurrentStep(draft.payload.currentStep || 0);
       baselineSnapshotRef.current = stringifyFormDraft(draft.payload);
       setDraftDirty(true);
@@ -168,8 +194,29 @@ export function ModuleForm() {
         signalDefinition: cfg.signalDefinition || '',
         dataRetentionDays: cfg.dataRetentionDays?.toString() || '',
       } : {};
+      const isLoaded3DCamera = Boolean(cfg?.imaging?.is3DCamera);
+      const loadedLightItems = normalizeModuleLightItems(cfg?.imaging?.lightItems, {
+        selectedLight: module.selected_light || module.light_id || '',
+        lightMode: cfg?.imaging?.lightMode || '',
+        lightAngle: cfg?.imaging?.lightAngle || '',
+        lightDistance: cfg?.imaging?.lightDistance || '',
+        lightDistanceHorizontal: cfg?.imaging?.lightDistanceHorizontal || '',
+        lightDistanceVertical: cfg?.imaging?.lightDistanceVertical || '',
+        lightNote: cfg?.imaging?.lightNote || '',
+      }).map(item => ({
+        ...item,
+        selectedLight: normalizeModuleHardwareSelection(item.selectedLight, workstationLayout, 'light'),
+      }));
+      const firstLoadedLightItem = getFirstModuleLightItem(loadedLightItems);
+      const selectedCamera = normalizeModuleHardwareSelection(module.selected_camera || module.camera_id, workstationLayout, 'camera');
+      const selectedLens = isLoaded3DCamera
+        ? ''
+        : normalizeModuleHardwareSelection(module.selected_lens || module.lens_id, workstationLayout, 'lens');
+      const selectedController = normalizeModuleHardwareSelection(module.selected_controller || module.controller_id, workstationLayout, 'controller');
       
       const imagingParams = cfg?.imaging ? {
+        distanceUnit: normalizeDistanceUnit(cfg.imaging.distanceUnit),
+        is3DCamera: isLoaded3DCamera,
         workingDistance: cfg.imaging.workingDistance || '',
         fieldOfViewCommon: cfg.imaging.fieldOfView || '',
         fieldOfViewWidth: (() => { const fov = cfg.imaging.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)$/); return m ? m[1] : ''; })(),
@@ -180,9 +227,11 @@ export function ModuleForm() {
         triggerDelay: cfg.imaging.triggerDelay?.toString() || '',
         lightMode: cfg.imaging.lightMode || '',
         lightAngle: cfg.imaging.lightAngle || '',
+        lightCount: cfg.imaging.lightCount?.toString() || '1',
         lightDistance: cfg.imaging.lightDistance || '',
         lightDistanceHorizontal: cfg.imaging.lightDistanceHorizontal || '',
         lightDistanceVertical: cfg.imaging.lightDistanceVertical || '',
+        lightItems: loadedLightItems,
         lensAperture: cfg.imaging.lensAperture || '',
         depthOfField: cfg.imaging.depthOfField?.toString() || '',
         workingDistanceTolerance: cfg.imaging.workingDistanceTolerance || '',
@@ -196,16 +245,18 @@ export function ModuleForm() {
         description: module.description || '',
         type: module.type,
         triggerType: module.trigger_type || 'io',
-        selectedCamera: module.selected_camera || '',
-        selectedLens: module.selected_lens || '',
-        selectedLight: module.selected_light || '',
-        selectedController: module.selected_controller || '',
+        selectedCamera,
+        selectedLens,
+        selectedLight: firstLoadedLightItem?.selectedLight || '',
+        selectedController,
         processingTimeLimit: module.processing_time_limit?.toString() || '200',
         ...commonParams,
         ...imagingParams,
+        lightItems: loadedLightItems,
         // Load defect config
         ...(defectCfg && {
-          defectClasses: defectCfg.defectClasses || [],
+          defectItems: normalizeDefectItems(defectCfg.defectItems, defectCfg.defectClasses, defectCfg.minDefectSize),
+          defectClasses: normalizeDefectItems(defectCfg.defectItems, defectCfg.defectClasses, defectCfg.minDefectSize).map(item => item.name),
           minDefectSize: defectCfg.minDefectSize != null ? defectCfg.minDefectSize.toString() : '',
           detectionAreaLength: defectCfg.detectionAreaLength?.toString() || '',
           detectionAreaWidth: defectCfg.detectionAreaWidth?.toString() || '',
@@ -310,7 +361,8 @@ export function ModuleForm() {
       case 'positioning':
         return Boolean(form.accuracyRequirement);
       case 'defect':
-        return form.defectClasses.length > 0;
+        return (form.defectItems.length > 0 ? form.defectItems : form.defectClasses.map(name => ({ name })))
+          .some(item => item.name.trim().length > 0);
       case 'ocr':
         return Boolean(form.minCharHeight);
       case 'measurement':
@@ -338,48 +390,53 @@ export function ModuleForm() {
       title: '基本信息',
       shortTitle: '基本',
       description: '设置模块名称、类型和触发方式',
-      content: <ModuleStep1Basic form={form} setForm={setForm} />,
-      isComplete: isStep1Complete,
-      nextHint: isStep1Complete 
-        ? '基本信息已完成，点击"下一步"配置检测参数' 
-        : '请填写模块名称和选择类型后继续',
-    },
-    {
-      id: 'detection',
-      title: '检测参数',
-      shortTitle: '检测',
-      description: '配置模块专属的检测参数',
-      content: <ModuleStep2Detection form={form} setForm={setForm} />,
-      isComplete: isStep2Complete,
-      nextHint: isStep2Complete 
-        ? '检测参数已配置，下一步设置成像参数' 
-        : '请至少配置一项关键检测参数',
-    },
-    {
-      id: 'imaging',
-      title: '成像配置',
-      shortTitle: '成像',
-      description: '设置工作距离、视场和光学参数',
-      content: <ModuleStep3Imaging form={form} setForm={setForm} />,
-      isComplete: isStep3Complete,
-      nextHint: isStep3Complete 
-        ? '成像参数已设置，最后配置输出和硬件' 
-        : '请至少设置工作距离或视场',
-    },
-    {
-      id: 'output',
-      title: '输出与硬件',
-      shortTitle: '输出',
-      description: '配置输出动作、通讯方式和硬件选型',
       content: (
-        <ModuleStep4Output 
-          form={form} 
+        <ModuleStep1Basic
+          form={form}
           setForm={setForm}
           cameras={cameras}
           lenses={lenses}
           lights={lights}
           controllers={controllers}
           workstationLayout={workstationLayout}
+        />
+      ),
+      isComplete: isStep1Complete,
+      nextHint: isStep1Complete 
+        ? '基本信息已完成，点击"下一步"配置功能参数' 
+        : '请填写模块名称和选择模块分类后继续',
+    },
+    {
+      id: 'detection',
+      title: '功能参数',
+      shortTitle: '参数',
+      description: '配置模块专属的功能参数',
+      content: <ModuleStep2Detection form={form} setForm={setForm} />,
+      isComplete: isStep2Complete,
+      nextHint: isStep2Complete 
+        ? '功能参数已配置，下一步设置成像参数' 
+        : '请至少配置一项关键功能参数',
+    },
+    {
+      id: 'imaging',
+      title: '成像配置',
+      shortTitle: '成像',
+      description: '设置工作距离、视场和光学参数',
+      content: <ModuleStep3Imaging form={form} setForm={setForm} workstationLayout={workstationLayout} />,
+      isComplete: isStep3Complete,
+      nextHint: isStep3Complete 
+        ? '成像参数已设置，最后配置输出' 
+        : '请至少设置工作距离或视场',
+    },
+    {
+      id: 'output',
+      title: '输出配置',
+      shortTitle: '输出',
+      description: '配置输出动作和通讯方式',
+      content: (
+        <ModuleStep4Output 
+          form={form} 
+          setForm={setForm}
         />
       ),
       isComplete: isStep4Complete,
@@ -406,33 +463,68 @@ export function ModuleForm() {
         signalDefinition: form.signalDefinition || null,
         dataRetentionDays: form.dataRetentionDays ? parseInt(form.dataRetentionDays) : null,
       };
+
+      const normalizedLightItems = normalizeModuleLightItems(form.lightItems, {
+        selectedLight: form.selectedLight,
+        lightMode: form.lightMode,
+        lightAngle: form.lightAngle,
+        lightDistance: form.lightDistance,
+        lightDistanceHorizontal: form.lightDistanceHorizontal,
+        lightDistanceVertical: form.lightDistanceVertical,
+        lightNote: form.lightNote,
+      }).map(item => ({
+        ...item,
+        selectedLight: normalizeModuleHardwareSelection(item.selectedLight, workstationLayout, 'light'),
+      }));
+      const firstLightItem = getFirstModuleLightItem(normalizedLightItems);
       
       // Imaging parameters (stored in all configs)
       const imagingParams = {
+        distanceUnit: form.distanceUnit || 'mm',
+        is3DCamera: Boolean(form.is3DCamera),
         workingDistance: form.workingDistance || null,
         fieldOfView: form.fieldOfViewCommon || form.fieldOfView || null,
         resolutionPerPixel: form.resolutionPerPixel || null,
         exposure: form.exposure || null,
         gain: form.gain ? parseFloat(form.gain) : null,
         triggerDelay: form.triggerDelay ? parseFloat(form.triggerDelay) : null,
-        lightMode: form.lightMode || null,
-        lightAngle: form.lightAngle || null,
-        lightDistance: form.lightDistance || null,
-        lightDistanceHorizontal: form.lightDistanceHorizontal || null,
-        lightDistanceVertical: form.lightDistanceVertical || null,
+        lightItems: normalizedLightItems,
+        lightMode: firstLightItem?.lightMode || null,
+        lightAngle: firstLightItem?.lightAngle || null,
+        lightCount: normalizedLightItems.length || null,
+        lightDistance: firstLightItem?.lightDistance || null,
+        lightDistanceHorizontal: firstLightItem?.lightDistanceHorizontal || null,
+        lightDistanceVertical: firstLightItem?.lightDistanceVertical || null,
         lensAperture: form.lensAperture || null,
-        depthOfField: form.depthOfField ? parseFloat(form.depthOfField) : null,
+        depthOfField: form.depthOfField || null,
         workingDistanceTolerance: form.workingDistanceTolerance || null,
         cameraInstallNote: form.cameraInstallNote || null,
-        lightNote: form.lightNote || null,
+        lightNote: firstLightItem?.lightNote || null,
       };
       
       if (form.type === 'defect') {
+        const defectItems = (form.defectItems.length > 0
+          ? form.defectItems
+          : form.defectClasses.map(name => ({ name, minSize: form.minDefectSize }))
+        )
+          .map(item => ({
+            name: item.name.trim(),
+            minSize: (() => {
+              const value = parseFloat(item.minSize);
+              return Number.isFinite(value) && value > 0 ? value : null;
+            })(),
+          }))
+          .filter(item => item.name);
+        const minDefectSize = getMinimumDefectSize(
+          defectItems.map(item => ({ name: item.name, minSize: item.minSize != null ? String(item.minSize) : '' })),
+        );
+
         configs.defect_config = {
           ...commonParams,
           imaging: imagingParams,
-          defectClasses: form.defectClasses,
-          minDefectSize: form.minDefectSize ? parseFloat(form.minDefectSize) : null,
+          defectItems,
+          defectClasses: defectItems.map(item => item.name),
+          minDefectSize,
           detectionAreaLength: parseFloat(form.detectionAreaLength) || null,
           detectionAreaWidth: parseFloat(form.detectionAreaWidth) || null,
           conveyorType: form.conveyorType,
@@ -518,21 +610,42 @@ export function ModuleForm() {
         };
       }
 
+      const selectedCamera = normalizeModuleHardwareSelection(form.selectedCamera, workstationLayout, 'camera');
+      const selectedLens = normalizeModuleHardwareSelection(form.selectedLens, workstationLayout, 'lens');
+      const selectedLight = firstLightItem?.selectedLight || '';
+      const selectedController = normalizeModuleHardwareSelection(form.selectedController, workstationLayout, 'controller');
+      const savedForm = {
+        ...form,
+        selectedCamera,
+        selectedLens,
+        selectedLight,
+        selectedController,
+        lightItems: normalizedLightItems,
+        lightMode: firstLightItem?.lightMode || '',
+        lightAngle: firstLightItem?.lightAngle || '',
+        lightCount: normalizedLightItems.length ? String(normalizedLightItems.length) : '',
+        lightDistance: firstLightItem?.lightDistance || '',
+        lightDistanceHorizontal: firstLightItem?.lightDistanceHorizontal || '',
+        lightDistanceVertical: firstLightItem?.lightDistanceVertical || '',
+        lightNote: firstLightItem?.lightNote || '',
+      };
+
       await updateModule(module.id, {
         name: form.name,
         description: form.description || null,
         type: form.type,
         trigger_type: form.triggerType as TriggerType,
-        selected_camera: form.selectedCamera || null,
-        selected_lens: form.selectedLens || null,
-        selected_light: form.selectedLight || null,
-        selected_controller: form.selectedController || null,
+        selected_camera: selectedCamera || null,
+        selected_lens: selectedLens || null,
+        selected_light: selectedLight || null,
+        selected_controller: selectedController || null,
         processing_time_limit: parseFloat(form.processingTimeLimit) || null,
         ...configs,
         status: 'incomplete',
       });
+      setForm(savedForm);
       clearDraft();
-      baselineSnapshotRef.current = stringifyFormDraft(draftPayload);
+      baselineSnapshotRef.current = stringifyFormDraft(createModuleDraftPayload(savedForm, currentStep));
       setDraftDirty(false);
       
       toast.success('模块配置已保存');

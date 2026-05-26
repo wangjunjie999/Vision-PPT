@@ -131,7 +131,7 @@ function inferWorkstationSlideType(slide: ParsedSlideInfo): string | null {
     return 'basic_info';
   }
 
-  if (hasText('运动', '检测方式', 'motion method')) {
+  if (hasText('运动', '模块分类', 'module category') || hasText('运动', '检测方式', 'motion method')) {
     return 'motion_method';
   }
 

@@ -118,7 +118,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">节拍(s/pcs)</Label>
+              <Label className="text-xs font-medium">工位节拍 (s/pcs)</Label>
               <Input 
                 type="number" 
                 value={form.cycleTime} 

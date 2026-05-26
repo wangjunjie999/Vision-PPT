@@ -461,8 +461,10 @@ export type Database = {
           front_view_url: string | null
           id: string
           image_url: string | null
+          max_sensor_size: string | null
           model: string
           mount: string
+          resolving_power: number | null
           tags: string[] | null
           updated_at: string
         }
@@ -476,8 +478,10 @@ export type Database = {
           front_view_url?: string | null
           id?: string
           image_url?: string | null
+          max_sensor_size?: string | null
           model: string
           mount: string
+          resolving_power?: number | null
           tags?: string[] | null
           updated_at?: string
         }
@@ -491,8 +495,10 @@ export type Database = {
           front_view_url?: string | null
           id?: string
           image_url?: string | null
+          max_sensor_size?: string | null
           model?: string
           mount?: string
+          resolving_power?: number | null
           tags?: string[] | null
           updated_at?: string
         }
@@ -568,6 +574,8 @@ export type Database = {
           layout_description: string | null
           layout_objects: Json | null
           layout_type: string | null
+          lens_count: number | null
+          light_count: number | null
           machine_outline: Json | null
           mechanisms: Json | null
           name: string
@@ -605,6 +613,8 @@ export type Database = {
           layout_description?: string | null
           layout_objects?: Json | null
           layout_type?: string | null
+          lens_count?: number | null
+          light_count?: number | null
           machine_outline?: Json | null
           mechanisms?: Json | null
           name: string
@@ -642,6 +652,8 @@ export type Database = {
           layout_description?: string | null
           layout_objects?: Json | null
           layout_type?: string | null
+          lens_count?: number | null
+          light_count?: number | null
           machine_outline?: Json | null
           mechanisms?: Json | null
           name?: string

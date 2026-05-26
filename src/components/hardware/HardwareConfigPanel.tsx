@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Focus, Lightbulb, Monitor, Plus, X, ChevronDown, ImageIcon } from 'lucide-react';
+import { Camera, Focus, Lightbulb, Monitor, Plus, Minus, X, ChevronDown, ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -17,13 +17,36 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
+import { sanitizeHardwareItem } from '@/utils/hardwareSerialization';
 
 interface HardwareItem {
   id: string;
   brand: string;
   model: string;
   image_url?: string | null;
+  front_view_url?: string | null;
+  top_view_url?: string | null;
+  model_3d_url?: string | null;
   [key: string]: any;
+}
+
+function getHardwareDisplayImage(item: HardwareItem | null) {
+  return item?.front_view_url || item?.image_url || item?.top_view_url || null;
+}
+
+function getHardwareKey(items: ({ id: string; image_url?: string | null; front_view_url?: string | null; top_view_url?: string | null; model_3d_url?: string | null } | null)[]) {
+  return JSON.stringify(
+    items.map(item => item
+      ? [
+        item.id,
+        item.image_url || '',
+        item.front_view_url || '',
+        item.top_view_url || '',
+        item.model_3d_url || '',
+      ].join('|')
+      : null,
+    ),
+  );
 }
 
 interface HardwareSlotProps {
@@ -37,12 +60,13 @@ interface HardwareSlotProps {
 
 function HardwareSlot({ label, icon, item, slotIndex, onSelect, onClear }: HardwareSlotProps) {
   const isEmpty = !item;
+  const imageUrl = getHardwareDisplayImage(item);
   const [imageError, setImageError] = useState(false);
 
   // Reset image error when item changes
   useEffect(() => {
     setImageError(false);
-  }, [item?.id, item?.image_url]);
+  }, [item?.id, item?.image_url, item?.front_view_url, item?.top_view_url]);
 
   return (
     <div className="space-y-1.5">
@@ -94,9 +118,9 @@ function HardwareSlot({ label, icon, item, slotIndex, onSelect, onClear }: Hardw
               <X className="h-3 w-3" />
             </Button>
             <div className="flex flex-col items-center gap-2">
-              {item.image_url && !imageError ? (
+              {imageUrl && !imageError ? (
                 <img
-                  src={item.image_url}
+                  src={imageUrl}
                   alt={item.model}
                   className="w-12 h-12 object-contain rounded-lg bg-background/50"
                   onError={() => setImageError(true)}
@@ -144,6 +168,7 @@ function HardwareSelectionItem({
   getItemDetails: (item: HardwareItem) => string;
 }) {
   const [imageError, setImageError] = useState(false);
+  const imageUrl = getHardwareDisplayImage(item);
 
   const renderIcon = () => {
     switch (type) {
@@ -160,9 +185,9 @@ function HardwareSelectionItem({
       onClick={onSelect}
     >
       <div className="flex items-start gap-3">
-        {item.image_url && !imageError ? (
+        {imageUrl && !imageError ? (
           <img
-            src={item.image_url}
+            src={imageUrl}
             alt={item.model}
             className="w-14 h-14 object-contain rounded-lg bg-muted/50"
             onError={() => setImageError(true)}
@@ -284,6 +309,9 @@ export interface HardwareItemData {
   brand: string;
   model: string;
   image_url?: string | null;
+  front_view_url?: string | null;
+  top_view_url?: string | null;
+  model_3d_url?: string | null;
 }
 
 interface HardwareConfigPanelProps {
@@ -305,36 +333,45 @@ interface HardwareConfigPanelProps {
   }) => void;
 }
 
-function CountSelector({ 
-  value, 
-  onChange, 
-  max = 4,
-  label 
-}: { 
-  value: number; 
-  onChange: (v: number) => void; 
-  max?: number;
+function SlotCountControl({
+  value,
+  onIncrease,
+  onDecrease,
+  label,
+  disableDecrease = false,
+}: {
+  value: number;
+  onIncrease: () => void;
+  onDecrease: () => void;
   label: string;
+  disableDecrease?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <div className="flex gap-1">
-        {Array.from({ length: max }, (_, i) => i + 1).map(n => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange(n)}
-            className={cn(
-              "w-6 h-6 rounded text-xs font-medium transition-colors",
-              value === n
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted hover:bg-muted/80 text-muted-foreground"
-            )}
-          >
-            {n}
-          </button>
-        ))}
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onDecrease}
+          disabled={disableDecrease}
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </Button>
+        <span className="min-w-8 rounded bg-muted px-2 py-1 text-center text-xs font-semibold">
+          {value}
+        </span>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onIncrease}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
       </div>
     </div>
   );
@@ -368,7 +405,7 @@ export function HardwareConfigPanel({
   // Sync cameras from initialCameras when they change (e.g., data loaded from DB)
   // Only sync if the initial data actually changed (not from our own updates)
   useEffect(() => {
-    const newKey = JSON.stringify(initialCameras.map(c => c?.id || null));
+    const newKey = getHardwareKey(initialCameras);
     if (newKey !== lastInitialCamerasRef.current) {
       lastInitialCamerasRef.current = newKey;
       const arr = Array(cameraCount).fill(null);
@@ -381,7 +418,7 @@ export function HardwareConfigPanel({
 
   // Sync lenses from initialLenses when they change
   useEffect(() => {
-    const newKey = JSON.stringify(initialLenses.map(l => l?.id || null));
+    const newKey = getHardwareKey(initialLenses);
     if (newKey !== lastInitialLensesRef.current) {
       lastInitialLensesRef.current = newKey;
       const arr = Array(lensCount).fill(null);
@@ -394,7 +431,7 @@ export function HardwareConfigPanel({
 
   // Sync lights from initialLights when they change
   useEffect(() => {
-    const newKey = JSON.stringify(initialLights.map(l => l?.id || null));
+    const newKey = getHardwareKey(initialLights);
     if (newKey !== lastInitialLightsRef.current) {
       lastInitialLightsRef.current = newKey;
       const arr = Array(lightCount).fill(null);
@@ -464,19 +501,23 @@ export function HardwareConfigPanel({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<'cameras' | 'lenses' | 'lights' | 'controllers'>('cameras');
   const [selectedSlot, setSelectedSlot] = useState(0);
+  const serializeHardwareItem = useCallback((item: HardwareItem | null): HardwareItemData | null => {
+    if (!item) return null;
+    return sanitizeHardwareItem(item) as HardwareItemData | null;
+  }, []);
 
   // Notify parent when hardware changes via user action
   const notifyParent = useCallback(() => {
     if (onHardwareChange && isUserAction.current) {
       onHardwareChange({
-        cameras: cameras.map(c => c ? { id: c.id, brand: c.brand, model: c.model, image_url: c.image_url, model_3d_url: c.model_3d_url } : null),
-        lenses: lenses.map(l => l ? { id: l.id, brand: l.brand, model: l.model, image_url: l.image_url } : null),
-        lights: lights.map(l => l ? { id: l.id, brand: l.brand, model: l.model, image_url: l.image_url } : null),
-        controller: controller ? { id: controller.id, brand: controller.brand, model: controller.model, image_url: controller.image_url } : null,
+        cameras: cameras.map(serializeHardwareItem),
+        lenses: lenses.map(serializeHardwareItem),
+        lights: lights.map(serializeHardwareItem),
+        controller: serializeHardwareItem(controller),
       });
       isUserAction.current = false;
     }
-  }, [cameras, lenses, lights, controller, onHardwareChange]);
+  }, [cameras, lenses, lights, controller, onHardwareChange, serializeHardwareItem]);
 
   useEffect(() => {
     notifyParent();
@@ -486,6 +527,30 @@ export function HardwareConfigPanel({
     setDialogType(type);
     setSelectedSlot(slotIndex);
     setDialogOpen(true);
+  };
+
+  const requestSlotCountChange = (
+    type: 'cameras' | 'lenses' | 'lights',
+    nextCount: number,
+  ) => {
+    const normalizedNext = Math.max(1, Math.round(nextCount));
+    const config = {
+      cameras: { current: cameraCount, items: cameras, onChange: onCameraCountChange, label: '相机' },
+      lenses: { current: lensCount, items: lenses, onChange: onLensCountChange, label: '镜头' },
+      lights: { current: lightCount, items: lights, onChange: onLightCountChange, label: '光源' },
+    }[type];
+
+    if (!config.onChange || normalizedNext === config.current) return;
+
+    if (normalizedNext < config.current) {
+      const removedSlots = config.items.slice(normalizedNext);
+      if (removedSlots.some(Boolean)) {
+        toast.warning(`请先清空最后的${config.label}槽位，再减少数量`);
+        return;
+      }
+    }
+
+    config.onChange(normalizedNext);
   };
 
   const handleSelect = (item: HardwareItem) => {
@@ -505,19 +570,19 @@ export function HardwareConfigPanel({
         newCameras[selectedSlot] = completeItem;
         setCameras(newCameras);
         // Update ref to prevent re-sync
-        lastInitialCamerasRef.current = JSON.stringify(newCameras.map(c => c?.id || null));
+        lastInitialCamerasRef.current = getHardwareKey(newCameras);
         break;
       case 'lenses':
         const newLenses = [...lenses];
         newLenses[selectedSlot] = completeItem;
         setLenses(newLenses);
-        lastInitialLensesRef.current = JSON.stringify(newLenses.map(l => l?.id || null));
+        lastInitialLensesRef.current = getHardwareKey(newLenses);
         break;
       case 'lights':
         const newLights = [...lights];
         newLights[selectedSlot] = completeItem;
         setLights(newLights);
-        lastInitialLightsRef.current = JSON.stringify(newLights.map(l => l?.id || null));
+        lastInitialLightsRef.current = getHardwareKey(newLights);
         break;
       case 'controllers':
         setController(completeItem);
@@ -572,16 +637,16 @@ export function HardwareConfigPanel({
               Cameras
             </h4>
             {onCameraCountChange && (
-              <CountSelector value={cameraCount} onChange={onCameraCountChange} label="数量" />
+              <SlotCountControl
+                value={cameraCount}
+                label="数量"
+                onIncrease={() => requestSlotCountChange('cameras', cameraCount + 1)}
+                onDecrease={() => requestSlotCountChange('cameras', cameraCount - 1)}
+                disableDecrease={cameraCount <= 1}
+              />
             )}
           </div>
-          <div className={cn(
-            "grid gap-2",
-            cameraCount === 1 && "grid-cols-1",
-            cameraCount === 2 && "grid-cols-2",
-            cameraCount === 3 && "grid-cols-3",
-            cameraCount >= 4 && "grid-cols-4"
-          )}>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {cameras.map((camera, index) => (
               <HardwareSlot
                 key={`camera-${index}`}
@@ -603,16 +668,16 @@ export function HardwareConfigPanel({
               Lenses
             </h4>
             {onLensCountChange && (
-              <CountSelector value={lensCount} onChange={onLensCountChange} label="数量" />
+              <SlotCountControl
+                value={lensCount}
+                label="数量"
+                onIncrease={() => requestSlotCountChange('lenses', lensCount + 1)}
+                onDecrease={() => requestSlotCountChange('lenses', lensCount - 1)}
+                disableDecrease={lensCount <= 1}
+              />
             )}
           </div>
-          <div className={cn(
-            "grid gap-2",
-            lensCount === 1 && "grid-cols-1",
-            lensCount === 2 && "grid-cols-2",
-            lensCount === 3 && "grid-cols-3",
-            lensCount >= 4 && "grid-cols-4"
-          )}>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {lenses.map((lens, index) => (
               <HardwareSlot
                 key={`lens-${index}`}
@@ -634,16 +699,16 @@ export function HardwareConfigPanel({
               Lights
             </h4>
             {onLightCountChange && (
-              <CountSelector value={lightCount} onChange={onLightCountChange} label="数量" />
+              <SlotCountControl
+                value={lightCount}
+                label="数量"
+                onIncrease={() => requestSlotCountChange('lights', lightCount + 1)}
+                onDecrease={() => requestSlotCountChange('lights', lightCount - 1)}
+                disableDecrease={lightCount <= 1}
+              />
             )}
           </div>
-          <div className={cn(
-            "grid gap-2",
-            lightCount === 1 && "grid-cols-1",
-            lightCount === 2 && "grid-cols-2",
-            lightCount === 3 && "grid-cols-3",
-            lightCount >= 4 && "grid-cols-4"
-          )}>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {lights.map((light, index) => (
               <HardwareSlot
                 key={`light-${index}`}

@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toPng } from 'html-to-image';
 import { compressImage, dataUrlToBlob, QUALITY_PRESETS, type QualityPreset } from '@/utils/imageCompression';
 import { imageLocalCache, blobToDataUri, type ImageCacheType } from '@/services/imageLocalCache';
+import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
 
 export type ViewType = 'front' | 'side' | 'top';
 
@@ -60,7 +61,7 @@ export function calculateMissingImages(
     // Check modules for missing schematics
     const modules = getWorkstationModules(ws.id);
     for (const m of modules) {
-      if (!(m as any).schematic_image_url) {
+      if (!(m as any).schematic_image_url || !hasCurrentSchematicLayoutSignature((m as any).schematic_layout)) {
         missingSchematics.push({
           moduleId: m.id,
           moduleName: m.name,
@@ -139,7 +140,8 @@ export async function saveViewToStorage(
 export async function saveSchematicToStorage(
   moduleId: string,
   imageBlob: Blob,
-  updateModule: (id: string, data: any) => Promise<any>
+  updateModule: (id: string, data: any) => Promise<any>,
+  moduleUpdates: Record<string, any> = {}
 ): Promise<string> {
   const fileName = `module-schematic-${moduleId}-${Date.now()}.png`;
   
@@ -169,6 +171,7 @@ export async function saveSchematicToStorage(
   
   // Update module with schematic URL
   await updateModule(moduleId, { 
+    ...moduleUpdates,
     schematic_image_url: publicUrl,
     status: 'complete'
   });

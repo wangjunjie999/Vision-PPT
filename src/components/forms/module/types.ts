@@ -1,7 +1,10 @@
 // Local type definitions to avoid dependency on auto-generated Supabase types
+import type { ModuleLightItem } from '@/utils/moduleLightItems';
+
 export type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 export type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
 export type QualityStrategy = 'no_miss' | 'balanced' | 'allow_pass';
+export type DistanceUnit = 'mm' | 'cm' | 'm';
 
 // Common enums
 export type InspectionSurface = 'top' | 'side' | 'bottom' | 'hole' | 'edge';
@@ -40,6 +43,11 @@ export interface DefectCameraConfig {
   fieldOfView: string;
   overlapRate: string;
   resolution: string;
+}
+
+export interface DefectItem {
+  name: string;
+  minSize: string;
 }
 
 // OCR module types
@@ -95,7 +103,8 @@ export interface CommonConfig {
 
 export interface DefectConfig {
   defectClasses: string[];
-  minDefectSize: number;
+  defectItems?: Array<{ name: string; minSize?: number | null }>;
+  minDefectSize?: number | null;
   missTolerance: MissTolerance;
   falseRejectTolerance: FalseRejectTolerance;
   inspectionSurfaces: InspectionSurface[];
@@ -188,6 +197,7 @@ export interface ModuleFormState {
   selectedLens: string;
   selectedLight: string;
   selectedController: string;
+  lightItems: ModuleLightItem[];
   
   // Common fields
   roiStrategy: ROIStrategy;
@@ -209,6 +219,8 @@ export interface ModuleFormState {
   dataRetentionDays: string; // 数据留存天数
   
   // Imaging and optical parameters
+  distanceUnit: DistanceUnit; // 距离单位，默认 mm；内部计算统一换算为 mm
+  is3DCamera: boolean; // 3D相机无需镜头
   workingDistance: string; // 工作距离WD (mm) - 通用字段，各类型可能覆盖
   fieldOfViewCommon: string; // 视野FOV (mm×mm) - 通用字段
   fieldOfViewWidth: string; // FOV 宽 (mm)
@@ -219,17 +231,19 @@ export interface ModuleFormState {
   triggerDelay: string; // 触发延时 (ms)
   lightMode: string; // 光源模式：常亮/频闪/PWM
   lightAngle: string; // 光源角度
+  lightCount: string; // 光源数量
   lightDistance: string; // 光源距离
   lightDistanceHorizontal: string; // 光源水平距离 (mm)
   lightDistanceVertical: string; // 光源垂直距离 (mm)
   lensAperture: string; // 镜头光圈 (F值)
-  depthOfField: string; // 景深要求
+  depthOfField: string; // 靶面尺寸要求（历史字段名沿用 depthOfField）
   workingDistanceTolerance: string; // 工作距离公差 (±mm)
   cameraInstallNote: string; // 相机安装说明
   lightNote: string; // 光源备注
   
   // Defect config
   defectClasses: string[];
+  defectItems: DefectItem[];
   minDefectSize: string;
   missTolerance: MissTolerance;
   falseRejectTolerance: FalseRejectTolerance;
@@ -383,6 +397,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   selectedLens: '',
   selectedLight: '',
   selectedController: '',
+  lightItems: [],
   
   roiStrategy: 'full',
   roiDefinition: 'draw',
@@ -403,6 +418,8 @@ export const getDefaultFormState = (): ModuleFormState => ({
   dataRetentionDays: '',
   
   // Imaging and optical parameters defaults
+  distanceUnit: 'mm',
+  is3DCamera: false,
   workingDistance: '',
   fieldOfViewCommon: '',
   fieldOfViewWidth: '',
@@ -413,6 +430,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   triggerDelay: '',
   lightMode: '',
   lightAngle: '',
+  lightCount: '1',
   lightDistance: '',
   lightDistanceHorizontal: '',
   lightDistanceVertical: '',
@@ -423,6 +441,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   lightNote: '',
   
   defectClasses: [],
+  defectItems: [],
   minDefectSize: '',
   missTolerance: 'none',
   falseRejectTolerance: 'acceptable',

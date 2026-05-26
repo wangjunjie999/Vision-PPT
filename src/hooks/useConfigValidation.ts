@@ -55,9 +55,9 @@ export function useConfigValidation(projectId: string | null) {
           result.push({
             severity: 'error',
             category: 'timing',
-            message: `工位「${ws.name}」模块处理时间 (${ctCheck.totalMs}ms) 超过节拍 (${ws.cycle_time}s)`,
+            message: `工位「${ws.name}」模块处理时间 (${ctCheck.totalMs}ms) 超过工位节拍 (${ws.cycle_time}s/pcs)`,
             workstationId: ws.id,
-            fix: '优化模块处理时间或增大节拍',
+            fix: '优化模块处理时间或增大工位节拍',
           });
         }
       }

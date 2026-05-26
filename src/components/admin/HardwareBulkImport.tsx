@@ -51,6 +51,7 @@ const fieldConfigs: Record<HardwareType, ImportField[]> = {
     { key: 'focal_length', label: '焦距', required: true },
     { key: 'aperture', label: '光圈', required: true },
     { key: 'mount', label: '卡口', required: true },
+    { key: 'max_sensor_size', label: '靶面尺寸', required: false },
     { key: 'tags', label: '标签', required: false },
   ],
   lights: [

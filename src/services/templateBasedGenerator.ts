@@ -354,8 +354,8 @@ export const WORKSTATION_PLACEHOLDERS = {
   ws_index: '工位序号',
   ws_type: '工位类型代码',
   ws_type_label: '工位类型中文名',
-  ws_cycle_time: '节拍时间',
-  ws_shot_count: '拍照数量',
+  ws_cycle_time: '工位节拍',
+  ws_shot_count: '拍照次数',
   ws_observation_target: '观测目标',
   ws_motion_description: '运动描述',
   ws_risk_notes: '风险备注',
@@ -377,8 +377,8 @@ export const WORKSTATION_PLACEHOLDERS = {
 export const MODULE_PLACEHOLDERS = {
   mod_name: '模块名称',
   mod_index: '模块序号',
-  mod_type: '模块类型代码',
-  mod_type_label: '模块类型中文名',
+  mod_type: '模块分类代码',
+  mod_type_label: '模块分类中文名',
   mod_description: '模块描述',
   mod_trigger_label: '触发方式',
   mod_roi_strategy: 'ROI策略',
@@ -395,7 +395,7 @@ export const LOOP_SYNTAX_EXAMPLES = `
 工位 {{ws_index}}: {{ws_name}}
 编号: {{ws_code}}
 类型: {{ws_type_label}}
-节拍: {{ws_cycle_time}}s
+工位节拍: {{ws_cycle_time}}s/pcs
 
   === 嵌套模块循环 ===
   {{#modules}}

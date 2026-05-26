@@ -40,6 +40,10 @@ import { VisionSystemDiagram } from './VisionSystemDiagram';
 import { SimpleLayoutDiagram } from './SimpleLayoutDiagram';
 import { useCameras, useLights, useLenses, useControllers } from '@/hooks/useHardware';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
+import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/moduleLightItems';
+import { createSchematicImageSignature, hasCurrentSchematicImageSignature } from '@/utils/schematicImageSignature';
+import { normalizeDistanceUnit, signedToMillimeters, toMillimeters } from '@/utils/distanceUnits';
 
 interface BatchImageSaveButtonProps {
   projectId: string;
@@ -54,10 +58,13 @@ interface ImageList {
 interface SchematicLayoutState {
   camera: { x: number; y: number };
   light: { x: number; y: number };
+  lights?: Array<{ id: string; position: { x: number; y: number }; rotation?: number }>;
   cameraRotation: number;
   lightRotation: number;
   fovAngle: number;
   lightDistance: number;
+  lightCount?: number;
+  savedImageSignature?: string;
 }
 
 const DEFAULT_SCHEMATIC_LAYOUT: SchematicLayoutState = {
@@ -100,11 +107,180 @@ function resolveSchematicLayout(rawLayout: unknown): SchematicLayoutState {
   return {
     camera: readPoint(data.camera, DEFAULT_SCHEMATIC_LAYOUT.camera),
     light: readPoint(data.light, DEFAULT_SCHEMATIC_LAYOUT.light),
+    lights: Array.isArray(data.lights)
+      ? data.lights.map((item: any) => ({
+          id: String(item.id || ''),
+          position: readPoint(item.position, DEFAULT_SCHEMATIC_LAYOUT.light),
+          rotation: toFiniteNumber(item.rotation, 0),
+        })).filter(item => item.id)
+      : undefined,
     cameraRotation: toFiniteNumber(data.cameraRotation, DEFAULT_SCHEMATIC_LAYOUT.cameraRotation),
     lightRotation: toFiniteNumber(data.lightRotation, DEFAULT_SCHEMATIC_LAYOUT.lightRotation),
     fovAngle: toFiniteNumber(data.fovAngle, DEFAULT_SCHEMATIC_LAYOUT.fovAngle),
     lightDistance: toFiniteNumber(data.lightDistance, DEFAULT_SCHEMATIC_LAYOUT.lightDistance),
+    lightCount: toFiniteNumber(data.lightCount, 0) || undefined,
+    savedImageSignature: typeof data.savedImageSignature === 'string' ? data.savedImageSignature : undefined,
   };
+}
+
+const MODULE_CONFIG_KEYS = ['defect_config', 'positioning_config', 'ocr_config', 'deep_learning_config', 'measurement_config'] as const;
+
+function getModuleConfig(module: any): any {
+  if (!module) return null;
+  for (const key of MODULE_CONFIG_KEYS) {
+    if (module[key]) return module[key];
+  }
+  return null;
+}
+
+function getPersistedImaging(module: any): Record<string, any> {
+  return getModuleConfig(module)?.imaging || {};
+}
+
+function getPersistedWorkingDistance(module: any): string {
+  const cfg = getModuleConfig(module);
+  return String(cfg?.imaging?.workingDistance ?? cfg?.workingDistance ?? '');
+}
+
+function getPersistedFov(module: any): string {
+  const cfg = getModuleConfig(module);
+  return String(cfg?.imaging?.fieldOfView ?? cfg?.fieldOfView ?? '');
+}
+
+function parsePositiveNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseFovWidth(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const pair = trimmed.match(/^(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)$/);
+  if (pair) return parsePositiveNumber(pair[1]);
+  return parsePositiveNumber(trimmed);
+}
+
+function readSchematicLayoutRecord(rawLayout: unknown): Record<string, unknown> {
+  let layout = rawLayout;
+  if (typeof rawLayout === 'string') {
+    try {
+      layout = JSON.parse(rawLayout);
+    } catch {
+      layout = null;
+    }
+  }
+  return layout && typeof layout === 'object' && !Array.isArray(layout) ? { ...(layout as Record<string, unknown>) } : {};
+}
+
+function getModuleLightItemsForBatch(module: any) {
+  const imaging = getPersistedImaging(module);
+  return normalizeModuleLightItems(imaging.lightItems, {
+    selectedLight: module?.selected_light || module?.light_id || '',
+    lightMode: imaging.lightMode || '',
+    lightAngle: imaging.lightAngle || '',
+    lightDistance: imaging.lightDistance || '',
+    lightDistanceHorizontal: imaging.lightDistanceHorizontal || '',
+    lightDistanceVertical: imaging.lightDistanceVertical || '',
+    lightNote: imaging.lightNote || '',
+  });
+}
+
+function getBatchDiagramLightItems(
+  module: any,
+  layout: any,
+  schematicLayout: SchematicLayoutState,
+  lights: any[],
+) {
+  const imaging = getPersistedImaging(module);
+  const distanceUnit = normalizeDistanceUnit(imaging.distanceUnit);
+  return getModuleLightItemsForBatch(module).map((item, index) => {
+    const resolved = resolveModuleHardwareSelection(item.selectedLight, layout, 'light', lights);
+    const saved = schematicLayout.lights?.find(lightItem => lightItem.id === item.id);
+    const horizontalMm = signedToMillimeters(item.lightDistanceHorizontal, distanceUnit) ?? 0;
+    const verticalMm = toMillimeters(item.lightDistanceVertical, distanceUnit);
+    const distanceMm = toMillimeters(item.lightDistance, distanceUnit)
+      ?? (verticalMm !== null ? Math.sqrt(horizontalMm * horizontalMm + verticalMm * verticalMm) : null);
+    const angle = Number.parseFloat(item.lightAngle);
+    return {
+      id: item.id,
+      label: `LIGHT${index + 1}`,
+      light: resolved?.item || null,
+      position: saved?.position || (index === 0 ? schematicLayout.light : { x: schematicLayout.light.x + index * 36, y: schematicLayout.light.y }),
+      rotation: saved?.rotation ?? (Number.isFinite(angle) ? angle : schematicLayout.lightRotation),
+      distanceInput: item.lightDistance,
+      distanceMm,
+      horizontalMm,
+      verticalMm,
+      angle: item.lightAngle,
+    };
+  });
+}
+
+function createBatchSchematicImageSignature(
+  module: any,
+  layout: any,
+  schematicLayout: SchematicLayoutState,
+  lights: any[],
+) {
+  const imaging = getPersistedImaging(module);
+  const distanceUnit = normalizeDistanceUnit(imaging.distanceUnit);
+  const moduleLightItems = getModuleLightItemsForBatch(module);
+  const firstLightItem = getFirstModuleLightItem(moduleLightItems);
+  const is3DCamera = imaging.is3DCamera === true || String(imaging.is3DCamera || '') === 'true';
+  const selectedCameraId = module?.selected_camera || module?.camera_id || null;
+  const selectedLensId = is3DCamera ? null : (module?.selected_lens || module?.lens_id || null);
+  const selectedLightId = firstLightItem?.selectedLight || module?.selected_light || module?.light_id || null;
+  const selectedControllerId = module?.selected_controller || module?.controller_id || null;
+  const workingDistanceMm = toMillimeters(getPersistedWorkingDistance(module), distanceUnit);
+  const fovInput = getPersistedFov(module);
+  const fovWidthMm = imaging.fieldOfViewWidth
+    ? toMillimeters(imaging.fieldOfViewWidth, distanceUnit)
+    : (() => {
+      const parsed = parseFovWidth(fovInput);
+      return parsed === null ? null : parsed * (distanceUnit === 'm' ? 1000 : distanceUnit === 'cm' ? 10 : 1);
+    })();
+  const lightDistanceHorizontalMm = signedToMillimeters(firstLightItem?.lightDistanceHorizontal, distanceUnit) ?? 0;
+  const lightDistanceVerticalMm = toMillimeters(firstLightItem?.lightDistanceVertical, distanceUnit);
+  const diagramLightDistanceMm = toMillimeters(firstLightItem?.lightDistance, distanceUnit)
+    ?? (lightDistanceVerticalMm !== null
+      ? Math.sqrt(lightDistanceHorizontalMm * lightDistanceHorizontalMm + lightDistanceVerticalMm * lightDistanceVerticalMm)
+      : null);
+  const diagramLightItems = getBatchDiagramLightItems(module, layout, schematicLayout, lights);
+
+  return createSchematicImageSignature({
+    cameraId: selectedCameraId,
+    lensId: selectedLensId,
+    lightId: selectedLightId,
+    controllerId: selectedControllerId,
+    camera: schematicLayout.camera,
+    light: schematicLayout.light,
+    cameraRotation: schematicLayout.cameraRotation,
+    lightRotation: schematicLayout.lightRotation,
+    fovAngle: schematicLayout.fovAngle,
+    lightDistance: schematicLayout.lightDistance,
+    workingDistanceMm,
+    fovWidthMm,
+    diagramLightDistanceMm,
+    lightDistanceHorizontalMm,
+    lightDistanceVerticalMm,
+    lightCount: diagramLightItems.length || schematicLayout.lightCount || 1,
+    lightItems: diagramLightItems.map(item => ({
+      id: item.id,
+      hardwareId: item.light?.id || null,
+      position: item.position,
+      rotation: item.rotation,
+      distanceMm: item.distanceMm,
+      horizontalMm: item.horizontalMm,
+      verticalMm: item.verticalMm,
+      angle: item.angle,
+    })),
+    is3DCamera,
+    distanceUnit,
+  });
 }
 
 export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
@@ -152,7 +328,8 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
       }
       const wsModules = getWorkstationModules(ws.id);
       for (const m of wsModules) {
-        if (!(m as any).schematic_image_url) {
+        const schematicLayout = resolveSchematicLayout((m as any).schematic_layout);
+        if (!(m as any).schematic_image_url || !hasCurrentSchematicImageSignature(schematicLayout.savedImageSignature)) {
           missingSchematics.push({ moduleId: m.id, moduleName: m.name, workstationName: ws.name });
         }
       }
@@ -284,11 +461,43 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
           const diagramElement = schematicRef.current?.querySelector('.vision-diagram-container');
           if (diagramElement) {
             const blob = await generateSchematicImage(diagramElement as HTMLElement);
+            const moduleForSignature = modules.find(m => m.id === schematicItem.moduleId) as any;
+            const layoutForSignature = moduleForSignature
+              ? layouts.find(l => l.workstation_id === moduleForSignature.workstation_id) as any
+              : null;
+            const schematicLayout = resolveSchematicLayout(moduleForSignature?.schematic_layout);
+            const diagramLightItems = moduleForSignature
+              ? getBatchDiagramLightItems(moduleForSignature, layoutForSignature, schematicLayout, lights)
+              : [];
+            const savedImageSignature = moduleForSignature
+              ? createBatchSchematicImageSignature(moduleForSignature, layoutForSignature, schematicLayout, lights)
+              : undefined;
+            const existingSchematicLayout = moduleForSignature
+              ? readSchematicLayoutRecord(moduleForSignature.schematic_layout)
+              : {};
             
             await saveSchematicToStorage(
               schematicItem.moduleId,
               blob,
-              updateModule
+              updateModule,
+              savedImageSignature ? {
+                schematic_layout: {
+                  ...existingSchematicLayout,
+                  camera: schematicLayout.camera,
+                  light: schematicLayout.light,
+                  lights: diagramLightItems.map(item => ({
+                    id: item.id,
+                    position: item.position,
+                    rotation: item.rotation,
+                  })),
+                  cameraRotation: schematicLayout.cameraRotation,
+                  lightRotation: schematicLayout.lightRotation,
+                  fovAngle: schematicLayout.fovAngle,
+                  lightDistance: schematicLayout.lightDistance,
+                  lightCount: diagramLightItems.length || schematicLayout.lightCount || 1,
+                  savedImageSignature,
+                },
+              } : {}
             );
             successCount++;
           } else {
@@ -314,16 +523,23 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
       setCurrentRenderModule(null);
       setTimeout(() => setShowDialog(false), 1500);
     }
-  }, [missingImages, allImages, layouts, waitForRender, updateLayout, updateModule]);
+  }, [missingImages, allImages, layouts, modules, lights, waitForRender, updateLayout, updateModule]);
 
   // Get current module data for schematic rendering
   const currentModuleData = currentRenderModule 
     ? modules.find(m => m.id === currentRenderModule) as any
     : null;
+  const currentModuleLayout = currentModuleData
+    ? layouts.find(l => l.workstation_id === currentModuleData.workstation_id) as any
+    : null;
   const currentSchematicLayout = useMemo(
     () => resolveSchematicLayout(currentModuleData?.schematic_layout),
     [currentModuleData?.schematic_layout]
   );
+  const currentDistanceUnit = normalizeDistanceUnit(getPersistedImaging(currentModuleData).distanceUnit);
+  const currentDiagramLightItems = currentModuleData
+    ? getBatchDiagramLightItems(currentModuleData, currentModuleLayout, currentSchematicLayout, lights)
+    : [];
 
   return (
     <>
@@ -444,10 +660,10 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                 <div ref={schematicRef}>
                   <div className="vision-diagram-container" style={{ width: '1000px', height: '680px', backgroundColor: '#ffffff' }}>
                     <VisionSystemDiagram
-                      camera={cameras.find(c => c.id === currentModuleData.selected_camera) || null}
-                      lens={lenses.find(l => l.id === currentModuleData.selected_lens) || null}
-                      light={lights.find(l => l.id === currentModuleData.selected_light) || null}
-                      controller={controllers.find(c => c.id === currentModuleData.selected_controller) || null}
+                      camera={resolveModuleHardwareSelection(currentModuleData.selected_camera, currentModuleLayout, 'camera', cameras)?.item || null}
+                      lens={resolveModuleHardwareSelection(currentModuleData.selected_lens, currentModuleLayout, 'lens', lenses)?.item || null}
+                      light={resolveModuleHardwareSelection(currentModuleData.selected_light, currentModuleLayout, 'light', lights)?.item || null}
+                      controller={resolveModuleHardwareSelection(currentModuleData.selected_controller, currentModuleLayout, 'controller', controllers)?.item || null}
                       cameras={cameras}
                       lenses={lenses}
                       lights={lights}
@@ -457,7 +673,9 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       onLightSelect={() => {}}
                       onControllerSelect={() => {}}
                       lightDistance={currentSchematicLayout.lightDistance}
+                      lightCount={currentDiagramLightItems.length || 1}
                       fovAngle={currentSchematicLayout.fovAngle}
+                      distanceUnit={currentDistanceUnit}
                       onFovAngleChange={() => {}}
                       onLightDistanceChange={() => {}}
                       roiStrategy={currentModuleData.roi_strategy || 'full'}
@@ -465,6 +683,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       interactive={false}
                       cameraPos={currentSchematicLayout.camera}
                       lightPos={currentSchematicLayout.light}
+                      diagramLightItems={currentDiagramLightItems}
                       cameraRotation={currentSchematicLayout.cameraRotation}
                       lightRotation={currentSchematicLayout.lightRotation}
                       className="w-full h-full"

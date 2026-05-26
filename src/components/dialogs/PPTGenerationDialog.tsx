@@ -616,6 +616,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           model: l.model,
           focal_length: l.focal_length,
           aperture: l.aperture,
+          max_sensor_size: l.max_sensor_size,
           mount: l.mount,
           image_url: l.image_url,
         })),
@@ -943,6 +944,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               image_url: l.image_url || fullLens?.image_url || null,
               focal_length: l.focal_length || fullLens?.focal_length || '',
               aperture: l.aperture || fullLens?.aperture || '',
+              max_sensor_size: l.max_sensor_size || fullLens?.max_sensor_size || '',
               mount: l.mount || fullLens?.mount || '',
             };
           });

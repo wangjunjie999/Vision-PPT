@@ -32,7 +32,7 @@ import { AUTO_ARRANGE_CONFIG } from './canvasTypes';
 import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasSVGDefs } from './CanvasSVGDefs';
 import { IsometricGrid } from './IsometricGrid';
-import { Layout3DPreview, getMechanismSurfaceHeight, getCameraMountPosition } from './Layout3DPreview';
+import { Layout3DPreview, getMechanismSurfaceHeight, getCameraMountPosition, type IsometricFitAllFn } from './Layout3DPreview';
 import { ConnectionLines } from './ConnectionLines';
 import { MechanismRenderer } from './MechanismRenderer';
 import { ProductRenderer } from './ProductRenderer';
@@ -40,9 +40,50 @@ import { CameraRenderer } from './CameraRenderer';
 
 import { ResizeHandles } from './ResizeHandles';
 import { safeHardwareArray } from '@/utils/safeDataAccess';
+import { CANVAS_WHEEL_ZOOM_STEP, getNextZoom } from '@/utils/canvasZoom';
 
 interface DraggableLayoutCanvasProps {
   workstationId: string;
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable) return true;
+
+  const tagName = target.tagName.toLowerCase();
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true;
+  }
+
+  return Boolean(target.closest('[contenteditable="true"], [data-keyboard-input="true"]'));
+}
+
+function wait(ms: number) {
+  return new Promise<void>(resolve => setTimeout(resolve, ms));
+}
+
+function waitForAnimationFrames(count: number) {
+  return new Promise<void>(resolve => {
+    let remaining = Math.max(1, count);
+    const step = () => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+function isUsableImageDataUrl(dataUrl: string | null | undefined) {
+  return typeof dataUrl === 'string'
+    && dataUrl.startsWith('data:image/png')
+    && dataUrl.length > 5000;
 }
 
 export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasProps) {
@@ -96,7 +137,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     front: false, side: false, top: false, isometric: false,
   });
   const isometricScreenshotFnRef = useRef<(() => string | null) | null>(null);
-  const fitAllFnRef = useRef<(() => void) | null>(null);
+  const fitAllFnRef = useRef<IsometricFitAllFn | null>(null);
   const [cameraPickerOpen, setCameraPickerOpen] = useState(false);
 
   // Undo/Redo history
@@ -410,10 +451,18 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   }, [layout]);
 
   useEffect(() => {
-    setObjects(prev => prev.map(obj => {
-      const canvasPos = project3DTo2D(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
-      return { ...obj, x: canvasPos.x, y: canvasPos.y };
-    }));
+    setObjects(prev => {
+      let changed = false;
+      const next = prev.map(obj => {
+        const canvasPos = project3DTo2D(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
+        if (Math.abs((obj.x ?? 0) - canvasPos.x) < 0.001 && Math.abs((obj.y ?? 0) - canvasPos.y) < 0.001) {
+          return obj;
+        }
+        changed = true;
+        return { ...obj, x: canvasPos.x, y: canvasPos.y };
+      });
+      return changed ? next : prev;
+    });
   }, [currentView, project3DTo2D]);
 
   useEffect(() => {
@@ -429,6 +478,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   // ========== Keyboard shortcuts ==========
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
       if (e.code === 'Space' && !e.repeat) setPanMode(true);
       if (!selectedId) return;
       const selectedObj = objects.find(o => o.id === selectedId);
@@ -482,11 +532,14 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         case 'Escape': setSelectedIds([]); setShowPropertyPanel(false); break;
       }
     };
-    const handleKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') setPanMode(false); };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
+      if (e.code === 'Space') setPanMode(false);
+    };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedId, objects, deleteObject, updateObject, duplicateObject, scale, pushHistory, undoHistory, redoHistory]);
+  }, [selectedId, objects, deleteObject, updateObject, duplicateObject, scale, currentView, pushHistory, undoHistory, redoHistory]);
 
   // ========== Mouse handlers ==========
   const screenToSvg = useCallback((clientX: number, clientY: number) => {
@@ -689,8 +742,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setZoom(prev => Math.min(3, Math.max(0.25, prev + delta)));
+    const delta = e.deltaY > 0 ? -CANVAS_WHEEL_ZOOM_STEP : CANVAS_WHEEL_ZOOM_STEP;
+    setZoom(prev => getNextZoom(prev, delta));
   };
 
   const handleResize = useCallback((id: string, width: number, height: number, x: number, y: number) => {
@@ -779,7 +832,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         const newLayout = await addLayout({ workstation_id: workstationId, name: workstation?.name || 'Layout', ...updates } as any);
         layoutId = (newLayout as any)?.id;
       }
-      await updateWorkstation(workstationId, { product_position: localProductPosition as any });
+      await updateWorkstation(workstationId, { product_position: localProductPosition as any }, { silent: true });
       toast.success('布局数据已暂存（未截图）');
     } catch (err) {
       toast.error('暂存失败');
@@ -837,7 +890,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         {
           let attempts = 0;
           while (!isometricScreenshotFnRef.current && attempts < 30) {
-            await new Promise(r => setTimeout(r, 100));
+            await wait(100);
             attempts++;
           }
         }
@@ -846,21 +899,31 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           {
             let attempts = 0;
             while (!fitAllFnRef.current && attempts < 10) {
-              await new Promise(r => setTimeout(r, 100));
+              await wait(100);
               attempts++;
             }
           }
-          fitAllFnRef.current?.();
-          await new Promise(r => setTimeout(r, 2000));
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))));
         }
         if (isometricScreenshotFnRef.current) {
           try {
-            const isoDataUrl = isometricScreenshotFnRef.current();
-            if (isoDataUrl) {
+            const captureIsometric = async (padding: number) => {
+              fitAllFnRef.current?.({ padding });
+              await wait(350);
+              await waitForAnimationFrames(8);
+              return isometricScreenshotFnRef.current?.() || null;
+            };
+
+            let isoDataUrl = await captureIsometric(1.6);
+            if (!isUsableImageDataUrl(isoDataUrl)) {
+              isoDataUrl = await captureIsometric(1.95);
+            }
+
+            if (isUsableImageDataUrl(isoDataUrl)) {
               const isoBlob = dataUrlToBlob(isoDataUrl);
               const compressedIsoBlob = await compressImage(isoBlob, { quality: preset.quality, maxWidth: preset.maxWidth, maxHeight: preset.maxHeight, format: 'image/jpeg' });
               viewImages.push({ view: 'isometric' as ViewType, blob: compressedIsoBlob });
+            } else {
+              console.warn('Isometric screenshot skipped: invalid image data');
             }
           } catch (e) {
             console.warn('Isometric screenshot failed:', e);
@@ -883,7 +946,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         setViewSaveStatus({ front: true, side: true, top: true, isometric: true });
       }
       // Persist product position
-      await updateWorkstation(workstationId, { product_position: localProductPosition as any });
+      await updateWorkstation(workstationId, { product_position: localProductPosition as any }, { silent: true });
 
       setSaveProgress(100);
       toast.success('布局和视图（含等轴测）已保存');
@@ -1052,7 +1115,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               setShowPropertyPanel(!!id);
             }}
             onUpdateProductDimensions={(dims) => {
-              updateWorkstation(workstationId, { product_dimensions: dims as any });
+              updateWorkstation(workstationId, { product_dimensions: dims as any }, { silent: true });
             }}
             onScreenshotReady={(fn) => { isometricScreenshotFnRef.current = fn; }}
             onFitAllReady={(fn) => { fitAllFnRef.current = fn; }}
@@ -1222,7 +1285,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             isIsometric={isIsometric}
             productDimensions={productDimensions}
             onUpdateProductDimensions={(dims) => {
-              updateWorkstation(workstationId, { product_dimensions: dims as any });
+              updateWorkstation(workstationId, { product_dimensions: dims as any }, { silent: true });
             }}
             productPosition={localProductPosition}
             onUpdateProductPosition={setLocalProductPosition}

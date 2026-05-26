@@ -53,6 +53,7 @@ const typeConfig = {
       { key: 'model', label: '型号' },
       { key: 'focal_length', label: '焦距' },
       { key: 'aperture', label: '光圈' },
+      { key: 'max_sensor_size', label: '靶面尺寸' },
       { key: 'mount', label: '卡口类型' },
     ],
     fieldName: 'selected_lens',
@@ -86,10 +87,11 @@ const typeConfig = {
 };
 
 const moduleTypeLabels: Record<string, string> = {
-  positioning: '定位检测',
-  defect: '缺陷检测',
-  ocr: 'OCR识别',
-  deeplearning: '深度学习',
+  ocr: '识别',
+  measurement: '测量',
+  positioning: '定位',
+  defect: '检测',
+  deeplearning: '深度学习（算法手段）',
 };
 
 export function HardwareDetailView({ type, item, open, onOpenChange }: HardwareDetailViewProps) {

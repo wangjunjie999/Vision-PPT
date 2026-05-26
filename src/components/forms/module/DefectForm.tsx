@@ -3,10 +3,9 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { ModuleFormState, MissTolerance, ConveyorType } from './types';
+import type { DefectItem, ModuleFormState, MissTolerance, ConveyorType } from './types';
 
 interface DefectFormProps {
   form: ModuleFormState;
@@ -31,21 +30,42 @@ const quickDefectClasses = ['划痕', '凹坑', '异物', '变色', '气泡', '�
 export function DefectForm({ form, setForm }: DefectFormProps) {
   const [newDefectClass, setNewDefectClass] = useState('');
 
-  const addDefectClass = () => {
-    if (newDefectClass.trim() && !form.defectClasses.includes(newDefectClass.trim())) {
-      setForm(prev => ({
-        ...prev,
-        defectClasses: [...prev.defectClasses, newDefectClass.trim()]
-      }));
-      setNewDefectClass('');
-    }
-  };
+  const defectItems = form.defectItems.length > 0
+    ? form.defectItems
+    : form.defectClasses.map(cls => ({ name: cls, minSize: form.minDefectSize || '' }));
 
-  const removeDefectClass = (cls: string) => {
+  const syncDefectItems = (items: DefectItem[]) => {
+    const cleanedItems = items.map(item => ({
+      name: item.name,
+      minSize: item.minSize,
+    }));
+    const classes = cleanedItems.map(item => item.name.trim()).filter(Boolean);
+    const firstSize = cleanedItems.find(item => item.minSize.trim())?.minSize.trim() || '';
+
     setForm(prev => ({
       ...prev,
-      defectClasses: prev.defectClasses.filter(c => c !== cls)
+      defectItems: cleanedItems,
+      defectClasses: classes,
+      minDefectSize: firstSize,
     }));
+  };
+
+  const addDefectClass = (name = newDefectClass) => {
+    const trimmed = name.trim();
+    if (!trimmed || defectItems.some(item => item.name.trim() === trimmed)) return;
+
+    syncDefectItems([...defectItems, { name: trimmed, minSize: '' }]);
+    setNewDefectClass('');
+  };
+
+  const updateDefectItem = (index: number, patch: Partial<DefectItem>) => {
+    syncDefectItems(defectItems.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, ...patch } : item
+    )));
+  };
+
+  const removeDefectItem = (index: number) => {
+    syncDefectItems(defectItems.filter((_, itemIndex) => itemIndex !== index));
   };
 
   return (
@@ -59,8 +79,8 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
         {/* 缺陷类别 */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">
-            缺陷类别 <span className="text-destructive ml-0.5">*</span>
-            {form.defectClasses.length === 0 && (
+            缺陷类别与最小尺寸 <span className="text-destructive ml-0.5">*</span>
+            {defectItems.filter(item => item.name.trim()).length === 0 && (
               <span className="text-destructive text-xs ml-2">(至少添加1个)</span>
             )}
           </Label>
@@ -91,38 +111,52 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
               <button
                 key={cls}
                 type="button"
-                onClick={() => {
-                  if (!form.defectClasses.includes(cls)) {
-                    setForm(prev => ({ ...prev, defectClasses: [...prev.defectClasses, cls] }));
-                  }
-                }}
-                disabled={form.defectClasses.includes(cls)}
+                onClick={() => addDefectClass(cls)}
+                disabled={defectItems.some(item => item.name.trim() === cls)}
                 className={cn(
                   "px-2 py-1 text-xs rounded border transition-colors",
-                  form.defectClasses.includes(cls)
+                  defectItems.some(item => item.name.trim() === cls)
                     ? "bg-primary/10 border-primary text-primary"
                     : "hover:bg-secondary cursor-pointer"
                 )}
               >
-                {form.defectClasses.includes(cls) ? '✓ ' : '+ '}{cls}
+                {defectItems.some(item => item.name.trim() === cls) ? '✓ ' : '+ '}{cls}
               </button>
             ))}
           </div>
           
-          {/* 已添加类别 */}
-          {form.defectClasses.length > 0 && (
-            <div className="flex flex-wrap gap-2 p-2 bg-secondary/30 rounded-lg">
-              {form.defectClasses.map(cls => (
-                <Badge key={cls} variant="secondary" className="gap-1 pr-1">
-                  {cls}
-                  <button
+          {defectItems.length > 0 && (
+            <div className="space-y-2 rounded-lg bg-secondary/30 p-2">
+              <div className="grid grid-cols-[1fr_150px_32px] gap-2 px-1 text-[11px] text-muted-foreground">
+                <span>缺陷类别</span>
+                <span>最小尺寸 (mm)</span>
+                <span />
+              </div>
+              {defectItems.map((item, index) => (
+                <div key={`${item.name}-${index}`} className="grid grid-cols-[1fr_150px_32px] gap-2">
+                  <Input
+                    value={item.name}
+                    onChange={e => updateDefectItem(index, { name: e.target.value })}
+                    placeholder="缺陷名称"
+                    className="h-9"
+                  />
+                  <Input
+                    value={item.minSize}
+                    onChange={e => updateDefectItem(index, { minSize: e.target.value })}
+                    placeholder="可选，例如 0.6"
+                    className="h-9"
+                  />
+                  <Button
                     type="button"
-                    onClick={() => removeDefectClass(cls)}
-                    className="ml-1 hover:bg-destructive/20 rounded p-0.5"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeDefectItem(index)}
+                    aria-label={`删除${item.name || '缺陷'}`}
                   >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               ))}
             </div>
           )}
@@ -130,17 +164,6 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
 
         {/* 检测参数 */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">最小缺陷尺寸 (mm)</Label>
-            <Input
-              type="number"
-              step="0.1"
-              value={form.minDefectSize}
-              onChange={e => setForm(p => ({ ...p, minDefectSize: e.target.value }))}
-              placeholder="可选，例如 0.6"
-              className="h-9"
-            />
-          </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">漏检容忍度</Label>
             <Select 

@@ -153,7 +153,7 @@ function buildProjectContext(data: ReturnType<typeof useData>): string {
     parts.push(`【当前项目】${project.name}（编号: ${project.code || '无'}）`);
     if (project.customer) parts.push(`客户: ${project.customer}`);
     if (project.product_process) parts.push(`工艺: ${project.product_process}`);
-    if (project.cycle_time_target) parts.push(`节拍目标: ${project.cycle_time_target}s`);
+    if (project.cycle_time_target) parts.push(`整线目标节拍: ${project.cycle_time_target}s/pcs`);
     if (project.main_camera_brand) parts.push(`主相机品牌: ${project.main_camera_brand}`);
     if (project.environment) parts.push(`环境: ${project.environment}`);
     if (project.quality_strategy) parts.push(`质量策略: ${project.quality_strategy}`);
@@ -170,7 +170,7 @@ function buildProjectContext(data: ReturnType<typeof useData>): string {
     pws.forEach((ws, wi) => {
       parts.push(`\n  工位${wi + 1}: ${ws.name}（编号: ${ws.code || '无'}, 类型: ${ws.type || '未知'}）`);
       if (ws.observation_target) parts.push(`    观测目标: ${ws.observation_target}`);
-      if (ws.cycle_time) parts.push(`    节拍: ${ws.cycle_time}s`);
+      if (ws.cycle_time) parts.push(`    工位节拍: ${ws.cycle_time}s/pcs`);
       if (ws.process_stage) parts.push(`    工序: ${ws.process_stage}`);
       if (ws.motion_description) parts.push(`    运动描述: ${ws.motion_description}`);
       if (ws.risk_notes) parts.push(`    风险提示: ${ws.risk_notes}`);

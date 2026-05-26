@@ -37,6 +37,205 @@ function applyWorldRotation(v: THREE.Vector3, rotXDeg: number, rotYDeg: number, 
   return v.clone().applyQuaternion(combined);
 }
 
+type FitBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+};
+
+function createEmptyFitBounds(): FitBounds {
+  return {
+    minX: Infinity,
+    maxX: -Infinity,
+    minY: Infinity,
+    maxY: -Infinity,
+    minZ: Infinity,
+    maxZ: -Infinity,
+  };
+}
+
+function addFitPoint(bounds: FitBounds, point: THREE.Vector3) {
+  bounds.minX = Math.min(bounds.minX, point.x);
+  bounds.maxX = Math.max(bounds.maxX, point.x);
+  bounds.minY = Math.min(bounds.minY, point.y);
+  bounds.maxY = Math.max(bounds.maxY, point.y);
+  bounds.minZ = Math.min(bounds.minZ, point.z);
+  bounds.maxZ = Math.max(bounds.maxZ, point.z);
+}
+
+function addLocalBoxToFitBounds(
+  bounds: FitBounds,
+  origin: THREE.Vector3,
+  localMin: THREE.Vector3,
+  localMax: THREE.Vector3,
+  rotation?: THREE.Euler,
+) {
+  const xs = [localMin.x, localMax.x];
+  const ys = [localMin.y, localMax.y];
+  const zs = [localMin.z, localMax.z];
+
+  for (const x of xs) {
+    for (const y of ys) {
+      for (const z of zs) {
+        const point = new THREE.Vector3(x, y, z);
+        if (rotation) point.applyEuler(rotation);
+        addFitPoint(bounds, point.add(origin));
+      }
+    }
+  }
+}
+
+function getMechanismFitExtraTop(mechType: string, height: number, hasModel3d: boolean) {
+  const labelSpace = 0.55;
+  switch (mechType) {
+    case 'camera_mount':
+      return Math.max(labelSpace, height * 0.45, 0.75);
+    case 'robot_arm':
+      return Math.max(labelSpace, height * 0.55, 0.9);
+    case 'cylinder':
+      return Math.max(labelSpace, height * 0.3, 0.45);
+    default:
+      return hasModel3d ? Math.max(labelSpace, height * 0.25, 0.45) : labelSpace;
+  }
+}
+
+function getObjectOrigin(obj: LayoutObject) {
+  return new THREE.Vector3(
+    (obj.posX ?? 0) * SCALE,
+    (obj.posZ ?? 0) * SCALE,
+    (obj.posY ?? 0) * SCALE,
+  );
+}
+
+function addLayoutObjectToFitBounds(bounds: FitBounds, obj: LayoutObject) {
+  const origin = getObjectOrigin(obj);
+  const rotation = computeWorldRotation(obj.rotX ?? 0, obj.rotY ?? 0, obj.rotZ ?? 0);
+  const margin = FIT_OBJECT_MARGIN;
+
+  if (obj.type === 'camera') {
+    const w = Math.max((obj.width || 50) / 100, 0.42);
+    const h = Math.max((obj.height || 55) / 100, 0.45);
+    const d = Math.max(w * 0.8, 0.5);
+    addLocalBoxToFitBounds(
+      bounds,
+      origin,
+      new THREE.Vector3(-w / 2 - margin, -0.55 - margin, -d / 2 - margin),
+      new THREE.Vector3(w / 2 + margin, Math.max(h, 0.45) + margin, d / 2 + margin),
+      rotation,
+    );
+    return;
+  }
+
+  const w = (obj.width || 100) * SCALE;
+  const h = (obj.height || 100) * SCALE;
+  const d = ((obj as any).depth || 80) * SCALE;
+  const mechType = obj.mechanismType || '';
+  const extraTop = getMechanismFitExtraTop(mechType, h, Boolean((obj as any).model3dUrl));
+
+  addLocalBoxToFitBounds(
+    bounds,
+    origin,
+    new THREE.Vector3(-w / 2 - margin, -margin, -d / 2 - margin),
+    new THREE.Vector3(w / 2 + margin, h + extraTop, d / 2 + margin),
+    rotation,
+  );
+}
+
+export function calculateIsometricFitCamera({
+  objects,
+  productPosition,
+  productDimensions,
+  fov,
+  aspect,
+  padding = DEFAULT_ISOMETRIC_FIT_PADDING,
+}: {
+  objects: LayoutObject[];
+  productPosition: { posX: number; posY: number; posZ: number };
+  productDimensions: { length: number; width: number; height: number };
+  fov: number;
+  aspect: number;
+  padding?: number;
+}): IsometricCameraAction {
+  const bounds = createEmptyFitBounds();
+
+  const productWidth = Math.max((productDimensions.length ?? 100) * SCALE, 0.1);
+  const productHeight = Math.max((productDimensions.height ?? 50) * SCALE, 0.1);
+  const productDepth = Math.max((productDimensions.width ?? 100) * SCALE, 0.1);
+  const productOrigin = new THREE.Vector3(
+    productPosition.posX * SCALE,
+    productPosition.posZ * SCALE,
+    productPosition.posY * SCALE,
+  );
+
+  addLocalBoxToFitBounds(
+    bounds,
+    productOrigin,
+    new THREE.Vector3(-productWidth / 2 - FIT_OBJECT_MARGIN, -FIT_OBJECT_MARGIN, -productDepth / 2 - FIT_OBJECT_MARGIN),
+    new THREE.Vector3(productWidth / 2 + FIT_OBJECT_MARGIN, productHeight + 0.45, productDepth / 2 + FIT_OBJECT_MARGIN),
+  );
+
+  for (const obj of objects) {
+    addLayoutObjectToFitBounds(bounds, obj);
+  }
+
+  if (!Number.isFinite(bounds.minX)) {
+    bounds.minX = -1;
+    bounds.maxX = 1;
+    bounds.minY = 0;
+    bounds.maxY = 2;
+    bounds.minZ = -1;
+    bounds.maxZ = 1;
+  }
+
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2,
+  );
+
+  const fovRad = (Math.max(fov, 1) * Math.PI) / 180;
+  const safeAspect = Math.max(aspect || 1, 0.1);
+  const dir = new THREE.Vector3(1, 0.85, 1).normalize();
+  const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+  const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+
+  const corners = [
+    new THREE.Vector3(bounds.minX, bounds.minY, bounds.minZ), new THREE.Vector3(bounds.maxX, bounds.minY, bounds.minZ),
+    new THREE.Vector3(bounds.minX, bounds.maxY, bounds.minZ), new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.minZ),
+    new THREE.Vector3(bounds.minX, bounds.minY, bounds.maxZ), new THREE.Vector3(bounds.maxX, bounds.minY, bounds.maxZ),
+    new THREE.Vector3(bounds.minX, bounds.maxY, bounds.maxZ), new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.maxZ),
+  ];
+
+  let projMinU = Infinity;
+  let projMaxU = -Infinity;
+  let projMinV = Infinity;
+  let projMaxV = -Infinity;
+  for (const corner of corners) {
+    const u = corner.dot(right);
+    const v = corner.dot(up);
+    projMinU = Math.min(projMinU, u);
+    projMaxU = Math.max(projMaxU, u);
+    projMinV = Math.min(projMinV, v);
+    projMaxV = Math.max(projMaxV, v);
+  }
+
+  const projWidth = Math.max(projMaxU - projMinU, 0.5);
+  const projHeight = Math.max(projMaxV - projMinV, 0.5);
+  const distV = (projHeight / 2) / Math.tan(fovRad / 2);
+  const hFovRad = 2 * Math.atan(Math.tan(fovRad / 2) * safeAspect);
+  const distH = (projWidth / 2) / Math.tan(hFovRad / 2);
+  const distance = Math.max(distV, distH, 0.5) * padding;
+  const camPos = center.clone().add(dir.multiplyScalar(distance));
+
+  return {
+    position: [camPos.x, camPos.y, camPos.z],
+    target: [center.x, center.y, center.z],
+  };
+}
+
 interface Layout3DPreviewProps {
   objects: LayoutObject[];
   productDimensions: { length: number; width: number; height: number };
@@ -45,11 +244,25 @@ interface Layout3DPreviewProps {
   onUpdateObject?: (id: string, updates: Partial<LayoutObject>) => void;
   onUpdateProductDimensions?: (dims: { length: number; width: number; height: number }) => void;
   onScreenshotReady?: (fn: () => string | null) => void;
-  onFitAllReady?: (fn: () => void) => void;
+  onFitAllReady?: (fn: IsometricFitAllFn) => void;
   productPosition?: { posX: number; posY: number; posZ: number };
   onUpdateProductPosition?: (pos: { posX: number; posY: number; posZ: number }) => void;
   onStageLayout?: () => void;
 }
+
+export interface IsometricFitOptions {
+  padding?: number;
+}
+
+export type IsometricCameraAction = {
+  position: [number, number, number];
+  target: [number, number, number];
+};
+
+export type IsometricFitAllFn = (options?: IsometricFitOptions) => void;
+
+const DEFAULT_ISOMETRIC_FIT_PADDING = 1.55;
+const FIT_OBJECT_MARGIN = 0.18;
 
 function ScreenshotHelper({ onScreenshotReady }: { onScreenshotReady: (fn: () => string | null) => void }) {
   const { gl, scene, camera } = useThree();
@@ -1692,7 +1905,7 @@ function CameraController({
   isDragging,
   spaceHeld,
 }: {
-  cameraRef: React.MutableRefObject<{ position: [number, number, number]; target: [number, number, number] } | null>;
+  cameraRef: React.MutableRefObject<IsometricCameraAction | null>;
   isDragging: boolean;
   spaceHeld: boolean;
 }) {
@@ -1703,6 +1916,9 @@ function CameraController({
     if (cameraRef.current) {
       const { position, target } = cameraRef.current;
       camera.position.set(...position);
+      if ('updateProjectionMatrix' in camera) {
+        (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+      }
       if (controlsRef.current) {
         controlsRef.current.target.set(...target);
         controlsRef.current.update();
@@ -1718,7 +1934,7 @@ function CameraController({
       enableDamping
       dampingFactor={0.1}
       minDistance={2}
-      maxDistance={30}
+      maxDistance={200}
       enabled={!isDragging}
       mouseButtons={{
         LEFT: spaceHeld ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
@@ -1813,104 +2029,23 @@ function FitAllHelper({
   objects: LayoutObject[];
   productPosition: { posX: number; posY: number; posZ: number };
   productDimensions: { length: number; width: number; height: number };
-  cameraRef: React.MutableRefObject<{ position: [number, number, number]; target: [number, number, number] } | null>;
-  onFitAllReady?: (fn: () => void) => void;
+  cameraRef: React.MutableRefObject<IsometricCameraAction | null>;
+  onFitAllReady?: (fn: IsometricFitAllFn) => void;
 }) {
   const { camera } = useThree();
 
   useEffect(() => {
     if (!onFitAllReady) return;
-    onFitAllReady(() => {
-      // Collect all object positions and sizes to compute bounding box
-      let minX = Infinity, maxX = -Infinity;
-      let minY = Infinity, maxY = -Infinity;
-      let minZ = Infinity, maxZ = -Infinity;
-
-      const addPoint = (x: number, y: number, z: number) => {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-      };
-
-      // Product bounding box
-      const pw = (productDimensions.length ?? 100) * SCALE;
-      const ph = (productDimensions.height ?? 50) * SCALE;
-      const pd = (productDimensions.width ?? 100) * SCALE;
-      const ppx = productPosition.posX * SCALE;
-      const ppy = productPosition.posZ * SCALE;
-      const ppz = productPosition.posY * SCALE;
-      addPoint(ppx - pw / 2, ppy, ppz - pd / 2);
-      addPoint(ppx + pw / 2, ppy + ph, ppz + pd / 2);
-
-      // All layout objects
-      for (const obj of objects) {
-        const ox = (obj.posX ?? 0) * SCALE;
-        const oy = (obj.posZ ?? 0) * SCALE;
-        const oz = (obj.posY ?? 0) * SCALE;
-        const ow = (obj.width ?? 200) * SCALE / 2;
-        const oh = (obj.height ?? 200) * SCALE;
-        const od = ((obj as any).depth ?? 200) * SCALE / 2;
-        addPoint(ox - ow, oy, oz - od);
-        addPoint(ox + ow, oy + oh, oz + od);
-      }
-
-      // Fallback if no objects
-      if (!isFinite(minX)) {
-        minX = -1; maxX = 1; minY = 0; maxY = 2; minZ = -1; maxZ = 1;
-      }
-
-      const cx = (minX + maxX) / 2;
-      const cy = (minY + maxY) / 2;
-      const cz = (minZ + maxZ) / 2;
-      const width = maxX - minX;
-      const height = maxY - minY;
-      const depth = maxZ - minZ;
-      const maxExtent = Math.max(width, height, depth, 0.5);
-
+    onFitAllReady((options = {}) => {
       const perspCam = camera as THREE.PerspectiveCamera;
-      const fovRad = (perspCam.fov * Math.PI) / 180;
-      const aspect = perspCam.aspect || 1;
-
-      // Project bounding box onto isometric view plane
-      const dir = new THREE.Vector3(1, 0.85, 1).normalize();
-      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
-      const up = new THREE.Vector3().crossVectors(right, dir).normalize();
-
-      // Compute projected extents on the view plane
-      const corners = [
-        new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, minY, minZ),
-        new THREE.Vector3(minX, maxY, minZ), new THREE.Vector3(maxX, maxY, minZ),
-        new THREE.Vector3(minX, minY, maxZ), new THREE.Vector3(maxX, minY, maxZ),
-        new THREE.Vector3(minX, maxY, maxZ), new THREE.Vector3(maxX, maxY, maxZ),
-      ];
-      let projMinU = Infinity, projMaxU = -Infinity;
-      let projMinV = Infinity, projMaxV = -Infinity;
-      for (const c of corners) {
-        const u = c.dot(right);
-        const v = c.dot(up);
-        if (u < projMinU) projMinU = u;
-        if (u > projMaxU) projMaxU = u;
-        if (v < projMinV) projMinV = v;
-        if (v > projMaxV) projMaxV = v;
-      }
-      const projWidth = projMaxU - projMinU;
-      const projHeight = projMaxV - projMinV;
-
-      // Calculate distances needed for vertical and horizontal FOV
-      const distV = (projHeight / 2) / Math.tan(fovRad / 2);
-      const hFovRad = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
-      const distH = (projWidth / 2) / Math.tan(hFovRad / 2);
-      const distance = Math.max(distV, distH, 0.5) * 1.2;
-
-      const camPos = new THREE.Vector3(cx, cy, cz).add(dir.clone().multiplyScalar(distance));
-
-      cameraRef.current = {
-        position: [camPos.x, camPos.y, camPos.z],
-        target: [cx, cy, cz],
-      };
+      cameraRef.current = calculateIsometricFitCamera({
+        objects,
+        productPosition,
+        productDimensions,
+        fov: perspCam.fov,
+        aspect: perspCam.aspect || 1,
+        padding: options.padding,
+      });
     });
   }, [objects, productPosition, productDimensions, camera, cameraRef, onFitAllReady]);
 
@@ -1931,10 +2066,10 @@ export const Layout3DPreview = memo(function Layout3DPreview({
   onStageLayout,
 }: Layout3DPreviewProps) {
   const productPosition = productPositionProp ?? { posX: 0, posY: 0, posZ: 0 };
-  const cameraActionRef = useRef<{ position: [number, number, number]; target: [number, number, number] } | null>(null);
+  const cameraActionRef = useRef<IsometricCameraAction | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [localSelectedId, setLocalSelectedId] = useState<string | null>(null);
-  const fitAllFnRef = useRef<(() => void) | null>(null);
+  const fitAllFnRef = useRef<IsometricFitAllFn | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [xrayMode, setXrayMode] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -2196,7 +2331,7 @@ export const Layout3DPreview = memo(function Layout3DPreview({
     <div className="relative w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <Canvas
         ref={canvasRef}
-        camera={{ position: [7, 6, 7], fov: 50, near: 0.1, far: 100 }}
+        camera={{ position: [7, 6, 7], fov: 50, near: 0.1, far: 500 }}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         onCreated={({ gl }) => { gl.setClearColor('#0f172a'); }}
         onPointerMissed={() => {

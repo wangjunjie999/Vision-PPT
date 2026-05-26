@@ -42,7 +42,7 @@ export const WORKSTATION_SLIDE_TYPES = [
     id: 'basic_info', 
     label: '基本信息页', 
     icon: Info,
-    description: '工位类型、节拍、尺寸等基础参数',
+    description: '工位类型、工位节拍、尺寸等基础参数',
     required: true,
   },
   { 
@@ -75,9 +75,9 @@ export const WORKSTATION_SLIDE_TYPES = [
   },
   { 
     id: 'motion_method', 
-    label: '运动/检测方式页', 
+    label: '运动/模块分类页', 
     icon: Gauge,
-    description: '运动描述、触发方式、检测流程',
+    description: '运动描述、触发方式、模块分类',
     required: true,
   },
   { 

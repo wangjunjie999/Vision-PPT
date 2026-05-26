@@ -6,6 +6,7 @@ import {
   FolderOpen, 
   Cpu, 
   Box,
+  Ruler,
   Plus,
   Copy,
   Trash2,
@@ -50,6 +51,7 @@ import { NewModuleDialog } from '../dialogs/NewModuleDialog';
 import { DeleteConfirmDialog, DeleteTargetType } from '../dialogs/DeleteConfirmDialog';
 import { GuideTip, GuideHighlight } from '../guide';
 import { toast } from 'sonner';
+import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
 
 // Industrial-styled tree node component
 interface TreeNodeProps {
@@ -230,6 +232,8 @@ function getModuleIcon(type: string) {
       return <Zap className="h-4 w-4 text-orange-500" />;
     case 'ocr':
       return <Box className="h-4 w-4 text-purple-500" />;
+    case 'measurement':
+      return <Ruler className="h-4 w-4 text-cyan-500" />;
     case 'deeplearning':
       return <Cpu className="h-4 w-4 text-emerald-500" />;
     default:
@@ -451,7 +455,9 @@ export function ProjectTree() {
     
     if (!layout) return 'draft';
     // Workstation is complete when layout exists and all modules have schematics
-    const allSchematicsSaved = wsModules.every(m => !!(m as any).schematic_image_url);
+    const allSchematicsSaved = wsModules.every(m =>
+      !!(m as any).schematic_image_url && hasCurrentSchematicLayoutSignature((m as any).schematic_layout)
+    );
     if (wsModules.length > 0 && allSchematicsSaved) {
       return 'complete';
     }
@@ -638,7 +644,9 @@ export function ProjectTree() {
                     });
                     
                     // Check if all modules have saved schematic images
-                    const schematicsComplete = allModules.every(m => !!(m as any).schematic_image_url);
+                    const schematicsComplete = allModules.every(m =>
+                      !!(m as any).schematic_image_url && hasCurrentSchematicLayoutSignature((m as any).schematic_layout)
+                    );
                     
                     // Determine computed status
                     let computedStatus = project.status;

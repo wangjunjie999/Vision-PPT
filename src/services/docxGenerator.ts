@@ -15,6 +15,7 @@ import {
   ImageRun,
 } from 'docx';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 
 // ==================== DATA INTERFACES ====================
 
@@ -250,11 +251,11 @@ type ProgressCallback = (progress: number, step: string, log: string) => void;
 // ==================== LABELS ====================
 
 const MODULE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  positioning: { zh: '定位检测', en: 'Positioning' },
-  defect: { zh: '缺陷检测', en: 'Defect Detection' },
-  ocr: { zh: 'OCR识别', en: 'OCR Recognition' },
-  deeplearning: { zh: '深度学习', en: 'Deep Learning' },
-  measurement: { zh: '尺寸测量', en: 'Measurement' },
+  ocr: { zh: '识别', en: 'Recognition' },
+  measurement: { zh: '测量', en: 'Measurement' },
+  positioning: { zh: '定位', en: 'Positioning' },
+  defect: { zh: '检测', en: 'Inspection' },
+  deeplearning: { zh: '深度学习（算法手段）', en: 'Deep Learning (Algorithm)' },
 };
 
 const WS_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
@@ -463,8 +464,8 @@ export async function generateDOCX(
 
   // Workstation summary table
   const wsHeaders = isZh 
-    ? ['编号', '名称', '类型', '节拍(s)', '产品尺寸(mm)']
-    : ['Code', 'Name', 'Type', 'Cycle(s)', 'Product Size(mm)'];
+    ? ['编号', '名称', '类型', '工位节拍(s)', '产品尺寸(mm)']
+    : ['Code', 'Name', 'Type', 'Station Cycle(s)', 'Product Size(mm)'];
   
   const wsRows = workstations.map(ws => {
     const dims = ws.product_dimensions 
@@ -491,7 +492,7 @@ export async function generateDOCX(
       new Paragraph({ text: '', spacing: { before: 200 } }),
       createHeading(`2.${idx + 1} ${ws.code || ''} - ${ws.name}`, HeadingLevel.HEADING_2),
       createLabelValue(isZh ? '工作站类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type),
-      createLabelValue(isZh ? '节拍' : 'Cycle Time', ws.cycle_time ? `${ws.cycle_time}s` : '-'),
+      createLabelValue(isZh ? '工位节拍' : 'Station Cycle Time', ws.cycle_time ? `${ws.cycle_time}s/pcs` : '-'),
       createLabelValue(isZh ? '工艺阶段' : 'Process Stage', ws.process_stage || '-'),
       createLabelValue(isZh ? '观测目标' : 'Observation Target', ws.observation_target || '-'),
       createLabelValue(isZh ? '运动描述' : 'Motion Description', ws.motion_description || '-'),
@@ -507,7 +508,7 @@ export async function generateDOCX(
         sections.push(createLabelValue(isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria.accuracy));
       }
       if (ws.acceptance_criteria.cycle_time) {
-        sections.push(createLabelValue(isZh ? '节拍要求' : 'Cycle Time', ws.acceptance_criteria.cycle_time));
+        sections.push(createLabelValue(isZh ? '工位节拍要求' : 'Station Cycle Requirement', ws.acceptance_criteria.cycle_time));
       }
       if (ws.acceptance_criteria.compatible_sizes) {
         sections.push(createLabelValue(isZh ? '兼容规格' : 'Compatible Sizes', ws.acceptance_criteria.compatible_sizes));
@@ -759,13 +760,11 @@ export async function generateDOCX(
     // Type-specific configurations
     if (mod.type === 'defect' && mod.defect_config) {
       const config = mod.defect_config as Record<string, unknown>;
+      const defectItems = normalizeDefectItemsFromConfig(config);
       sections.push(createHeading(isZh ? '缺陷检测配置' : 'Defect Detection Config', HeadingLevel.HEADING_3));
       
-      if (config.defectClasses && Array.isArray(config.defectClasses)) {
-        sections.push(createLabelValue(isZh ? '缺陷类别' : 'Defect Classes', (config.defectClasses as string[]).join(', ')));
-      }
-      if (config.minDefectSize) {
-        sections.push(createLabelValue(isZh ? '最小缺陷尺寸' : 'Min Defect Size', `${config.minDefectSize}mm`));
+      if (defectItems.length > 0) {
+        sections.push(createLabelValue(isZh ? '缺陷类别/最小尺寸' : 'Defect / Min Size', formatDefectItems(defectItems)));
       }
       if (config.allowedMissRate !== undefined) {
         sections.push(createLabelValue(isZh ? '允许漏检率' : 'Allowed Miss Rate', `${config.allowedMissRate}%`));

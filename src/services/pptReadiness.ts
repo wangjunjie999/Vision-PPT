@@ -1,4 +1,5 @@
 import type { Database } from '@/integrations/supabase/types';
+import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
 
 type DbProject = Database['public']['Tables']['projects']['Row'];
 type DbWorkstation = Database['public']['Tables']['workstations']['Row'];
@@ -213,7 +214,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   let missingSchematicImages = 0;
   projectModules.forEach(mod => {
     const schematicUrl = (mod as any).schematic_image_url;
-    if (!schematicUrl) {
+    if (!schematicUrl || !hasCurrentSchematicLayoutSignature((mod as any).schematic_layout)) {
       missingSchematicImages++;
       missing.push({
         level: 'module',
@@ -385,4 +386,3 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     },
   };
 }
-

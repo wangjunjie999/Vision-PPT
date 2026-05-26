@@ -5,67 +5,16 @@ import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { ModuleFormState } from './types';
-import { HardwareSelector } from '@/components/hardware/HardwareSelector';
-import { Button } from '@/components/ui/button';
-import { Copy } from 'lucide-react';
-import { toast } from 'sonner';
-import { useMemo } from 'react';
-import { parseShutterType } from '@/utils/visionCalcEngine';
-import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 
 interface ModuleStep4OutputProps {
   form: ModuleFormState;
   setForm: React.Dispatch<React.SetStateAction<ModuleFormState>>;
-  cameras: any[];
-  lenses: any[];
-  lights: any[];
-  controllers: any[];
-  workstationLayout?: any;
 }
 
 export function ModuleStep4Output({ 
   form, 
   setForm, 
-  cameras, 
-  lenses, 
-  lights, 
-  controllers,
-  workstationLayout 
 }: ModuleStep4OutputProps) {
-  const handleInheritHardware = () => {
-    if (!workstationLayout) return;
-    
-    const selectedCameras = safeHardwareArray(workstationLayout?.selected_cameras);
-    const selectedLenses = safeHardwareArray(workstationLayout?.selected_lenses);
-    const selectedLights = safeHardwareArray(workstationLayout?.selected_lights);
-    const selectedController = safeController(workstationLayout?.selected_controller);
-    
-    setForm(p => ({
-      ...p,
-      selectedCamera: selectedCameras.length > 0 && selectedCameras[0]?.id ? selectedCameras[0].id : '',
-      selectedLens: selectedLenses.length > 0 && selectedLenses[0]?.id ? selectedLenses[0].id : '',
-      selectedLight: selectedLights.length > 0 && selectedLights[0]?.id ? selectedLights[0].id : '',
-      selectedController: selectedController && selectedController.id ? selectedController.id : '',
-    }));
-    toast.success('已套用工位硬件配置');
-  };
-
-  const isFlyingShot = form.triggerType === 'encoder' || form.triggerType === 'continuous';
-
-  const cameraWarningIds = useMemo(() => {
-    if (!isFlyingShot) return undefined;
-    const warnings: Record<string, string> = {};
-    cameras.forEach((cam: any) => {
-      const st = parseShutterType(cam.shutter_type, cam.tags);
-      if (st === 'rolling') {
-        warnings[cam.id] = '卷帘快门';
-      } else if (st === 'unknown') {
-        warnings[cam.id] = '快门未知';
-      }
-    });
-    return Object.keys(warnings).length > 0 ? warnings : undefined;
-  }, [cameras, isFlyingShot]);
-
   return (
     <div className="space-y-6">
       {/* Common parameters */}
@@ -172,65 +121,6 @@ export function ModuleStep4Output({
               className="h-9" 
             />
           </div>
-        </div>
-      </div>
-
-      {/* Hardware selection */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">硬件选型</h4>
-          {workstationLayout && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2 text-xs"
-              onClick={handleInheritHardware}
-            >
-              <Copy className="h-3 w-3" />
-              一键套用工位硬件
-            </Button>
-          )}
-        </div>
-        
-        {workstationLayout && (
-          <div className="p-2 bg-muted/50 rounded text-xs text-muted-foreground">
-            提示：通常模块硬件继承工位配置，只有特殊模块才需要覆盖
-          </div>
-        )}
-        
-        <div className="space-y-4">
-          <HardwareSelector
-            type="camera"
-            items={cameras}
-            selectedId={form.selectedCamera}
-            onSelect={(id) => setForm(p => ({ ...p, selectedCamera: id }))}
-            warningIds={cameraWarningIds}
-          />
-          <HardwareSelector
-            type="lens"
-            items={lenses}
-            selectedId={form.selectedLens}
-            onSelect={(id) => setForm(p => ({ ...p, selectedLens: id }))}
-          />
-          <HardwareSelector
-            type="light"
-            items={lights}
-            selectedId={form.selectedLight}
-            onSelect={(id) => setForm(p => ({ ...p, selectedLight: id }))}
-            recommendation={
-              form.type === 'ocr' && form.charType === 'laser' ? '同轴/条形光' : undefined
-            }
-          />
-          <HardwareSelector
-            type="controller"
-            items={controllers}
-            selectedId={form.selectedController}
-            onSelect={(id) => setForm(p => ({ ...p, selectedController: id }))}
-            recommendation={
-              form.type === 'deeplearning' && form.deployTarget === 'gpu' ? '带GPU配置' : undefined
-            }
-          />
         </div>
       </div>
     </div>

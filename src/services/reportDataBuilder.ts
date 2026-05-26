@@ -29,6 +29,7 @@ import {
   FIELD_DISPLAY_NAMES,
 } from './labelMaps';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -55,6 +56,7 @@ export interface HardwareLibrary {
     model: string;
     focal_length: string;
     aperture: string;
+    max_sensor_size?: string | null;
     mount: string;
     image_url: string | null;
   }>;
@@ -383,15 +385,17 @@ function collectExtraFields(
 /**
  * 从硬件库查找并构建硬件信息
  */
-function buildCameraInfo(id: string | null, hardware: HardwareLibrary): ReportHardwareItem | null {
+function buildCameraInfo(id: string | null, hardware: HardwareLibrary, layout?: DbLayout | null): ReportHardwareItem | null {
   if (!id) return null;
-  const cam = hardware.cameras.find(c => c.id === id);
+  const resolved = resolveModuleHardwareSelection(id, layout, 'camera', hardware.cameras);
+  const cam = resolved?.item;
   if (!cam) return null;
+  const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
   return {
-    id: cam.id,
+    id: resolved?.value || cam.id,
     brand: cam.brand,
     model: cam.model,
-    display_name: `${cam.brand} ${cam.model} | ${cam.resolution} @ ${cam.frame_rate}fps | ${cam.interface}`,
+    display_name: `${prefix}${cam.brand} ${cam.model} | ${cam.resolution} @ ${cam.frame_rate}fps | ${cam.interface}`,
     image_url: cam.image_url,
     specs: {
       resolution: cam.resolution,
@@ -402,33 +406,38 @@ function buildCameraInfo(id: string | null, hardware: HardwareLibrary): ReportHa
   };
 }
 
-function buildLensInfo(id: string | null, hardware: HardwareLibrary): ReportHardwareItem | null {
+function buildLensInfo(id: string | null, hardware: HardwareLibrary, layout?: DbLayout | null): ReportHardwareItem | null {
   if (!id) return null;
-  const lens = hardware.lenses.find(l => l.id === id);
+  const resolved = resolveModuleHardwareSelection(id, layout, 'lens', hardware.lenses);
+  const lens = resolved?.item;
   if (!lens) return null;
+  const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
   return {
-    id: lens.id,
+    id: resolved?.value || lens.id,
     brand: lens.brand,
     model: lens.model,
-    display_name: `${lens.brand} ${lens.model} | ${lens.focal_length} ${lens.aperture} | ${lens.mount}`,
+    display_name: `${prefix}${lens.brand} ${lens.model} | ${lens.focal_length} | 靶面 ${lens.max_sensor_size || '-'} | ${lens.mount}`,
     image_url: lens.image_url,
     specs: {
       focal_length: lens.focal_length,
       aperture: lens.aperture,
+      max_sensor_size: lens.max_sensor_size || '',
       mount: lens.mount,
     },
   };
 }
 
-function buildLightInfo(id: string | null, hardware: HardwareLibrary): ReportHardwareItem | null {
+function buildLightInfo(id: string | null, hardware: HardwareLibrary, layout?: DbLayout | null): ReportHardwareItem | null {
   if (!id) return null;
-  const light = hardware.lights.find(l => l.id === id);
+  const resolved = resolveModuleHardwareSelection(id, layout, 'light', hardware.lights);
+  const light = resolved?.item;
   if (!light) return null;
+  const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
   return {
-    id: light.id,
+    id: resolved?.value || light.id,
     brand: light.brand,
     model: light.model,
-    display_name: `${light.brand} ${light.model} | ${light.type} ${light.color} | ${light.power}`,
+    display_name: `${prefix}${light.brand} ${light.model} | ${light.type} ${light.color} | ${light.power}`,
     image_url: light.image_url,
     specs: {
       type: light.type,
@@ -438,15 +447,17 @@ function buildLightInfo(id: string | null, hardware: HardwareLibrary): ReportHar
   };
 }
 
-function buildControllerInfo(id: string | null, hardware: HardwareLibrary): ReportHardwareItem | null {
+function buildControllerInfo(id: string | null, hardware: HardwareLibrary, layout?: DbLayout | null): ReportHardwareItem | null {
   if (!id) return null;
-  const ctrl = hardware.controllers.find(c => c.id === id);
+  const resolved = resolveModuleHardwareSelection(id, layout, 'controller', hardware.controllers);
+  const ctrl = resolved?.item;
   if (!ctrl) return null;
+  const prefix = resolved?.slotLabel ? `${resolved.slotLabel} · ` : '';
   return {
-    id: ctrl.id,
+    id: resolved?.value || ctrl.id,
     brand: ctrl.brand,
     model: ctrl.model,
-    display_name: `${ctrl.brand} ${ctrl.model} | ${ctrl.cpu} | ${ctrl.memory}`,
+    display_name: `${prefix}${ctrl.brand} ${ctrl.model} | ${ctrl.cpu} | ${ctrl.memory}`,
     image_url: ctrl.image_url,
     specs: {
       cpu: ctrl.cpu,
@@ -663,6 +674,7 @@ export function buildReportData(input: BuilderInput): ReportData {
   // 构建模块数据
   const reportModules: ReportModuleData[] = modules.map(mod => {
     const outputTypes = mod.output_types as string[] | null;
+    const moduleLayout = layouts.find(layout => layout.workstation_id === mod.workstation_id) || null;
     
     return {
       id: mod.id,
@@ -679,13 +691,13 @@ export function buildReportData(input: BuilderInput): ReportData {
       output_types: outputTypes,
       output_types_labels: getArrayLabels(outputTypes, OUTPUT_ACTION_LABELS, lang),
       selected_camera: mod.selected_camera,
-      selected_camera_info: buildCameraInfo(mod.selected_camera, hardware),
+      selected_camera_info: buildCameraInfo(mod.selected_camera, hardware, moduleLayout),
       selected_lens: mod.selected_lens,
-      selected_lens_info: buildLensInfo(mod.selected_lens, hardware),
+      selected_lens_info: buildLensInfo(mod.selected_lens, hardware, moduleLayout),
       selected_light: mod.selected_light,
-      selected_light_info: buildLightInfo(mod.selected_light, hardware),
+      selected_light_info: buildLightInfo(mod.selected_light, hardware, moduleLayout),
       selected_controller: mod.selected_controller,
-      selected_controller_info: buildControllerInfo(mod.selected_controller, hardware),
+      selected_controller_info: buildControllerInfo(mod.selected_controller, hardware, moduleLayout),
       schematic_image_url: mod.schematic_image_url,
       rotation: mod.rotation,
       x: mod.x,

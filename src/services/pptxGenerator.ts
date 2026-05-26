@@ -23,10 +23,13 @@ import {
   COMPANY_NAME_EN,
   FONTS,
   MASTER_SLIDE_SUBTITLE,
+  MASTER_SLIDE_TITLE,
   createHeadingShadow,
   getWorkstationCode,
   getModuleDisplayName,
 } from './pptx/slideLabels';
+import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 
 // Type definitions for pptxgenjs
 type TableCell = { text: string; options?: Record<string, unknown> };
@@ -140,6 +143,7 @@ interface HardwareData {
     model: string;
     focal_length: string;
     aperture: string;
+    max_sensor_size?: string | null;
     mount: string;
     image_url: string | null;
   }>;
@@ -342,9 +346,7 @@ function generateModuleTocSlides(
     const pageEntries = entries.slice(page * TOC_ITEMS_PER_PAGE, (page + 1) * TOC_ITEMS_PER_PAGE);
 
     slide.addText(isZh ? '目录' : 'Contents', {
-      x: 0.4, y: 0.05, w: 5, h: 0.38,
-      fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
-      shadow: createHeadingShadow(),
+      ...MASTER_SLIDE_TITLE,
     });
     slide.addText(isZh ? '模块快速定位' : 'Module Quick Links', {
       x: 0, y: st.y, w: '100%', h: st.h,
@@ -452,12 +454,10 @@ function createAutoPageTableOptions(
 // Get defect detection parameters
 function getDefectParams(config: Record<string, unknown>, isZh: boolean): TableRow[] {
   const rows: TableRow[] = [];
+  const defectItems = normalizeDefectItemsFromConfig(config);
   
-  if (config.defectClasses && Array.isArray(config.defectClasses) && config.defectClasses.length > 0) {
-    rows.push(row([isZh ? '缺陷类别' : 'Defect Classes', (config.defectClasses as string[]).join('、')]));
-  }
-  if (config.minDefectSize) {
-    rows.push(row([isZh ? '最小缺陷尺寸' : 'Min Defect Size', `${config.minDefectSize} mm`]));
+  if (defectItems.length > 0) {
+    rows.push(row([isZh ? '缺陷类别/最小尺寸' : 'Defect / Min Size', formatDefectItems(defectItems)]));
   }
   if (config.missTolerance) {
     const toleranceLabels: Record<string, Record<string, string>> = {
@@ -777,7 +777,7 @@ function getImagingParams(config: Record<string, unknown>, isZh: boolean): Table
     rows.push(row([isZh ? '分辨率' : 'Resolution', `${config.resolutionPerPixel} mm/pixel`]));
   }
   if (config.depthOfField) {
-    rows.push(row([isZh ? '景深' : 'Depth of Field', `${config.depthOfField} mm`]));
+    rows.push(row([isZh ? '靶面尺寸' : 'Sensor Size', String(config.depthOfField)]));
   }
   if (config.exposure) {
     rows.push(row([isZh ? '曝光时间' : 'Exposure', `${config.exposure} μs`]));
@@ -788,13 +788,27 @@ function getImagingParams(config: Record<string, unknown>, isZh: boolean): Table
   if (config.triggerDelay) {
     rows.push(row([isZh ? '触发延迟' : 'Trigger Delay', `${config.triggerDelay} ms`]));
   }
-  if (config.lightAngle) {
+  const lightItems = Array.isArray(config.lightItems)
+    ? config.lightItems.filter((item: any) => item && typeof item === 'object')
+    : [];
+  if (lightItems.length > 0) {
+    lightItems.forEach((item: any, index: number) => {
+      const parts = [
+        item.lightMode ? `${isZh ? '模式' : 'Mode'} ${item.lightMode}` : '',
+        item.lightAngle ? `${isZh ? '角度' : 'Angle'} ${item.lightAngle}°` : '',
+        item.lightDistance ? `${isZh ? '距离' : 'Distance'} ${item.lightDistance} mm` : '',
+      ].filter(Boolean);
+      if (parts.length > 0 || item.selectedLight) {
+        rows.push(row([`${isZh ? '光源' : 'Light'} ${index + 1}`, parts.join(' / ') || String(item.selectedLight || '-')]));
+      }
+    });
+  } else if (config.lightAngle) {
     rows.push(row([isZh ? '光源角度' : 'Light Angle', `${config.lightAngle}°`]));
   }
-  if (config.lightDistance) {
+  if (lightItems.length === 0 && config.lightDistance) {
     rows.push(row([isZh ? '光源距离' : 'Light Distance', `${config.lightDistance} mm`]));
   }
-  if (config.lightMode) {
+  if (lightItems.length === 0 && config.lightMode) {
     const modeLabels: Record<string, string> = {
       continuous: isZh ? '常亮' : 'Continuous',
       strobe: isZh ? '频闪' : 'Strobe',
@@ -924,9 +938,7 @@ export async function generatePPTX(
   
   // Title overlaid on navy header bar
   descSlide.addText(isZh ? '项目说明' : 'Project Description', {
-    x: 0.4, y: 0.05, w: 5, h: 0.38,
-    fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
-    shadow: createHeadingShadow(),
+    ...MASTER_SLIDE_TITLE,
   });
   descSlide.addText(isZh ? '项目基本信息' : 'Project Information', {
     x: 0, y: st.y, w: '100%', h: st.h,
@@ -985,7 +997,7 @@ export async function generatePPTX(
     isZh ? '编号' : 'Code',
     isZh ? '名称' : 'Name',
     isZh ? '类型' : 'Type',
-    isZh ? '节拍(s)' : 'Cycle(s)',
+    isZh ? '工位节拍(s)' : 'Station Cycle(s)',
     isZh ? '模块数' : 'Modules',
   ]);
 
@@ -1017,9 +1029,7 @@ export async function generatePPTX(
   
   // Title text overlaid on the navy header bar (white text)
   revisionSlide.addText(isZh ? '变更履历' : 'Revision History', {
-    x: 0.4, y: 0.05, w: 5, h: 0.38,
-    fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
-    shadow: createHeadingShadow(),
+    ...MASTER_SLIDE_TITLE,
   });
 
   revisionSlide.addText(isZh ? '变更表' : 'Change Log', {
@@ -1290,9 +1300,7 @@ export async function generatePPTX(
   const createHardwareSummarySlide = (pageLabel = '') => {
     const slide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
     slide.addText(`${isZh ? '硬件清单汇总' : 'Hardware Summary'}${pageLabel}`, {
-      x: 0.4, y: 0.05, w: 7.5, h: 0.38,
-      fontSize: 18, fontFace: FONTS.heading, color: COLORS.primary, bold: true,
-      shadow: createHeadingShadow(),
+      ...MASTER_SLIDE_TITLE,
     });
     slide.addText(isZh ? '设备清单' : 'Equipment List', {
       x: 0, y: st.y, w: '100%', h: st.h,
@@ -1304,7 +1312,8 @@ export async function generatePPTX(
 
   const hwSlide = createHardwareSummarySlide();
 
-  // Aggregate hardware by brand+model across all modules
+  // Aggregate hardware by physical workstation slots. Modules can reuse CAM1/CAM2 etc.,
+  // so counting by module would duplicate shared hardware.
   const hwCountMap = new Map<string, { type: string; brand: string; model: string; count: number }>();
 
   const addToMap = (type: string, brand: string, model: string) => {
@@ -1317,25 +1326,65 @@ export async function generatePPTX(
     }
   };
 
-  // Count from modules
-  if (hardware) {
+  let hasLayoutHardware = false;
+  for (const layout of layouts) {
+    const selectedCameras = safeHardwareArray(layout.selected_cameras);
+    const selectedLenses = safeHardwareArray(layout.selected_lenses);
+    const selectedLights = safeHardwareArray(layout.selected_lights);
+    const selectedController = safeController(layout.selected_controller);
+
+    selectedCameras.forEach(cam => {
+      if (cam.brand && cam.model) {
+        hasLayoutHardware = true;
+        addToMap(isZh ? '工业相机' : 'Industrial Camera', cam.brand, cam.model);
+      }
+    });
+    selectedLenses.forEach(lens => {
+      if (lens.brand && lens.model) {
+        hasLayoutHardware = true;
+        addToMap(isZh ? '工业镜头' : 'Industrial Lens', lens.brand, lens.model);
+      }
+    });
+    selectedLights.forEach(light => {
+      if (light.brand && light.model) {
+        hasLayoutHardware = true;
+        addToMap(isZh ? '光源' : 'Light Source', light.brand, light.model);
+      }
+    });
+    if (selectedController?.brand && selectedController.model) {
+      hasLayoutHardware = true;
+      addToMap(isZh ? '工控机' : 'Industrial PC', selectedController.brand, selectedController.model);
+    }
+  }
+
+  // Fallback for old data without workstation hardware slots.
+  if (!hasLayoutHardware && hardware) {
+    const seenSelections = new Set<string>();
+    const addUniqueModuleSelection = (kind: string, id: string | null | undefined, add: () => void) => {
+      if (!id) return;
+      const key = `${kind}:${id}`;
+      if (seenSelections.has(key)) return;
+      seenSelections.add(key);
+      add();
+    };
+
     for (const m of modules) {
-      if (m.selected_camera) {
+      addUniqueModuleSelection('camera', m.selected_camera, () => {
         const cam = hardware.cameras.find(c => c.id === m.selected_camera);
         if (cam) addToMap(isZh ? '工业相机' : 'Industrial Camera', cam.brand, cam.model);
-      }
-      if (m.selected_lens) {
+      });
+      addUniqueModuleSelection('lens', m.selected_lens, () => {
         const lens = hardware.lenses.find(l => l.id === m.selected_lens);
         if (lens) addToMap(isZh ? '工业镜头' : 'Industrial Lens', lens.brand, lens.model);
-      }
-      if (m.selected_light) {
+      });
+      addUniqueModuleSelection('light', m.selected_light, () => {
         const light = hardware.lights.find(l => l.id === m.selected_light);
         if (light) addToMap(isZh ? '光源' : 'Light Source', light.brand, light.model);
-      }
-      if (m.selected_controller) {
+      });
+      addUniqueModuleSelection('controller', m.selected_controller, () => {
         const ctrl = hardware.controllers.find(c => c.id === m.selected_controller);
         if (ctrl) addToMap(isZh ? '工控机' : 'Industrial PC', ctrl.brand, ctrl.model);
-      }
+      });
     }
   }
 

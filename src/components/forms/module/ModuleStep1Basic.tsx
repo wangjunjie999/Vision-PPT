@@ -1,8 +1,10 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ModuleFormState } from './types';
+import { ModuleHardwareSelection } from './ModuleHardwareSelection';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -10,9 +12,22 @@ type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
 interface ModuleStep1BasicProps {
   form: ModuleFormState;
   setForm: React.Dispatch<React.SetStateAction<ModuleFormState>>;
+  cameras?: any[];
+  lenses?: any[];
+  lights?: any[];
+  controllers?: any[];
+  workstationLayout?: any;
 }
 
-export function ModuleStep1Basic({ form, setForm }: ModuleStep1BasicProps) {
+export function ModuleStep1Basic({
+  form,
+  setForm,
+  cameras = [],
+  lenses = [],
+  lights = [],
+  controllers = [],
+  workstationLayout,
+}: ModuleStep1BasicProps) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
@@ -26,15 +41,17 @@ export function ModuleStep1Basic({ form, setForm }: ModuleStep1BasicProps) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">模块类型 <span className="text-destructive ml-0.5">*</span></Label>
+          <Label className="text-xs font-medium">模块分类 <span className="text-destructive ml-0.5">*</span></Label>
           <Select value={form.type} onValueChange={v => setForm(p => ({ ...p, type: v as ModuleType }))}>
             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="positioning">引导定位</SelectItem>
-              <SelectItem value="defect">缺陷检测</SelectItem>
-              <SelectItem value="ocr">OCR识别</SelectItem>
-              <SelectItem value="measurement">尺寸测量</SelectItem>
-              <SelectItem value="deeplearning">深度学习</SelectItem>
+              <SelectItem value="ocr">识别</SelectItem>
+              <SelectItem value="measurement">测量</SelectItem>
+              <SelectItem value="positioning">定位</SelectItem>
+              <SelectItem value="defect">检测</SelectItem>
+              {form.type === 'deeplearning' && (
+                <SelectItem value="deeplearning">深度学习（算法手段）</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -95,6 +112,31 @@ export function ModuleStep1Basic({ form, setForm }: ModuleStep1BasicProps) {
           </div>
         </div>
       )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Button
+          type="button"
+          variant={form.is3DCamera ? 'default' : 'outline'}
+          className="h-9 justify-center"
+          onClick={() => setForm(p => ({
+            ...p,
+            is3DCamera: !p.is3DCamera,
+            selectedLens: !p.is3DCamera ? '' : p.selectedLens,
+          }))}
+        >
+          {form.is3DCamera ? '已启用3D相机' : '是否为3D相机'}
+        </Button>
+      </div>
+
+      <ModuleHardwareSelection
+        form={form}
+        setForm={setForm}
+        cameras={cameras}
+        lenses={lenses}
+        lights={lights}
+        controllers={controllers}
+        workstationLayout={workstationLayout}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomIn, ZoomOut, Maximize2, Move, Hand } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CANVAS_BUTTON_ZOOM_STEP, MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM, clampZoom, getNextZoom } from '@/utils/canvasZoom';
 
 interface CanvasControlsProps {
   zoom: number;
@@ -26,11 +27,13 @@ export function CanvasControls({
   const zoomPercentage = Math.round(zoom * 100);
 
   const handleZoomIn = () => {
-    onZoomChange(Math.min(zoom + 0.25, 3));
+    const next = getNextZoom(zoom, CANVAS_BUTTON_ZOOM_STEP);
+    if (next !== zoom) onZoomChange(next);
   };
 
   const handleZoomOut = () => {
-    onZoomChange(Math.max(zoom - 0.25, 0.25));
+    const next = getNextZoom(zoom, -CANVAS_BUTTON_ZOOM_STEP);
+    if (next !== zoom) onZoomChange(next);
   };
 
   return (
@@ -66,7 +69,7 @@ export function CanvasControls({
               size="icon"
               className="h-8 w-8"
               onClick={handleZoomOut}
-              disabled={zoom <= 0.25}
+              disabled={zoom <= MIN_CANVAS_ZOOM}
             >
               <ZoomOut className="h-4 w-4" />
             </Button>
@@ -80,9 +83,9 @@ export function CanvasControls({
         <div className="flex items-center gap-2 min-w-[120px]">
           <Slider
             value={[zoom]}
-            onValueChange={([v]) => onZoomChange(v)}
-            min={0.25}
-            max={3}
+            onValueChange={([v]) => onZoomChange(clampZoom(v))}
+            min={MIN_CANVAS_ZOOM}
+            max={MAX_CANVAS_ZOOM}
             step={0.05}
             className="w-20"
           />
@@ -97,7 +100,7 @@ export function CanvasControls({
               size="icon"
               className="h-8 w-8"
               onClick={handleZoomIn}
-              disabled={zoom >= 3}
+              disabled={zoom >= MAX_CANVAS_ZOOM}
             >
               <ZoomIn className="h-4 w-4" />
             </Button>
