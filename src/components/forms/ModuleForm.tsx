@@ -178,11 +178,11 @@ export function ModuleForm() {
       return;
     }
 
-      const defectCfg = module.defect_config;
-      const posCfg = module.positioning_config;
-      const ocrCfg = module.ocr_config;
-      const dlCfg = module.deep_learning_config;
-      const measureCfg = module.measurement_config;
+      const defectCfg = module.defect_config as any;
+      const posCfg = module.positioning_config as any;
+      const ocrCfg = module.ocr_config as any;
+      const dlCfg = module.deep_learning_config as any;
+      const measureCfg = module.measurement_config as any;
       
       // Get common params and imaging params from any config (they should be the same across types)
       const cfg = defectCfg || posCfg || ocrCfg || dlCfg || measureCfg;
@@ -243,8 +243,8 @@ export function ModuleForm() {
         ...getDefaultFormState(),
         name: module.name,
         description: module.description || '',
-        type: module.type,
-        triggerType: module.trigger_type || 'io',
+        type: module.type as ModuleFormState['type'],
+        triggerType: (module.trigger_type || 'io') as ModuleFormState['triggerType'],
         selectedCamera,
         selectedLens,
         selectedLight: firstLoadedLightItem?.selectedLight || '',

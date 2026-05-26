@@ -97,7 +97,7 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
               type="button"
               variant="outline"
               size="sm"
-              onClick={addDefectClass}
+              onClick={() => addDefectClass()}
               disabled={!newDefectClass.trim()}
               className="h-9"
             >

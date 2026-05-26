@@ -96,7 +96,7 @@ const projectToFormData = (project: ProjectRow): ProjectFormData => ({
   template_id: project.template_id || '',
   cycle_time_target: project.cycle_time_target?.toString() || '',
   environment: project.environment ? (typeof project.environment === 'string' ? project.environment.split(',') : []) : [],
-  quality_strategy: project.quality_strategy || '',
+  quality_strategy: (project.quality_strategy || '') as ProjectFormData['quality_strategy'],
   use_3d: project.use_3d || false,
   use_ai: project.use_ai || false,
   main_camera_brand: project.main_camera_brand || '',

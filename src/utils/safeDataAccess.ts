@@ -105,7 +105,6 @@ export interface HardwareSelection {
   model?: string;
   image_url?: string | null;
   model_3d_url?: string | null;
-  [key: string]: unknown;
 }
 
 export function safeHardwareArray<T extends HardwareSelection = HardwareSelection>(

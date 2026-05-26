@@ -64,13 +64,13 @@ export function sanitizeHardwareItem<T extends HardwareJsonItem = HardwareJsonIt
     if (rawValue === undefined) return;
 
     if (isJsonScalar(rawValue)) {
-      cleaned[field] = rawValue;
+      (cleaned as Record<string, unknown>)[field] = rawValue;
       return;
     }
 
     if (Array.isArray(rawValue)) {
       const values = rawValue.filter((value): value is string => typeof value === 'string');
-      if (values.length > 0) cleaned[field] = values;
+      if (values.length > 0) (cleaned as Record<string, unknown>)[field] = values;
     }
   });
 

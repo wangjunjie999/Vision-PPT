@@ -389,8 +389,8 @@ export function WorkstationForm() {
 
     const draft = readDraft();
     const nextPayload = draft?.payload || createWorkstationDraftPayload(
-      workstationToForm(workstation),
-      layoutToForm(layout, controllers),
+      workstationToForm(workstation as any),
+      layoutToForm(layout as any, controllers),
       0,
     );
 
@@ -624,8 +624,8 @@ export function WorkstationForm() {
     if (!workstation) return;
 
     const nextPayload = createWorkstationDraftPayload(
-      workstationToForm(workstation),
-      layoutToForm(layout, controllers),
+      workstationToForm(workstation as any),
+      layoutToForm(layout as any, controllers),
       0,
     );
     clearDraft();
