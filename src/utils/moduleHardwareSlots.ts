@@ -7,7 +7,6 @@ type HardwareLike = {
   id: string;
   brand?: string;
   model?: string;
-  [key: string]: unknown;
 };
 
 export interface ModuleHardwareSlot<T extends HardwareLike = HardwareLike> {
@@ -55,7 +54,7 @@ function mergeHardwareItem<T extends HardwareLike>(item: T, libraryItems: T[] = 
   const merged = latest ? { ...item, ...latest } as T : { ...item } as T;
 
   (['image_url', 'front_view_url', 'top_view_url', 'model_3d_url'] as const).forEach(field => {
-    const value = merged[field];
+    const value = (merged as Record<string, unknown>)[field];
     if (typeof value === 'string') {
       (merged as Record<string, unknown>)[field] = resolveHardwareImageUrl(value);
     }
