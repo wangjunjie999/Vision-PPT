@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
 import App from "./App.tsx";
 import "./index.css";
+import "./utils/dreiLoaderSetup";
 
 function showBootstrapError(error: unknown, context: string) {
   console.error(`[Bootstrap] ${context}`, error);
