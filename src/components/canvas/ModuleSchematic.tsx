@@ -285,8 +285,8 @@ export function ModuleSchematic() {
   const module = modules.find(m => m.id === selectedModuleId) as any;
   const workstation = workstations.find(w => w.id === selectedWorkstationId) as any;
   const layout = layouts.find(l => l.workstation_id === selectedWorkstationId) as any;
-  const savedLayout = useMemo(
-    () => isSchematicLayout(module?.schematic_layout) ? module.schematic_layout : null,
+  const savedLayout = useMemo<SchematicLayoutState | null>(
+    () => isSchematicLayout(module?.schematic_layout) ? (module.schematic_layout as SchematicLayoutState) : null,
     [module?.schematic_layout],
   );
   const liveForm = selectedModuleId ? moduleLiveForms[selectedModuleId]?.form : undefined;
