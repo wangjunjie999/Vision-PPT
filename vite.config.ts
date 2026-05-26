@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
   plugins: [
     react(),
     isDev && componentTagger(),
-    isDev && supabaseUrl && storageProxyPlugin({ supabaseUrl }),
+    isDev && supabaseUrl ? storageProxyPlugin({ supabaseUrl }) : null,
   ].filter(Boolean),
   resolve: {
     alias: {
