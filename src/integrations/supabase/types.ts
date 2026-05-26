@@ -461,8 +461,10 @@ export type Database = {
           front_view_url: string | null
           id: string
           image_url: string | null
+          max_sensor_size: string | null
           model: string
           mount: string
+          resolving_power: number | null
           tags: string[] | null
           updated_at: string
         }
@@ -476,8 +478,10 @@ export type Database = {
           front_view_url?: string | null
           id?: string
           image_url?: string | null
+          max_sensor_size?: string | null
           model: string
           mount: string
+          resolving_power?: number | null
           tags?: string[] | null
           updated_at?: string
         }
@@ -491,8 +495,10 @@ export type Database = {
           front_view_url?: string | null
           id?: string
           image_url?: string | null
+          max_sensor_size?: string | null
           model?: string
           mount?: string
+          resolving_power?: number | null
           tags?: string[] | null
           updated_at?: string
         }

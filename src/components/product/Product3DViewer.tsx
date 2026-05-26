@@ -452,7 +452,7 @@ function ProductViewerCanvasInner({
             ))}
           </Center>
         )}
-        <Environment preset="studio" />
+        <Environment files="/hdri/studio_small_03_1k.hdr" />
       </Suspense>
 
       <RenderReadyTracker
