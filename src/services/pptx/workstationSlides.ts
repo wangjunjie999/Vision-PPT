@@ -34,6 +34,7 @@ import {
   getLabel 
 } from '@/services/labelMaps';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
+import { buildModuleVisionChecklist } from '@/utils/moduleVisionChecklist';
 
 // Type definitions
 type TableCell = { text: string; options?: Record<string, unknown> };
@@ -302,6 +303,7 @@ interface WorkstationSlideData {
     conveyor_type: string | null;
     camera_count: number | null;
     camera_mounts: string[] | null;
+    camera_mounts_labels?: string | null;
     mechanisms: string[] | null;
     front_view_image_url?: string | null;
     side_view_image_url?: string | null;
@@ -324,6 +326,11 @@ interface WorkstationSlideData {
     description?: string | null;
     trigger_type: string | null;
     processing_time_limit: number | null;
+    selected_camera?: string | null;
+    selected_camera_info?: { id?: string | null; brand?: string | null; model?: string | null; resolution?: string | null; specs?: Record<string, string> | null } | null;
+    selected_lens?: string | null;
+    selected_light?: string | null;
+    selected_controller?: string | null;
     schematic_image_url?: string | null;
     positioning_config?: Record<string, unknown> | null;
     defect_config?: Record<string, unknown> | null;
@@ -1736,27 +1743,21 @@ export async function generateModuleOpticalSlide(
   });
 
   // Numbered checklist
-  const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config || mod.ocr_config) as Record<string, unknown> | null;
-  const wd = cfg?.workingDistance ? `${cfg.workingDistance} mm` : (ctx.isZh ? '待定' : 'TBD');
-  const cameraMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
-  const mountText = cameraMounts.map(m => 
-    getLabel(m, CAMERA_MOUNT_LABELS, ctx.isZh ? 'zh' : 'en')
-  ).join('/') || (ctx.isZh ? '顶部' : 'Top');
-
-  const fov = cfg?.fieldOfView || cfg?.fieldOfViewWidth 
-    ? (cfg?.fieldOfViewWidth && cfg?.fieldOfViewHeight 
-        ? `${cfg.fieldOfViewWidth}×${cfg.fieldOfViewHeight} mm`
-        : `${cfg?.fieldOfView} mm`)
-    : '-';
-  const resolution = cfg?.resolutionPerPixel ? `${cfg.resolutionPerPixel} mm/pixel` : '-';
+  const checklist = buildModuleVisionChecklist({
+    module: mod,
+    workstation: data.ws,
+    layout,
+    hardware,
+    language: ctx.isZh ? 'zh' : 'en',
+  });
 
   const checklistItems = [
-    `1. ${ctx.isZh ? '运动方式' : 'Motion'}: ${triggerLabel}`,
-    `2. ${ctx.isZh ? '视野范围' : 'FOV'}: ${fov}`,
-    `3. ${ctx.isZh ? '像素精度' : 'Resolution'}: ${resolution}`,
-    `4. ${ctx.isZh ? '相机安装' : 'Camera Mount'}: ${mountText}`,
-    `5. ${ctx.isZh ? '工位节拍' : 'Station Cycle'}: ${data.ws.cycle_time || '-'} s/pcs`,
-    `6. ${ctx.isZh ? '工作距离' : 'WD'}: ${wd}`,
+    `1. ${ctx.isZh ? '检测方式' : 'Detection Method'}: ${checklist.detectionMethod}`,
+    `2. ${ctx.isZh ? '视野范围' : 'FOV'}: ${checklist.fieldOfView}`,
+    `3. ${ctx.isZh ? '像素精度' : 'Pixel Accuracy'}: ${checklist.pixelAccuracy}`,
+    `4. ${ctx.isZh ? '相机安装' : 'Camera Mount'}: ${checklist.cameraInstall}`,
+    `5. ${ctx.isZh ? '拍照次数' : 'Shot Count'}: ${checklist.shotCount}`,
+    `6. ${ctx.isZh ? '节拍' : 'Takt'}: ${checklist.taktTime}`,
   ];
 
   slide.addText(checklistItems.join('\n'), {

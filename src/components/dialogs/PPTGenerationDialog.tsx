@@ -56,6 +56,7 @@ import { useBatchImageCache } from '@/hooks/useImageCache';
 import type { ImageCacheType } from '@/services/imageLocalCache';
 import { PPTImagePreviewDialog } from './PPTImagePreviewDialog';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
+import { buildModuleVisionChecklistTemplateFields } from '@/utils/moduleVisionChecklist';
 
 type GenerationScope = 'full' | 'workstations' | 'modules';
 type OutputLanguage = 'zh' | 'en';
@@ -783,37 +784,50 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         extra_fields: l.extra_fields,
       }));
 
-      const moduleData = reportData.modules.map(m => ({
-        id: m.id,
-        name: m.name,
-        type: m.type,
-        type_label: m.type_label,
-        description: m.description,
-        workstation_id: m.workstation_id,
-        trigger_type: m.trigger_type,
-        trigger_type_label: m.trigger_type_label,
-        roi_strategy: m.roi_strategy,
-        roi_strategy_label: m.roi_strategy_label,
-        processing_time_limit: m.processing_time_limit,
-        output_types: m.output_types,
-        output_types_labels: m.output_types_labels,
-        selected_camera: m.selected_camera,
-        selected_camera_info: m.selected_camera_info,
-        selected_lens: m.selected_lens,
-        selected_lens_info: m.selected_lens_info,
-        selected_light: m.selected_light,
-        selected_light_info: m.selected_light_info,
-        selected_controller: m.selected_controller,
-        selected_controller_info: m.selected_controller_info,
-        schematic_image_url: m.schematic_image_url,
-        positioning_config: m.positioning_config,
-        defect_config: m.defect_config,
-        ocr_config: m.ocr_config,
-        measurement_config: m.measurement_config,
-        deep_learning_config: m.deep_learning_config,
-        lighting_photos: m.lighting_photos || [],
-        extra_fields: m.extra_fields,
-      }));
+      const moduleData = reportData.modules.map(m => {
+        const moduleWorkstation = workstationData.find(ws => ws.id === m.workstation_id) || null;
+        const moduleLayout = layoutData.find(l => l.workstation_id === m.workstation_id) || null;
+        const checklistFields = buildModuleVisionChecklistTemplateFields({
+          module: m,
+          workstation: moduleWorkstation,
+          layout: moduleLayout,
+          hardware: hardwareLibrary,
+          language,
+        });
+
+        return {
+          id: m.id,
+          name: m.name,
+          type: m.type,
+          type_label: m.type_label,
+          description: m.description,
+          workstation_id: m.workstation_id,
+          trigger_type: m.trigger_type,
+          trigger_type_label: m.trigger_type_label,
+          roi_strategy: m.roi_strategy,
+          roi_strategy_label: m.roi_strategy_label,
+          processing_time_limit: m.processing_time_limit,
+          output_types: m.output_types,
+          output_types_labels: m.output_types_labels,
+          selected_camera: m.selected_camera,
+          selected_camera_info: m.selected_camera_info,
+          selected_lens: m.selected_lens,
+          selected_lens_info: m.selected_lens_info,
+          selected_light: m.selected_light,
+          selected_light_info: m.selected_light_info,
+          selected_controller: m.selected_controller,
+          selected_controller_info: m.selected_controller_info,
+          schematic_image_url: m.schematic_image_url,
+          positioning_config: m.positioning_config,
+          defect_config: m.defect_config,
+          ocr_config: m.ocr_config,
+          measurement_config: m.measurement_config,
+          deep_learning_config: m.deep_learning_config,
+          lighting_photos: m.lighting_photos || [],
+          extra_fields: m.extra_fields,
+          ...checklistFields,
+        };
+      });
 
       const hardwareData = hardwareLibrary;
 

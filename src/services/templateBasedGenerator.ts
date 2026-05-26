@@ -57,6 +57,12 @@ export interface TemplateGenerationData {
       roi_strategy: string | null;
       processing_time_limit: number | null;
       schematic_image_url?: string | null;
+      mod_detection_method?: string;
+      mod_field_of_view?: string;
+      mod_pixel_accuracy?: string;
+      mod_camera_install?: string;
+      mod_shot_count?: string;
+      mod_takt_time?: string;
     }>;
     layout?: {
       front_view_image_url?: string | null;
@@ -92,6 +98,12 @@ export interface TemplateGenerationData {
     trigger_type: string | null;
     roi_strategy: string | null;
     processing_time_limit: number | null;
+    mod_detection_method?: string;
+    mod_field_of_view?: string;
+    mod_pixel_accuracy?: string;
+    mod_camera_install?: string;
+    mod_shot_count?: string;
+    mod_takt_time?: string;
   }>;
   hardware: {
     cameras?: Array<{ brand: string; model: string; resolution: string; sensor_size: string; interface: string; image_url?: string | null }>;
@@ -383,6 +395,12 @@ export const MODULE_PLACEHOLDERS = {
   mod_trigger_label: '触发方式',
   mod_roi_strategy: 'ROI策略',
   mod_processing_time: '处理时限(ms)',
+  mod_detection_method: '检测方式',
+  mod_field_of_view: '视野范围',
+  mod_pixel_accuracy: '像素精度',
+  mod_camera_install: '相机安装',
+  mod_shot_count: '拍照次数',
+  mod_takt_time: '节拍',
   mod_schematic_url: '示意图URL',
 };
 

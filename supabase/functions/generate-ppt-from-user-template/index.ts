@@ -341,6 +341,17 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     schematic_image: context.modules?.[0]?.schematic_image_url,
   };
 
+  const firstModule = context.modules?.[0] || null;
+  if (firstModule) {
+    Object.assign(fields, buildModuleVisionChecklistTemplateFields({
+      module: firstModule,
+      workstation,
+      layout,
+      hardware: context.hardware,
+      language: context.language,
+    }));
+  }
+
   if (workstation?.id) {
     Object.assign(fields, {
       name: workstation.name,
@@ -365,6 +376,13 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     fields.index = String(loopIndex);
 
     if (context.loopName === "modules") {
+      const moduleWorkstation = workstation?.id
+        ? workstation
+        : (context.workstations || []).find((ws: any) => ws.id === loopItem.workstation_id) || {};
+      const moduleLayout = layout?.workstation_id
+        ? layout
+        : moduleWorkstation.layout || {};
+
       Object.assign(fields, {
         mod_name: loopItem.name,
         mod_index: String(loopIndex),
@@ -375,6 +393,13 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
         mod_roi_strategy: loopItem.roi_strategy_label,
         mod_processing_time: stringify(loopItem.processing_time_limit),
         mod_schematic_url: loopItem.schematic_image_url,
+        ...buildModuleVisionChecklistTemplateFields({
+          module: loopItem,
+          workstation: moduleWorkstation,
+          layout: moduleLayout,
+          hardware: context.hardware,
+          language: context.language,
+        }),
       });
     }
 
@@ -397,6 +422,220 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
   }
 
   return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, stringify(value)]));
+}
+
+function buildModuleVisionChecklistTemplateFields(input: any) {
+  const checklist = buildModuleVisionChecklist(input);
+  return {
+    mod_detection_method: firstPresent(input.module?.mod_detection_method, checklist.detectionMethod) || "",
+    mod_field_of_view: firstPresent(input.module?.mod_field_of_view, checklist.fieldOfView) || "",
+    mod_pixel_accuracy: firstPresent(input.module?.mod_pixel_accuracy, checklist.pixelAccuracy) || "",
+    mod_camera_install: firstPresent(input.module?.mod_camera_install, checklist.cameraInstall) || "",
+    mod_shot_count: firstPresent(input.module?.mod_shot_count, checklist.shotCount) || "",
+    mod_takt_time: firstPresent(input.module?.mod_takt_time, checklist.taktTime) || "",
+  };
+}
+
+function buildModuleVisionChecklist(input: any) {
+  const language = input.language || "zh";
+  const module = input.module || {};
+  const workstation = input.workstation || {};
+  const layout = input.layout || {};
+  const config = getModuleConfig(module);
+  const imaging = getPlainObject(config?.imaging) || {};
+  const cameraCount = getModuleCameraCount(module, config);
+  const selectedCamera = getSelectedCamera(module, layout, input.hardware || {});
+
+  const fieldOfViewRaw = firstPresent(
+    joinFov(imaging.fieldOfViewWidth, imaging.fieldOfViewHeight),
+    imaging.fieldOfView,
+    config?.fieldOfView,
+    config?.fieldOfViewCommon,
+    config?.measurementFieldOfView,
+    config?.ocrCameraFieldOfView,
+    config?.dlFieldOfView,
+  );
+  const fieldOfView = formatFieldOfView(fieldOfViewRaw);
+  const explicitPixelAccuracy = firstPresent(imaging.resolutionPerPixel, config?.resolutionPerPixel);
+  const pixelAccuracy = formatPixelAccuracy(explicitPixelAccuracy)
+    || calculatePixelAccuracy(fieldOfViewRaw || fieldOfView, selectedCamera?.resolution)
+    || "-";
+  const cameraInstall = firstPresent(
+    imaging.cameraInstallNote,
+    config?.cameraInstallNote,
+    layout.layout_description,
+    layout.camera_mounts_labels,
+    formatCameraMounts(layout.camera_mounts, language),
+  ) || "-";
+
+  const shotCountValue = firstPresent(
+    workstation.shot_count,
+    config?.shotCount,
+    config?.shot_count,
+    cameraCount,
+  );
+  const taktValue = firstPresent(
+    workstation.cycle_time,
+    workstation.acceptance_criteria?.cycle_time,
+    config?.taktTime,
+    config?.cycleTime,
+    module.processing_time_limit ? module.processing_time_limit / 1000 : undefined,
+  );
+
+  return {
+    detectionMethod: `${toBoolean(imaging.is3DCamera) ? "3D" : "2D"}*${cameraCount}`,
+    fieldOfView,
+    pixelAccuracy,
+    cameraInstall: String(cameraInstall),
+    shotCount: formatShotCount(shotCountValue, language),
+    taktTime: formatTaktTime(taktValue, language),
+  };
+}
+
+function getModuleConfig(module: any) {
+  return module?.defect_config
+    || module?.measurement_config
+    || module?.positioning_config
+    || module?.ocr_config
+    || module?.deep_learning_config
+    || {};
+}
+
+function getPlainObject(value: any) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function firstPresent(...values: any[]) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    return value;
+  }
+  return undefined;
+}
+
+function joinFov(width: any, height: any) {
+  const w = firstPresent(width);
+  const h = firstPresent(height);
+  return w !== undefined && h !== undefined ? `${w}*${h}` : undefined;
+}
+
+function toBoolean(value: any) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return ["true", "1", "yes", "y"].includes(value.trim().toLowerCase());
+  return Boolean(value);
+}
+
+function getModuleCameraCount(module: any, config: any) {
+  const count = parsePositiveNumber(firstPresent(config?.cameraCount, config?.defectCameraCount, config?.camera_count));
+  if (count) return Math.max(1, Math.round(count));
+  return module?.selected_camera || module?.selected_camera_info ? 1 : 1;
+}
+
+function formatFieldOfView(value: any) {
+  if (value === null || value === undefined || String(value).trim() === "") return "-";
+  const text = String(value)
+    .trim()
+    .replace(/[×xX]/g, "*")
+    .replace(/\s*mm\b/gi, "")
+    .replace(/\s+/g, "");
+  return text ? `${text}mm` : "-";
+}
+
+function formatPixelAccuracy(value: any) {
+  if (value === null || value === undefined || String(value).trim() === "") return "";
+  const text = String(value).trim().replace(/\s+/g, "").replace(/px/gi, "pixel");
+  if (/mm\/pixel$/i.test(text)) return text.replace(/mm\/pixel$/i, "mm/pixel");
+  const parsed = parsePositiveNumber(text);
+  return parsed ? `${formatNumber(parsed, parsed < 0.01 ? 4 : 3)}mm/pixel` : text;
+}
+
+function calculatePixelAccuracy(fieldOfView: any, cameraResolution: any) {
+  const fovWidth = parseFirstNumber(fieldOfView);
+  const resolutionWidth = parseFirstNumber(cameraResolution);
+  if (!fovWidth || !resolutionWidth) return "";
+  const value = fovWidth / resolutionWidth;
+  if (!Number.isFinite(value) || value <= 0) return "";
+  return `${formatNumber(value, value < 0.01 ? 4 : 2)}mm/pixel`;
+}
+
+function getSelectedCamera(module: any, layout: any, hardware: any) {
+  const explicit = getPlainObject(module?.selected_camera_info);
+  if (explicit?.resolution) return explicit;
+  if (explicit?.specs?.resolution) return { ...explicit, resolution: explicit.specs.resolution };
+
+  const cameras = Array.isArray(hardware?.cameras) ? hardware.cameras : [];
+  const selectedCamera = module?.selected_camera || "";
+  const selectedLayoutCameras = Array.isArray(layout?.selected_cameras) ? layout.selected_cameras : [];
+
+  if (selectedCamera) {
+    const slotMatch = String(selectedCamera).match(/^cam_(\d+)$/i);
+    if (slotMatch) {
+      const index = Number(slotMatch[1]) - 1;
+      const layoutCamera = selectedLayoutCameras[index];
+      if (layoutCamera) return cameras.find((camera: any) => camera.id === layoutCamera.id) || layoutCamera;
+    }
+    const direct = cameras.find((camera: any) => camera.id === selectedCamera);
+    if (direct) return direct;
+  }
+
+  if (selectedLayoutCameras.length === 1) {
+    const layoutCamera = selectedLayoutCameras[0];
+    return cameras.find((camera: any) => camera.id === layoutCamera.id) || layoutCamera;
+  }
+
+  return null;
+}
+
+function formatCameraMounts(value: any, language: string) {
+  const labels: Record<string, { zh: string; en: string }> = {
+    top: { zh: "顶部安装", en: "Top Mount" },
+    side: { zh: "侧面安装", en: "Side Mount" },
+    bottom: { zh: "底部安装", en: "Bottom Mount" },
+    front: { zh: "正面安装", en: "Front Mount" },
+    back: { zh: "背面安装", en: "Back Mount" },
+    angle: { zh: "斜角安装", en: "Angle Mount" },
+    "45deg": { zh: "45°安装", en: "45° Mount" },
+    overhead: { zh: "顶置安装", en: "Overhead" },
+  };
+  const mounts = Array.isArray(value)
+    ? value.map(String)
+    : value && typeof value === "object"
+      ? Object.keys(value)
+      : [];
+  return mounts.map((mount) => labels[mount]?.[language === "en" ? "en" : "zh"] || mount).join("/");
+}
+
+function formatShotCount(value: any, language: string) {
+  const count = Math.max(1, Math.round(parsePositiveNumber(value) || 1));
+  return language === "en" ? `${count} shot${count === 1 ? "" : "s"}` : `${count}次`;
+}
+
+function formatTaktTime(value: any, language: string) {
+  const seconds = parsePositiveNumber(value);
+  if (seconds) {
+    return language === "en" ? `${formatNumber(seconds, 3)}s/shot` : `${formatNumber(seconds, 3)}S/次`;
+  }
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  return text || (language === "en" ? "TBD" : "待定");
+}
+
+function parsePositiveNumber(value: any) {
+  const parsed = parseFirstNumber(value);
+  return parsed && parsed > 0 ? parsed : null;
+}
+
+function parseFirstNumber(value: any) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (value === null || value === undefined) return null;
+  const match = String(value).match(/\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatNumber(value: number, decimals: number) {
+  return Number(value.toFixed(decimals)).toString();
 }
 
 async function replaceImagePlaceholders(zip: any, xml: string, relsXml: string, slideNumber: number, context: any) {
