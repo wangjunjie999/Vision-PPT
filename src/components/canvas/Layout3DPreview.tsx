@@ -6,6 +6,7 @@ import { RotateCcw, X, Magnet, Eye, EyeOff, Save, Lock, Unlock, Maximize2 } from
 import type { LayoutObject } from './ObjectPropertyPanel';
 import { CAMERA_INTERACTION_TYPES, PRODUCT_INTERACTION_TYPES } from './MechanismSVG';
 import * as THREE from 'three';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
 
 // Compute world-space rotation using quaternions to avoid Euler gimbal lock.
 // Each slider always rotates around the fixed world axis regardless of other axes' values.
@@ -1318,8 +1319,9 @@ function DefaultMechanismModel({ w, h, d, selected, xray }: { w: number; h: numb
 
 // --- GLB Model Renderer (isolated instances via useRef) ---
 function GLBModelRenderer({ url, w, h, d }: { url: string; w: number; h: number; d: number }) {
-  useGLTF.preload(url);
-  const { scene } = useGLTF(url, undefined, undefined, (loader) => {
+  const proxied = toLocalProxyUrl(url);
+  useGLTF.preload(proxied);
+  const { scene } = useGLTF(proxied, undefined, undefined, (loader) => {
     loader.setCrossOrigin('anonymous');
   });
   const groupRef = useRef<THREE.Group>(null);
