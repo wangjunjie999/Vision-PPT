@@ -18,6 +18,7 @@
 
 import { resolveHardwareImageUrl } from '@/utils/hardwareImageUrls';
 import { imageLocalCache } from '@/services/imageLocalCache';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
 
 // Image cache for dataUri conversion (memory cache for current session)
 const imageCache = new Map<string, string>();
@@ -89,6 +90,8 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
   
   // 4. Build absolute URL for relative paths
   let absoluteUrl = resolvedUrl || url;
+  // Route Supabase Storage URLs through the dev reverse-proxy + disk cache when in dev.
+  absoluteUrl = toLocalProxyUrl(absoluteUrl) || absoluteUrl;
   if (absoluteUrl.startsWith('/') && !absoluteUrl.startsWith('//')) {
     absoluteUrl = `${window.location.origin}${absoluteUrl}`;
     console.log(`[ImagePreloader] Converting relative URL: ${url} -> ${absoluteUrl}`);

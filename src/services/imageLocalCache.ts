@@ -425,10 +425,14 @@ export function blobToDataUri(blob: Blob): Promise<string> {
  */
 export async function fetchImageAsDataUriForCache(url: string): Promise<string | null> {
   if (!url) return null;
-  
+
+  // Route through dev reverse proxy + disk cache when available.
+  const { toLocalProxyUrl } = await import('@/utils/storageUrl');
+  const fetchUrl = toLocalProxyUrl(url) || url;
+
   try {
     // 尝试使用 fetch
-    const response = await fetch(url, {
+    const response = await fetch(fetchUrl, {
       mode: 'cors',
       credentials: 'omit',
     });
@@ -469,7 +473,7 @@ export async function fetchImageAsDataUriForCache(url: string): Promise<string |
         resolve(null);
       };
       
-      img.src = url;
+      img.src = fetchUrl;
     });
   }
 }

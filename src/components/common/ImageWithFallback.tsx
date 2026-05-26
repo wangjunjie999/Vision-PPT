@@ -2,6 +2,7 @@ import React, { useState, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { ImageOff, Camera, Settings2, Package } from 'lucide-react';
 import { getMechanismImage } from '@/utils/mechanismImageUrls';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
 
 export type ImageFallbackType = 'generic' | 'camera' | 'mechanism' | 'hardware' | 'product';
 
@@ -47,36 +48,38 @@ export const ImageWithFallback = memo(function ImageWithFallback({
   alt = '',
   ...props
 }: ImageWithFallbackProps) {
-  const [currentSrc, setCurrentSrc] = useState<string | null>(src || null);
+  const proxiedSrc = src ? toLocalProxyUrl(src) : null;
+  const proxiedFallback = fallbackSrc ? toLocalProxyUrl(fallbackSrc) : null;
+  const [currentSrc, setCurrentSrc] = useState<string | null>(proxiedSrc);
   const [hasError, setHasError] = useState(false);
   const [usedFallback, setUsedFallback] = useState(false);
 
   // Reset state when src changes
   React.useEffect(() => {
-    if (src) {
-      setCurrentSrc(src);
+    if (proxiedSrc) {
+      setCurrentSrc(proxiedSrc);
       setHasError(false);
       setUsedFallback(false);
-    } else if (fallbackSrc) {
-      setCurrentSrc(fallbackSrc);
+    } else if (proxiedFallback) {
+      setCurrentSrc(proxiedFallback);
       setUsedFallback(true);
       setHasError(false);
     } else {
       setCurrentSrc(null);
       setHasError(true);
     }
-  }, [src, fallbackSrc]);
+  }, [proxiedSrc, proxiedFallback]);
 
   const handleError = useCallback(() => {
-    if (!usedFallback && fallbackSrc) {
+    if (!usedFallback && proxiedFallback) {
       // Try fallback
-      setCurrentSrc(fallbackSrc);
+      setCurrentSrc(proxiedFallback);
       setUsedFallback(true);
     } else {
       // Both failed
       setHasError(true);
     }
-  }, [fallbackSrc, usedFallback]);
+  }, [proxiedFallback, usedFallback]);
 
   // Show fallback UI
   if (hasError || !currentSrc) {
@@ -148,15 +151,16 @@ export const MechanismThumbnail = memo(function MechanismThumbnail({
   size = 'md',
 }: MechanismThumbnailProps) {
   const localImageUrl = getMechanismImage(type, view);
-  const primarySrc = databaseUrl || localImageUrl;
-  const fallbackSrc = databaseUrl ? localImageUrl : null;
+  const proxiedDb = databaseUrl ? toLocalProxyUrl(databaseUrl) : null;
+  const primarySrc = proxiedDb || localImageUrl;
+  const fallbackSrc = proxiedDb ? localImageUrl : null;
   
   const [currentSrc, setCurrentSrc] = useState<string | null>(primarySrc);
   const [showFallbackEmoji, setShowFallbackEmoji] = useState(false);
 
   // Reset when databaseUrl, type or view changes
   React.useEffect(() => {
-    const newPrimary = databaseUrl || getMechanismImage(type, view);
+    const newPrimary = (databaseUrl ? toLocalProxyUrl(databaseUrl) : null) || getMechanismImage(type, view);
     setCurrentSrc(newPrimary);
     setShowFallbackEmoji(false);
   }, [databaseUrl, type, view]);
