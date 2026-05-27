@@ -432,9 +432,9 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
             const canvasElement = layoutCanvasRef.current?.querySelector('svg');
             if (canvasElement) {
               const blob = await generateImageFromElement(canvasElement as unknown as HTMLElement, {
-                quality: 'standard',
+                quality: 'high',
                 backgroundColor: '#1e293b',
-                format: 'jpeg',
+                format: 'png',
               });
               
               await saveViewToStorage(
