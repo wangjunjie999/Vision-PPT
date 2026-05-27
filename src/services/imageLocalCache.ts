@@ -457,7 +457,8 @@ export async function fetchImageAsDataUriForCache(url: string): Promise<string |
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0);
-            const dataUri = canvas.toDataURL('image/jpeg', 0.9);
+            // Use PNG to avoid JPEG recompression — keeps PPT-embedded images HD
+            const dataUri = canvas.toDataURL('image/png');
             resolve(dataUri);
           } else {
             resolve(null);
