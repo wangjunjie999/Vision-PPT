@@ -228,7 +228,7 @@ export function storageProxyPlugin(opts: StorageProxyOptions): Plugin {
             }
 
             const upstream = `${upstreamObjectBase}/${rel}`;
-            const headers: HeadersInit = {
+            const headers: Record<string, string> = {
               Authorization: auth,
               'Content-Type': String(req.headers['content-type'] || mimeFor(rel)),
             };
