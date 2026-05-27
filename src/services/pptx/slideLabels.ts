@@ -124,7 +124,12 @@ export const SLIDE_LAYOUT = {
 };
 
 // Helper functions
-export const getWorkstationCode = (projectCode: string, wsIndex: number): string => {
+export const getWorkstationCode = (
+  projectCode: string,
+  wsIndex: number,
+  wsCode?: string | null,
+): string => {
+  if (wsCode && wsCode.trim()) return wsCode.trim();
   return `${projectCode}.${String(wsIndex + 1).padStart(2, '0')}`;
 };
 
