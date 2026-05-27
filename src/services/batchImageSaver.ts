@@ -90,14 +90,17 @@ export async function saveViewToStorage(
   imageBlob: Blob,
   updateLayout: (id: string, data: any) => Promise<any>
 ): Promise<string> {
-  const fileName = `${workstationId}/${view}-${Date.now()}.jpg`;
-  
+  // Use PNG to preserve full HD quality (no JPEG recompression) for PPT embedding
+  const isPng = imageBlob.type === 'image/png';
+  const ext = isPng ? 'png' : 'jpg';
+  const fileName = `${workstationId}/${view}-${Date.now()}.${ext}`;
+
   // Upload to storage
   const { error: uploadError } = await supabase.storage
     .from('workstation-views')
-    .upload(fileName, imageBlob, { 
+    .upload(fileName, imageBlob, {
       upsert: true,
-      contentType: 'image/jpeg',
+      contentType: isPng ? 'image/png' : 'image/jpeg',
     });
   
   if (uploadError) throw uploadError;
@@ -215,7 +218,7 @@ export async function generateImageFromElement(
     forceWhiteText?: boolean;
   } = {}
 ): Promise<Blob> {
-  const { quality = 'fast', backgroundColor = '#1e293b', format = 'jpeg', forceWhiteText = false } = options;
+  const { quality = 'fast', backgroundColor = '#1e293b', format = 'png', forceWhiteText = false } = options;
   const preset = QUALITY_PRESETS[quality];
   
   // Inject force-white style if requested
@@ -238,7 +241,7 @@ export async function generateImageFromElement(
   try {
     dataUrl = await toPng(element, {
       quality: preset.quality,
-      pixelRatio: Math.min(preset.pixelRatio, 2),
+      pixelRatio: preset.pixelRatio,
       backgroundColor,
       skipFonts: true,
       cacheBust: true,
@@ -258,9 +261,11 @@ export async function generateImageFromElement(
       injectedStyle.remove();
     }
   }
-  
+
   const originalBlob = dataUrlToBlob(dataUrl);
-  
+
+  // Caller can explicitly opt into JPEG (e.g. small thumbnails). Default is lossless PNG
+  // so PPT-embedded images stay high-definition with no recompression / resizing.
   if (format === 'jpeg') {
     return await compressImage(originalBlob, {
       quality: preset.quality,
@@ -269,7 +274,7 @@ export async function generateImageFromElement(
       format: 'image/jpeg',
     });
   }
-  
+
   return originalBlob;
 }
 
