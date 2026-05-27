@@ -71,6 +71,9 @@ const DEFAULT_FOV_ANGLE = 45;
 const DEFAULT_LIGHT_DISTANCE = 335;
 const SCHEMATIC_PRODUCT_Y = 420;
 const SCHEMATIC_PRODUCT_CENTER_X = 275;
+const DEFAULT_PRODUCT_POS = { x: SCHEMATIC_PRODUCT_CENTER_X, y: SCHEMATIC_PRODUCT_Y };
+const PRODUCT_MIN_Y = 300;
+const PRODUCT_MAX_Y = 430;
 const SCHEMATIC_DISTANCE_SCALE = DEFAULT_LIGHT_DISTANCE / (SCHEMATIC_PRODUCT_Y - 175);
 const LENS_BOTTOM_OFFSET_FROM_ROTATION_CENTER = 82;
 const CAMERA_BOTTOM_OFFSET_FROM_ROTATION_CENTER = 30;
@@ -80,6 +83,7 @@ type SchematicPoint = { x: number; y: number };
 interface SchematicLayoutState {
   camera?: SchematicPoint;
   light?: SchematicPoint;
+  product?: SchematicPoint;
   lights?: Array<{ id: string; position: SchematicPoint; rotation?: number }>;
   cameraRotation?: number;
   lightRotation?: number;
@@ -98,6 +102,13 @@ const MODULE_CONFIG_KEYS = [
 
 function isSchematicLayout(value: unknown): value is SchematicLayoutState {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function clampProductPosition(pos: SchematicPoint): SchematicPoint {
+  return {
+    x: DEFAULT_PRODUCT_POS.x,
+    y: Math.max(PRODUCT_MIN_Y, Math.min(PRODUCT_MAX_Y, pos.y)),
+  };
 }
 
 function parsePositiveNumber(value: unknown): number | null {
@@ -174,33 +185,33 @@ function getOpticalBottomOffset(is3DCamera: boolean) {
   return is3DCamera ? CAMERA_BOTTOM_OFFSET_FROM_ROTATION_CENTER : LENS_BOTTOM_OFFSET_FROM_ROTATION_CENTER;
 }
 
-function getCameraYForWorkingDistance(workingDistanceMm: number, cameraRotation: number, distanceScale: number, is3DCamera: boolean) {
+function getCameraYForWorkingDistance(workingDistanceMm: number, cameraRotation: number, distanceScale: number, is3DCamera: boolean, productY: number) {
   const rotationRad = cameraRotation * Math.PI / 180;
   const rotatedLensOffsetY = 55 + (getOpticalBottomOffset(is3DCamera) * Math.cos(rotationRad));
-  const targetY = SCHEMATIC_PRODUCT_Y - (workingDistanceMm / distanceScale) - rotatedLensOffsetY;
+  const targetY = productY - (workingDistanceMm / distanceScale) - rotatedLensOffsetY;
   return Math.max(16, Math.min(260, targetY));
 }
 
-function getWorkingDistanceForCameraY(cameraY: number, cameraRotation: number, distanceScale: number, is3DCamera: boolean) {
+function getWorkingDistanceForCameraY(cameraY: number, cameraRotation: number, distanceScale: number, is3DCamera: boolean, productY: number) {
   const rotationRad = cameraRotation * Math.PI / 180;
   const rotatedLensOffsetY = 55 + (getOpticalBottomOffset(is3DCamera) * Math.cos(rotationRad));
-  return Math.max(0, Math.round((SCHEMATIC_PRODUCT_Y - cameraY - rotatedLensOffsetY) * distanceScale));
+  return Math.max(0, Math.round((productY - cameraY - rotatedLensOffsetY) * distanceScale));
 }
 
-function getLightYForDistance(lightDistanceMm: number, distanceScale: number) {
-  return Math.max(24, Math.min(SCHEMATIC_PRODUCT_Y - 24, SCHEMATIC_PRODUCT_Y - (lightDistanceMm / distanceScale)));
+function getLightYForDistance(lightDistanceMm: number, distanceScale: number, productY: number) {
+  return Math.max(24, Math.min(productY - 24, productY - (lightDistanceMm / distanceScale)));
 }
 
-function getLightXForHorizontalDistance(horizontalDistanceMm: number, distanceScale: number) {
-  return Math.max(80, Math.min(470, SCHEMATIC_PRODUCT_CENTER_X + (horizontalDistanceMm / distanceScale)));
+function getLightXForHorizontalDistance(horizontalDistanceMm: number, distanceScale: number, productX: number) {
+  return Math.max(80, Math.min(470, productX + (horizontalDistanceMm / distanceScale)));
 }
 
-function getLightVerticalDistanceForY(lightY: number, distanceScale: number) {
-  return Math.max(0, Math.round(Math.abs(SCHEMATIC_PRODUCT_Y - lightY) * distanceScale));
+function getLightVerticalDistanceForY(lightY: number, distanceScale: number, productY: number) {
+  return Math.max(0, Math.round(Math.abs(productY - lightY) * distanceScale));
 }
 
-function getLightHorizontalDistanceForX(lightX: number, distanceScale: number) {
-  return Math.round((lightX - SCHEMATIC_PRODUCT_CENTER_X) * distanceScale);
+function getLightHorizontalDistanceForX(lightX: number, distanceScale: number, productX: number) {
+  return Math.round((lightX - productX) * distanceScale);
 }
 
 export function ModuleSchematic() {
@@ -232,6 +243,7 @@ export function ModuleSchematic() {
   // Schematic layout (camera/light position + rotation) — persisted to module.schematic_layout
   const [cameraPos, setCameraPos] = useState(DEFAULT_CAMERA_POS);
   const [lightPos, setLightPos] = useState(DEFAULT_LIGHT_POS);
+  const [productPos, setProductPos] = useState(DEFAULT_PRODUCT_POS);
   const [lightLayouts, setLightLayouts] = useState<Record<string, { position: SchematicPoint; rotation: number }>>({});
   const [cameraRotation, setCameraRotation] = useState(0);
   const [lightRotation, setLightRotation] = useState(0);
@@ -391,8 +403,8 @@ export function ModuleSchematic() {
       const verticalMm = toMillimeters(item.lightDistanceVertical, distanceUnit);
       const distanceMm = toMillimeters(item.lightDistance, distanceUnit)
         ?? (verticalMm !== null ? Math.sqrt(horizontalMm * horizontalMm + verticalMm * verticalMm) : null);
-      const fallbackY = verticalMm !== null ? getLightYForDistance(verticalMm, distanceScale) : DEFAULT_LIGHT_POS.y + index * 34;
-      const fallbackX = getLightXForHorizontalDistance(horizontalMm, distanceScale);
+      const fallbackY = verticalMm !== null ? getLightYForDistance(verticalMm, distanceScale, productPos.y) : DEFAULT_LIGHT_POS.y + index * 34;
+      const fallbackX = getLightXForHorizontalDistance(horizontalMm, distanceScale, productPos.x);
       const stored = lightLayouts[item.id];
       return {
         id: item.id,
@@ -420,6 +432,7 @@ export function ModuleSchematic() {
       controllerId: selectedControllerId,
       camera: cameraPos,
       light: lightPos,
+      product: productPos,
       cameraRotation,
       lightRotation,
       fovAngle,
@@ -457,6 +470,7 @@ export function ModuleSchematic() {
       is3DCamera,
       lightPos,
       lightRotation,
+      productPos,
       resolvedLightVerticalMm,
       selectedCameraId,
       selectedControllerId,
@@ -483,6 +497,7 @@ export function ModuleSchematic() {
     if (saved) {
       if (saved.camera) setCameraPos({ x: saved.camera.x ?? DEFAULT_CAMERA_POS.x, y: saved.camera.y ?? DEFAULT_CAMERA_POS.y });
       if (saved.light) setLightPos({ x: saved.light.x ?? DEFAULT_LIGHT_POS.x, y: saved.light.y ?? DEFAULT_LIGHT_POS.y });
+      setProductPos(saved.product ? clampProductPosition({ x: saved.product.x ?? DEFAULT_PRODUCT_POS.x, y: saved.product.y ?? DEFAULT_PRODUCT_POS.y }) : DEFAULT_PRODUCT_POS);
       if (Array.isArray(saved.lights)) {
         const nextLightLayouts = saved.lights.reduce<Record<string, { position: SchematicPoint; rotation: number }>>((acc, item) => {
           if (!item?.id || !item.position) return acc;
@@ -506,6 +521,7 @@ export function ModuleSchematic() {
     } else {
       setCameraPos(DEFAULT_CAMERA_POS);
       setLightPos(DEFAULT_LIGHT_POS);
+      setProductPos(DEFAULT_PRODUCT_POS);
       setLightLayouts({});
       setCameraRotation(0);
       setLightRotation(0);
@@ -517,7 +533,7 @@ export function ModuleSchematic() {
 
   useEffect(() => {
     if (!workingDistanceMm) return;
-    const nextY = getCameraYForWorkingDistance(workingDistanceMm, cameraRotation, distanceScale, is3DCamera);
+    const nextY = getCameraYForWorkingDistance(workingDistanceMm, cameraRotation, distanceScale, is3DCamera, productPos.y);
     setCameraPos(prev => (
       Math.abs(prev.y - nextY) < 0.5
         ? prev
@@ -528,8 +544,8 @@ export function ModuleSchematic() {
   useEffect(() => {
     if (resolvedLightVerticalMm === null && lightDistanceHorizontalMm === null) return;
     setLightPos(prev => {
-      const nextY = resolvedLightVerticalMm !== null ? getLightYForDistance(resolvedLightVerticalMm, distanceScale) : prev.y;
-      const nextX = getLightXForHorizontalDistance(resolvedLightHorizontalMm, distanceScale);
+      const nextY = resolvedLightVerticalMm !== null ? getLightYForDistance(resolvedLightVerticalMm, distanceScale, productPos.y) : prev.y;
+      const nextX = getLightXForHorizontalDistance(resolvedLightHorizontalMm, distanceScale, productPos.x);
       if (Math.abs(prev.x - nextX) < 0.5 && Math.abs(prev.y - nextY) < 0.5) return prev;
       return { x: nextX, y: nextY };
     });
@@ -546,8 +562,8 @@ export function ModuleSchematic() {
         if (horizontalMm === null && verticalMm === null) return;
         const existing = next[item.id];
         const nextPos = {
-          x: horizontalMm !== null ? getLightXForHorizontalDistance(horizontalMm, distanceScale) : existing?.position.x ?? DEFAULT_LIGHT_POS.x,
-          y: verticalMm !== null ? getLightYForDistance(verticalMm, distanceScale) : existing?.position.y ?? DEFAULT_LIGHT_POS.y,
+          x: horizontalMm !== null ? getLightXForHorizontalDistance(horizontalMm, distanceScale, productPos.x) : existing?.position.x ?? DEFAULT_LIGHT_POS.x,
+          y: verticalMm !== null ? getLightYForDistance(verticalMm, distanceScale, productPos.y) : existing?.position.y ?? DEFAULT_LIGHT_POS.y,
         };
         const nextRotation = parseAngle(item.lightAngle) ?? existing?.rotation ?? 0;
         if (!existing || Math.abs(existing.position.x - nextPos.x) >= 0.5 || Math.abs(existing.position.y - nextPos.y) >= 0.5 || Math.abs(existing.rotation - nextRotation) >= 0.5) {
@@ -586,6 +602,7 @@ export function ModuleSchematic() {
         schematic_layout: {
           camera: cameraPos,
           light: lightPos,
+          product: productPos,
           lights: resolvedDiagramLightItems.map(item => ({
             id: item.id,
             position: item.position,
@@ -604,7 +621,7 @@ export function ModuleSchematic() {
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraPos.x, cameraPos.y, lightPos.x, lightPos.y, cameraRotation, lightRotation, fovAngle, lightDistance, lightCount, resolvedDiagramLightItems, module?.id]);
+  }, [cameraPos.x, cameraPos.y, lightPos.x, lightPos.y, productPos.x, productPos.y, cameraRotation, lightRotation, fovAngle, lightDistance, lightCount, resolvedDiagramLightItems, module?.id]);
 
   // All hooks must be above early returns
   const handleFovAngleChange = useCallback((angle: number) => {
@@ -623,11 +640,11 @@ export function ModuleSchematic() {
   const handleCameraPosChange = useCallback((pos: SchematicPoint) => {
     setCameraPos(pos);
     if (!module) return;
-    const nextWorkingDistanceMm = getWorkingDistanceForCameraY(pos.y, cameraRotation, distanceScale, is3DCamera);
+    const nextWorkingDistanceMm = getWorkingDistanceForCameraY(pos.y, cameraRotation, distanceScale, is3DCamera, productPos.y);
     patchModuleLiveForm(module.id, {
       workingDistance: formatDistanceInput(nextWorkingDistanceMm, distanceUnit),
     });
-  }, [cameraRotation, distanceScale, distanceUnit, is3DCamera, module?.id, patchModuleLiveForm]);
+  }, [cameraRotation, distanceScale, distanceUnit, is3DCamera, module?.id, patchModuleLiveForm, productPos.y]);
 
   const handleDiagramLightDistanceChange = useCallback((value: string) => {
     if (!module) return;
@@ -645,15 +662,15 @@ export function ModuleSchematic() {
   const handleLightPosChange = useCallback((pos: SchematicPoint) => {
     setLightPos(pos);
     if (!module) return;
-    const verticalDistance = getLightVerticalDistanceForY(pos.y, distanceScale);
-    const horizontalDistance = getLightHorizontalDistanceForX(pos.x, distanceScale);
+    const verticalDistance = getLightVerticalDistanceForY(pos.y, distanceScale, productPos.y);
+    const horizontalDistance = getLightHorizontalDistanceForX(pos.x, distanceScale, productPos.x);
     const shortestDistance = Math.sqrt((horizontalDistance * horizontalDistance) + (verticalDistance * verticalDistance));
     patchModuleLiveForm(module.id, {
       lightDistance: formatDistanceInput(shortestDistance, distanceUnit),
       lightDistanceHorizontal: formatDistanceInput(horizontalDistance, distanceUnit),
       lightDistanceVertical: formatDistanceInput(verticalDistance, distanceUnit),
     });
-  }, [distanceScale, distanceUnit, module?.id, patchModuleLiveForm]);
+  }, [distanceScale, distanceUnit, module?.id, patchModuleLiveForm, productPos.x, productPos.y]);
 
   const patchLightItemsLiveForm = useCallback((nextItems: ModuleLightItem[]) => {
     if (!module) return;
@@ -670,6 +687,65 @@ export function ModuleSchematic() {
       lightNote: first?.lightNote || '',
     });
   }, [module?.id, patchModuleLiveForm]);
+
+  const handleProductPosChange = useCallback((pos: SchematicPoint) => {
+    const nextPos = clampProductPosition(pos);
+    setProductPos(nextPos);
+    if (!module) return;
+
+    const nextWorkingDistanceMm = getWorkingDistanceForCameraY(cameraPos.y, cameraRotation, distanceScale, is3DCamera, nextPos.y);
+    const nextItems = moduleLightItems.map(item => {
+      const diagramItem = resolvedDiagramLightItems.find(lightItem => lightItem.id === item.id);
+      const position = diagramItem?.position ?? lightPos;
+      const verticalDistance = getLightVerticalDistanceForY(position.y, distanceScale, nextPos.y);
+      const horizontalDistance = getLightHorizontalDistanceForX(position.x, distanceScale, nextPos.x);
+      const shortestDistance = Math.sqrt((horizontalDistance * horizontalDistance) + (verticalDistance * verticalDistance));
+      return {
+        ...item,
+        lightDistance: formatDistanceInput(shortestDistance, distanceUnit),
+        lightDistanceHorizontal: formatDistanceInput(horizontalDistance, distanceUnit),
+        lightDistanceVertical: formatDistanceInput(verticalDistance, distanceUnit),
+      };
+    });
+    const first = getFirstModuleLightItem(nextItems);
+
+    if (nextItems.length > 0) {
+      patchModuleLiveForm(module.id, {
+        workingDistance: formatDistanceInput(nextWorkingDistanceMm, distanceUnit),
+        lightItems: nextItems,
+        selectedLight: first?.selectedLight || '',
+        lightMode: first?.lightMode || '',
+        lightAngle: first?.lightAngle || '',
+        lightCount: nextItems.length ? String(nextItems.length) : '',
+        lightDistance: first?.lightDistance || '',
+        lightDistanceHorizontal: first?.lightDistanceHorizontal || '',
+        lightDistanceVertical: first?.lightDistanceVertical || '',
+        lightNote: first?.lightNote || '',
+      });
+      return;
+    }
+
+    const verticalDistance = getLightVerticalDistanceForY(lightPos.y, distanceScale, nextPos.y);
+    const horizontalDistance = getLightHorizontalDistanceForX(lightPos.x, distanceScale, nextPos.x);
+    const shortestDistance = Math.sqrt((horizontalDistance * horizontalDistance) + (verticalDistance * verticalDistance));
+    patchModuleLiveForm(module.id, {
+      workingDistance: formatDistanceInput(nextWorkingDistanceMm, distanceUnit),
+      lightDistance: formatDistanceInput(shortestDistance, distanceUnit),
+      lightDistanceHorizontal: formatDistanceInput(horizontalDistance, distanceUnit),
+      lightDistanceVertical: formatDistanceInput(verticalDistance, distanceUnit),
+    });
+  }, [
+    cameraPos.y,
+    cameraRotation,
+    distanceScale,
+    distanceUnit,
+    is3DCamera,
+    lightPos,
+    module?.id,
+    moduleLightItems,
+    patchModuleLiveForm,
+    resolvedDiagramLightItems,
+  ]);
 
   const handleDiagramLightItemDistanceChange = useCallback((id: string, value: string) => {
     const nextDistanceMm = toMillimeters(value, distanceUnit);
@@ -697,8 +773,8 @@ export function ModuleSchematic() {
       },
     }));
 
-    const verticalDistance = getLightVerticalDistanceForY(pos.y, distanceScale);
-    const horizontalDistance = getLightHorizontalDistanceForX(pos.x, distanceScale);
+    const verticalDistance = getLightVerticalDistanceForY(pos.y, distanceScale, productPos.y);
+    const horizontalDistance = getLightHorizontalDistanceForX(pos.x, distanceScale, productPos.x);
     const shortestDistance = Math.sqrt((horizontalDistance * horizontalDistance) + (verticalDistance * verticalDistance));
     const nextItems = moduleLightItems.map(item => (
       item.id === id
@@ -711,7 +787,7 @@ export function ModuleSchematic() {
         : item
     ));
     patchLightItemsLiveForm(nextItems);
-  }, [distanceScale, distanceUnit, moduleLightItems, patchLightItemsLiveForm]);
+  }, [distanceScale, distanceUnit, moduleLightItems, patchLightItemsLiveForm, productPos.x, productPos.y]);
 
   const handleLightRotationChange = useCallback((angle: number) => {
     const nextAngle = Math.max(-180, Math.min(180, Math.round(angle)));
@@ -843,6 +919,7 @@ export function ModuleSchematic() {
         schematic_layout: {
           camera: cameraPos,
           light: lightPos,
+          product: productPos,
           lights: resolvedDiagramLightItems.map(item => ({
             id: item.id,
             position: item.position,
@@ -984,10 +1061,12 @@ export function ModuleSchematic() {
                 interactive={true}
                 cameraPos={cameraPos}
                 lightPos={lightPos}
+                productPos={productPos}
                 cameraRotation={cameraRotation}
                 lightRotation={lightRotation}
                 onCameraPosChange={handleCameraPosChange}
                 onLightPosChange={handleLightPosChange}
+                onProductPosChange={handleProductPosChange}
                 onCameraRotationChange={setCameraRotation}
                 onLightRotationChange={handleLightRotationChange}
                 className="w-full h-full"
@@ -1061,6 +1140,7 @@ export function ModuleSchematic() {
             interactive={false}
             cameraPos={cameraPos}
             lightPos={lightPos}
+            productPos={productPos}
             cameraRotation={cameraRotation}
             lightRotation={lightRotation}
             className="vision-diagram-container w-full h-full"

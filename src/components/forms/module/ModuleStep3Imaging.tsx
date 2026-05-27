@@ -73,6 +73,24 @@ function convertDistanceForUnit(
   return formatDistanceInput(mm, toUnit);
 }
 
+const redundancyStrategyOptions = [
+  { value: 'conservative', label: '保守 (≥3px)' },
+  { value: 'standard', label: '标准 (≥5px)' },
+  { value: 'high', label: '高冗余 (≥10px)' },
+];
+
+function parseCustomRequiredPixels(value: string | undefined): string | undefined {
+  const trimmed = (value || '').trim();
+  if (!trimmed || ['conservative', 'standard', 'high', 'custom'].includes(trimmed)) return undefined;
+  const parsed = Number.parseFloat(trimmed.replace(/px/gi, ''));
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return String(parsed);
+}
+
+function getRedundancyStrategyForCalc(value: string | undefined): string {
+  return parseCustomRequiredPixels(value) ? 'custom' : (value || 'standard');
+}
+
 export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleStep3ImagingProps) {
   const { cameras } = useCameras();
   const { lenses } = useLenses();
@@ -170,7 +188,8 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
       lensMount: selectedLens?.mount || undefined,
       lensMaxSensorSize: selectedLens?.max_sensor_size || undefined,
       targetFeatureSizeMm,
-      redundancyStrategy: form.redundancyStrategy || 'standard',
+      redundancyStrategy: getRedundancyStrategyForCalc(form.redundancyStrategy),
+      customRequiredPixels: parseCustomRequiredPixels(form.redundancyStrategy),
       exposure: form.exposure || undefined,
       lineSpeed: form.lineSpeed || undefined,
       triggerType: form.triggerType,
@@ -562,17 +581,14 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">像素冗余策略</Label>
-              <Select
+              <EditableSelect
                 value={form.redundancyStrategy || 'standard'}
                 onValueChange={v => setForm(p => ({ ...p, redundancyStrategy: v }))}
-              >
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="conservative">保守 (≥3px)</SelectItem>
-                  <SelectItem value="standard">标准 (≥5px)</SelectItem>
-                  <SelectItem value="high">高冗余 (≥10px)</SelectItem>
-                </SelectContent>
-              </Select>
+                options={redundancyStrategyOptions}
+                placeholder="选择策略"
+                customLabel="自定义像素数..."
+                inputPlaceholder="例如: 7 或 7px"
+              />
             </div>
           </div>
         </div>

@@ -38,6 +38,8 @@ import { Product3DViewer } from './Product3DViewer';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
 import type { ProductViewerDisplayMode } from '@/utils/productViewer';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
+import { uploadStorageFile } from '@/utils/storageUpload';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductAsset {
@@ -79,6 +81,15 @@ function getPreferredDisplayMode(asset: ProductAsset): ProductViewerDisplayMode 
   if (asset.source_type === 'image' || asset.source_type === 'reference') return 'image';
   if (asset.source_type === 'model') return 'model';
   return 'auto';
+}
+
+function getSingleViewerMedia(asset: ProductAsset): { modelUrl: string | null; imageUrls: string[] } {
+  const mode = getPreferredDisplayMode(asset);
+  if (mode === 'model') {
+    return { modelUrl: asset.model_file_url, imageUrls: [] };
+  }
+
+  return { modelUrl: null, imageUrls: (asset.preview_images || []).slice(0, 1) };
 }
 
 export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotationPanelProps) {
@@ -188,6 +199,11 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0 || !user) return;
+    if (files.length > 1) {
+      toast.error('一次只能上传一张图片');
+      event.target.value = '';
+      return;
+    }
 
     setUploading(true);
     try {
@@ -201,20 +217,17 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
 
       const bucket = 'product-models';
       const path = `modules/${moduleId}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(path, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-      const fileUrl = urlData.publicUrl;
+      const { publicUrl: fileUrl } = await uploadStorageFile(bucket, path, file, {
+        contentType: file.type || undefined,
+      });
 
       if (moduleAsset) {
         const { error } = await supabase
           .from('product_assets')
           .update({
-            preview_images: [...(moduleAsset.preview_images || []), fileUrl],
+            model_file_url: null,
+            preview_images: [fileUrl],
+            source_type: 'image',
             updated_at: new Date().toISOString(),
           })
           .eq('id', moduleAsset.id);
@@ -243,13 +256,18 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
         .maybeSingle();
       if (latestAsset) {
         const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
-        if (latestAsset.model_file_url || images.length > 0) {
+        const latestProductAsset = {
+          ...latestAsset,
+          preview_images: images,
+        } as ProductAsset;
+        const viewerMedia = getSingleViewerMedia(latestProductAsset);
+        if (viewerMedia.modelUrl || viewerMedia.imageUrls.length > 0) {
           useAppStore.getState().enterViewerMode(
-            latestAsset.model_file_url,
-            images,
+            viewerMedia.modelUrl,
+            viewerMedia.imageUrls,
             latestAsset.id,
             'module',
-            getPreferredDisplayMode(latestAsset as ProductAsset)
+            getPreferredDisplayMode(latestProductAsset)
           );
         }
       }
@@ -530,7 +548,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
                 <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
                   {(moduleAsset?.preview_images?.length || workstationAsset?.preview_images?.length) ? (
                     <img
-                      src={(moduleAsset?.preview_images?.[0] || workstationAsset?.preview_images?.[0])!}
+                      src={toLocalProxyUrl((moduleAsset?.preview_images?.[0] || workstationAsset?.preview_images?.[0])!)}
                       alt="产品预览"
                       className="w-full h-full object-contain"
                     />
@@ -546,9 +564,10 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
                     variant="outline"
                     onClick={() => {
                       if (displayAsset) {
+                        const viewerMedia = getSingleViewerMedia(displayAsset);
                         useAppStore.getState().enterViewerMode(
-                          displayAsset.model_file_url,
-                          displayAsset.preview_images || [],
+                          viewerMedia.modelUrl,
+                          viewerMedia.imageUrls,
                           displayAsset.id,
                           'module',
                           getPreferredDisplayMode(displayAsset)
@@ -640,7 +659,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
                       onClick={() => handleViewRecord(record)}
                     >
                       <img
-                        src={record.snapshot_url}
+                        src={toLocalProxyUrl(record.snapshot_url)}
                         alt={`版本${record.version}`}
                         className="w-16 h-12 object-cover rounded border"
                       />
@@ -763,7 +782,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
                     onClick={() => handleReferenceAnnotation(record)}
                   >
                     <img
-                      src={record.snapshot_url}
+                      src={toLocalProxyUrl(record.snapshot_url)}
                       alt={`版本${record.version}`}
                       className="w-20 h-14 object-cover rounded border"
                     />

@@ -4,7 +4,7 @@ import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { offlineCache } from '@/services/offlineCache';
-import { sortByCode } from '@/utils/sortByCode';
+import { sortByEntityOrder } from '@/utils/sortByCode';
 
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
@@ -50,12 +50,14 @@ interface DataContextType {
   updateProject: (id: string, updates: ProjectUpdate) => Promise<DbProject>;
   deleteProject: (id: string) => Promise<void>;
   duplicateProject: (id: string) => Promise<void>;
+  reorderProjects: (orderedIds: string[]) => Promise<void>;
   
   // Workstation CRUD
   addWorkstation: (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbWorkstation>;
   updateWorkstation: (id: string, updates: WorkstationUpdate, options?: MutationOptions) => Promise<DbWorkstation>;
   deleteWorkstation: (id: string) => Promise<void>;
   duplicateWorkstation: (id: string) => Promise<DbWorkstation>;
+  reorderWorkstations: (projectId: string, orderedIds: string[]) => Promise<void>;
   
   // Layout CRUD
   getLayoutByWorkstation: (workstationId: string) => DbLayout | undefined;
@@ -68,6 +70,7 @@ interface DataContextType {
   updateModule: (id: string, updates: ModuleUpdate & { measurement_config?: any; schematic_image_url?: string | null }) => Promise<DbModule>;
   deleteModule: (id: string) => Promise<void>;
   duplicateModule: (id: string) => Promise<DbModule>;
+  reorderModules: (workstationId: string, orderedIds: string[]) => Promise<void>;
   
   // Helpers
   getProjectWorkstations: (projectId: string) => DbWorkstation[];
@@ -113,6 +116,29 @@ function writeStoredSelection(selection: StoredSelection) {
   }
 }
 
+function getNextSortOrder<T extends { sort_order?: number | null }>(items: T[]) {
+  const existing = items
+    .map(item => item.sort_order)
+    .filter((value): value is number => Number.isFinite(value));
+  return existing.length > 0 ? Math.max(...existing) + 1 : items.length;
+}
+
+function applySortOrder<T extends { id: string; sort_order?: number | null }>(
+  items: T[],
+  orderedIds: string[],
+): T[] {
+  const orderMap = new Map(orderedIds.map((id, index) => [id, index]));
+  return items.map(item => {
+    const sortOrder = orderMap.get(item.id);
+    return sortOrder === undefined ? item : { ...item, sort_order: sortOrder };
+  });
+}
+
+async function assertNoSupabaseErrors(results: Array<{ error: unknown }>) {
+  const failed = results.find(result => result.error);
+  if (failed?.error) throw failed.error;
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const initialSelectionRef = useRef<StoredSelection | null>(null);
@@ -145,10 +171,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         offlineCache.get<DbModule[]>('modules'),
       ]);
 
-      if (cachedProjects) setProjects(cachedProjects);
-      if (cachedWorkstations) setWorkstations(cachedWorkstations);
+      if (cachedProjects) setProjects(sortByEntityOrder(cachedProjects, 'createdDesc'));
+      if (cachedWorkstations) setWorkstations(sortByEntityOrder(cachedWorkstations, 'code'));
       if (cachedLayouts) setLayouts(cachedLayouts);
-      if (cachedModules) setModules(cachedModules);
+      if (cachedModules) setModules(sortByEntityOrder(cachedModules, 'createdAsc'));
       
       // If we have cached data, don't show loading state
       if (cachedProjects || cachedWorkstations) {
@@ -185,10 +211,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (layoutsRes.error) throw layoutsRes.error;
       if (modulesRes.error) throw modulesRes.error;
 
-      const projectsData = projectsRes.data || [];
-      const workstationsData = workstationsRes.data || [];
+      const projectsData = sortByEntityOrder(projectsRes.data || [], 'createdDesc');
+      const workstationsData = sortByEntityOrder(workstationsRes.data || [], 'code');
       const layoutsData = layoutsRes.data || [];
-      const modulesData = modulesRes.data || [];
+      const modulesData = sortByEntityOrder(modulesRes.data || [], 'createdAsc');
 
       setProjects(projectsData);
       setWorkstations(workstationsData);
@@ -308,9 +334,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Project CRUD
   const addProject = async (project: Omit<ProjectInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
     if (!user) throw new Error('User not authenticated');
-    const { data, error } = await supabase.from('projects').insert({ ...project, user_id: user.id }).select().single();
+    const sort_order = project.sort_order ?? getNextSortOrder(projects);
+    const { data, error } = await supabase.from('projects').insert({ ...project, sort_order, user_id: user.id }).select().single();
     if (error) throw error;
-    setProjects(prev => [data, ...prev]);
+    setProjects(prev => sortByEntityOrder([...prev, data], 'createdDesc'));
     toast.success('项目创建成功');
     return data;
   };
@@ -335,7 +362,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const original = projects.find(p => p.id === id);
     if (!original) return;
     
-    const { id: _, created_at, updated_at, ...rest } = original;
+    const { id: _, created_at, updated_at, sort_order, ...rest } = original;
     const newProject = await addProject({
       ...rest,
       code: `${original.code}-copy`,
@@ -343,10 +370,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     });
     
     // Duplicate workstations and their layouts/modules
-    const projectWorkstations = workstations.filter(ws => ws.project_id === id);
-    for (const ws of projectWorkstations) {
-      const { id: wsId, created_at: wsCreated, updated_at: wsUpdated, project_id, ...wsRest } = ws;
-      const newWs = await addWorkstation({ ...wsRest, project_id: newProject.id });
+    const projectWorkstations = sortByEntityOrder(workstations.filter(ws => ws.project_id === id), 'code');
+    for (let wsIndex = 0; wsIndex < projectWorkstations.length; wsIndex++) {
+      const ws = projectWorkstations[wsIndex];
+      const { id: wsId, created_at: wsCreated, updated_at: wsUpdated, sort_order: wsSortOrder, project_id, ...wsRest } = ws;
+      const newWs = await addWorkstation({ ...wsRest, project_id: newProject.id, sort_order: wsIndex });
       
       // Duplicate layout
       const layout = layouts.find(l => l.workstation_id === wsId);
@@ -356,22 +384,42 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
       
       // Duplicate modules
-      const wsModules = modules.filter(m => m.workstation_id === wsId);
-      for (const mod of wsModules) {
-        const { id: modId, created_at: mCreated, updated_at: mUpdated, workstation_id: modWsId, ...modRest } = mod;
-        await addModule({ ...modRest, workstation_id: newWs.id });
+      const wsModules = sortByEntityOrder(modules.filter(m => m.workstation_id === wsId), 'createdAsc');
+      for (let modIndex = 0; modIndex < wsModules.length; modIndex++) {
+        const mod = wsModules[modIndex];
+        const { id: modId, created_at: mCreated, updated_at: mUpdated, sort_order: modSortOrder, workstation_id: modWsId, ...modRest } = mod;
+        await addModule({ ...modRest, workstation_id: newWs.id, sort_order: modIndex });
       }
     }
     
     toast.success('项目复制成功');
   };
 
+  const reorderProjects = async (orderedIds: string[]) => {
+    const previousProjects = projects;
+    setProjects(prev => sortByEntityOrder(applySortOrder(prev, orderedIds), 'createdDesc'));
+
+    try {
+      const results = await Promise.all(
+        orderedIds.map((id, index) => supabase.from('projects').update({ sort_order: index }).eq('id', id))
+      );
+      await assertNoSupabaseErrors(results);
+    } catch (error) {
+      setProjects(previousProjects);
+      console.error('Failed to reorder projects:', error);
+      toast.error('项目排序保存失败');
+      throw error;
+    }
+  };
+
   // Workstation CRUD
   const addWorkstation = async (workstation: Omit<WorkstationInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
     if (!user) throw new Error('User not authenticated');
-    const { data, error } = await supabase.from('workstations').insert({ ...workstation, user_id: user.id }).select().single();
+    const siblings = workstations.filter(ws => ws.project_id === workstation.project_id);
+    const sort_order = workstation.sort_order ?? getNextSortOrder(siblings);
+    const { data, error } = await supabase.from('workstations').insert({ ...workstation, sort_order, user_id: user.id }).select().single();
     if (error) throw error;
-    setWorkstations(prev => [...prev, data]);
+    setWorkstations(prev => sortByEntityOrder([...prev, data], 'code'));
     toast.success('工位创建成功');
     return data;
   };
@@ -400,7 +448,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const original = workstations.find(w => w.id === id);
     if (!original) throw new Error('Workstation not found');
     
-    const { id: _, created_at, updated_at, ...rest } = original;
+    const { id: _, created_at, updated_at, sort_order, ...rest } = original;
     const newWs = await addWorkstation({
       ...rest,
       code: `${original.code}-copy`,
@@ -415,13 +463,36 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
     
     // Duplicate modules
-    const wsModules = modules.filter(m => m.workstation_id === id);
-    for (const mod of wsModules) {
-      const { id: modId, created_at: mCreated, updated_at: mUpdated, workstation_id: modWsId, ...modRest } = mod;
-      await addModule({ ...modRest, workstation_id: newWs.id });
+    const wsModules = sortByEntityOrder(modules.filter(m => m.workstation_id === id), 'createdAsc');
+    for (let modIndex = 0; modIndex < wsModules.length; modIndex++) {
+      const mod = wsModules[modIndex];
+      const { id: modId, created_at: mCreated, updated_at: mUpdated, sort_order: modSortOrder, workstation_id: modWsId, ...modRest } = mod;
+      await addModule({ ...modRest, workstation_id: newWs.id, sort_order: modIndex });
     }
     
     return newWs;
+  };
+
+  const reorderWorkstations = async (projectId: string, orderedIds: string[]) => {
+    const validIds = orderedIds.filter(id => workstations.some(ws => ws.id === id && ws.project_id === projectId));
+    if (validIds.length !== orderedIds.length) {
+      throw new Error('只能调整同一项目下的工位顺序');
+    }
+
+    const previousWorkstations = workstations;
+    setWorkstations(prev => sortByEntityOrder(applySortOrder(prev, validIds), 'code'));
+
+    try {
+      const results = await Promise.all(
+        validIds.map((id, index) => supabase.from('workstations').update({ sort_order: index }).eq('id', id))
+      );
+      await assertNoSupabaseErrors(results);
+    } catch (error) {
+      setWorkstations(previousWorkstations);
+      console.error('Failed to reorder workstations:', error);
+      toast.error('工位排序保存失败');
+      throw error;
+    }
   };
 
   // Layout CRUD
@@ -456,9 +527,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Module CRUD
   const addModule = async (module: Omit<ModuleInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
     if (!user) throw new Error('User not authenticated');
-    const { data, error } = await supabase.from('function_modules').insert({ ...module, user_id: user.id }).select().single();
+    const siblings = modules.filter(m => m.workstation_id === module.workstation_id);
+    const sort_order = module.sort_order ?? getNextSortOrder(siblings);
+    const { data, error } = await supabase.from('function_modules').insert({ ...module, sort_order, user_id: user.id }).select().single();
     if (error) throw error;
-    setModules(prev => [...prev, data]);
+    setModules(prev => sortByEntityOrder([...prev, data], 'createdAsc'));
     toast.success('模块创建成功');
     return data;
   };
@@ -482,21 +555,43 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const original = modules.find(m => m.id === id);
     if (!original) throw new Error('Module not found');
     
-    const { id: _, created_at, updated_at, ...rest } = original;
+    const { id: _, created_at, updated_at, sort_order, ...rest } = original;
     return addModule({
       ...rest,
       name: `${original.name} (副本)`,
     });
   };
 
+  const reorderModules = async (workstationId: string, orderedIds: string[]) => {
+    const validIds = orderedIds.filter(id => modules.some(m => m.id === id && m.workstation_id === workstationId));
+    if (validIds.length !== orderedIds.length) {
+      throw new Error('只能调整同一工位下的模块顺序');
+    }
+
+    const previousModules = modules;
+    setModules(prev => sortByEntityOrder(applySortOrder(prev, validIds), 'createdAsc'));
+
+    try {
+      const results = await Promise.all(
+        validIds.map((id, index) => supabase.from('function_modules').update({ sort_order: index }).eq('id', id))
+      );
+      await assertNoSupabaseErrors(results);
+    } catch (error) {
+      setModules(previousModules);
+      console.error('Failed to reorder modules:', error);
+      toast.error('模块排序保存失败');
+      throw error;
+    }
+  };
+
   // Helpers
   const getProjectWorkstations = useCallback((projectId: string) => {
     const filtered = workstations.filter(ws => ws.project_id === projectId);
-    return sortByCode(filtered as any) as typeof filtered;
+    return sortByEntityOrder(filtered, 'code');
   }, [workstations]);
 
   const getWorkstationModules = useCallback((workstationId: string) => {
-    return modules.filter(m => m.workstation_id === workstationId);
+    return sortByEntityOrder(modules.filter(m => m.workstation_id === workstationId), 'createdAsc');
   }, [modules]);
 
   return (
@@ -516,10 +611,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updateProject,
       deleteProject,
       duplicateProject,
+      reorderProjects,
       addWorkstation,
       updateWorkstation,
       deleteWorkstation,
       duplicateWorkstation,
+      reorderWorkstations,
       getLayoutByWorkstation,
       addLayout,
       updateLayout,
@@ -528,6 +625,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updateModule,
       deleteModule,
       duplicateModule,
+      reorderModules,
       getProjectWorkstations,
       getWorkstationModules,
       refetch: fetchAll,

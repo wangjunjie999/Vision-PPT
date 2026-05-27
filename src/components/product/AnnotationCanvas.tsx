@@ -18,6 +18,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
 import {
   Circle,
   Square,
@@ -113,6 +114,7 @@ export function AnnotationCanvas({
   highlightId = null,
   onTransformChange,
 }: AnnotationCanvasProps) {
+  const proxiedImageUrl = toLocalProxyUrl(imageUrl);
   const containerRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<Tool>('point');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -830,7 +832,7 @@ export function AnnotationCanvas({
             }
           >
             <img
-              src={imageUrl}
+              src={proxiedImageUrl}
               alt="标注图片"
               data-testid="annotation-image"
               className="block h-full w-full object-contain pointer-events-none"

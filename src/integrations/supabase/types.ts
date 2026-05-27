@@ -321,6 +321,7 @@ export type Database = {
           selected_controller: string | null
           selected_lens: string | null
           selected_light: string | null
+          sort_order: number | null
           status: string | null
           trigger_type: string | null
           type: string | null
@@ -355,6 +356,7 @@ export type Database = {
           selected_controller?: string | null
           selected_lens?: string | null
           selected_light?: string | null
+          sort_order?: number | null
           status?: string | null
           trigger_type?: string | null
           type?: string | null
@@ -389,6 +391,7 @@ export type Database = {
           selected_controller?: string | null
           selected_lens?: string | null
           selected_light?: string | null
+          sort_order?: number | null
           status?: string | null
           trigger_type?: string | null
           type?: string | null
@@ -962,6 +965,7 @@ export type Database = {
           responsible: string | null
           revision_history: Json | null
           sales_responsible: string | null
+          sort_order: number | null
           spec_version: string | null
           status: string | null
           template_id: string | null
@@ -989,6 +993,7 @@ export type Database = {
           responsible?: string | null
           revision_history?: Json | null
           sales_responsible?: string | null
+          sort_order?: number | null
           spec_version?: string | null
           status?: string | null
           template_id?: string | null
@@ -1016,6 +1021,7 @@ export type Database = {
           responsible?: string | null
           revision_history?: Json | null
           sales_responsible?: string | null
+          sort_order?: number | null
           spec_version?: string | null
           status?: string | null
           template_id?: string | null
@@ -1070,6 +1076,7 @@ export type Database = {
           project_id: string
           risk_notes: string | null
           shot_count: number | null
+          sort_order: number | null
           status: string | null
           type: string | null
           updated_at: string
@@ -1096,6 +1103,7 @@ export type Database = {
           project_id: string
           risk_notes?: string | null
           shot_count?: number | null
+          sort_order?: number | null
           status?: string | null
           type?: string | null
           updated_at?: string
@@ -1122,6 +1130,7 @@ export type Database = {
           project_id?: string
           risk_notes?: string | null
           shot_count?: number | null
+          sort_order?: number | null
           status?: string | null
           type?: string | null
           updated_at?: string

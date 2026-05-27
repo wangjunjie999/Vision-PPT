@@ -48,6 +48,8 @@ import { cn } from '@/lib/utils';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
 import { getSupportedProductModelHint, type ProductViewerDisplayMode } from '@/utils/productViewer';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
+import { uploadStorageFile } from '@/utils/storageUpload';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductModelItem {
@@ -100,6 +102,15 @@ function getPreferredDisplayMode(asset: ProductAsset): ProductViewerDisplayMode 
   if (asset.source_type === 'image') return 'image';
   if (asset.source_type === 'model') return 'model';
   return 'auto';
+}
+
+function getSingleViewerMedia(asset: ProductAsset): { modelUrl: string | null; imageUrls: string[] } {
+  const mode = getPreferredDisplayMode(asset);
+  if (mode === 'model') {
+    return { modelUrl: asset.model_file_url, imageUrls: [] };
+  }
+
+  return { modelUrl: null, imageUrls: (asset.preview_images || []).slice(0, 1) };
 }
 
 export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanelProps) {
@@ -205,6 +216,11 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0 || !user) return;
+    if (files.length > 1) {
+      toast.error('一次只能上传一个文件，请选择一个 3D 模型或一张图片');
+      event.target.value = '';
+      return;
+    }
 
     setUploading(true);
     try {
@@ -239,14 +255,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       } else {
         const bucket = 'product-models';
         const path = `${workstationId}/${Date.now()}_${file.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from(bucket)
-          .upload(path, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-        fileUrl = urlData.publicUrl;
+        const { publicUrl } = await uploadStorageFile(bucket, path, file, {
+          contentType: file.type || undefined,
+        });
+        fileUrl = publicUrl;
       }
 
       // Create or update asset
@@ -256,12 +268,12 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         };
         if (isModel) {
           updateData.model_file_url = fileUrl;
+          updateData.preview_images = [];
           updateData.source_type = 'model';
         } else {
-          updateData.preview_images = [...(asset.preview_images || []), fileUrl];
-          if (!asset.model_file_url) {
-            updateData.source_type = 'image';
-          }
+          updateData.model_file_url = null;
+          updateData.preview_images = [fileUrl];
+          updateData.source_type = 'image';
         }
         const { error } = await supabase
           .from('product_assets')
@@ -293,13 +305,18 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         .maybeSingle();
       if (latestAsset) {
         const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
-        if (latestAsset.model_file_url || images.length > 0) {
+        const latestProductAsset = {
+          ...latestAsset,
+          preview_images: images,
+        } as unknown as ProductAsset;
+        const viewerMedia = getSingleViewerMedia(latestProductAsset);
+        if (viewerMedia.modelUrl || viewerMedia.imageUrls.length > 0) {
           useAppStore.getState().enterViewerMode(
-            latestAsset.model_file_url,
-            images,
+            viewerMedia.modelUrl,
+            viewerMedia.imageUrls,
             latestAsset.id,
             'workstation',
-            getPreferredDisplayMode(latestAsset as unknown as ProductAsset)
+            getPreferredDisplayMode(latestProductAsset)
           );
         }
       }
@@ -490,7 +507,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
                   {asset.preview_images?.length > 0 ? (
                     <img
-                      src={asset.preview_images[0]}
+                      src={toLocalProxyUrl(asset.preview_images[0])}
                       alt="产品预览"
                       className="w-full h-full object-contain"
                     />
@@ -506,9 +523,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                     variant="outline"
                     onClick={() => {
                       if (asset) {
+                        const viewerMedia = getSingleViewerMedia(asset);
                         useAppStore.getState().enterViewerMode(
-                          asset.model_file_url,
-                          asset.preview_images || [],
+                          viewerMedia.modelUrl,
+                          viewerMedia.imageUrls,
                           asset.id,
                           'workstation',
                           getPreferredDisplayMode(asset)
@@ -746,7 +764,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                       onClick={() => handleViewRecord(record)}
                     >
                       <img
-                        src={record.snapshot_url}
+                        src={toLocalProxyUrl(record.snapshot_url)}
                         alt={`版本${record.version}`}
                         className="w-16 h-12 object-cover rounded border"
                       />

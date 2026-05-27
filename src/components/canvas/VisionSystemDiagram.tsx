@@ -11,6 +11,17 @@ import { Check } from 'lucide-react';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { type DistanceUnit, formatDistanceInput, formatDistanceLabel, normalizeDistanceUnit } from '@/utils/distanceUnits';
 
+const DEFAULT_PRODUCT_POS = { x: 275, y: 420 };
+const PRODUCT_MIN_Y = 300;
+const PRODUCT_MAX_Y = 430;
+
+function clampProductPosition(pos: { x: number; y: number }) {
+  return {
+    x: DEFAULT_PRODUCT_POS.x,
+    y: Math.max(PRODUCT_MIN_Y, Math.min(PRODUCT_MAX_Y, pos.y)),
+  };
+}
+
 // ─── Hardware image with fallback ───
 function HardwareImage({ 
   url, alt, type, className 
@@ -99,13 +110,15 @@ function useSvgDrag(
   svgRef: React.RefObject<SVGSVGElement | null>,
   initial: { x: number; y: number },
   enabled: boolean,
-  controlled?: { value: { x: number; y: number }; onChange?: (p: { x: number; y: number }) => void }
+  controlled?: { value: { x: number; y: number }; onChange?: (p: { x: number; y: number }) => void },
+  constrain?: (p: { x: number; y: number }) => { x: number; y: number },
 ) {
   const [internalPos, setInternalPos] = useState(initial);
   const pos = controlled ? controlled.value : internalPos;
   const setPos = (p: { x: number; y: number }) => {
-    if (controlled) controlled.onChange?.(p);
-    else setInternalPos(p);
+    const next = constrain ? constrain(p) : p;
+    if (controlled) controlled.onChange?.(next);
+    else setInternalPos(next);
   };
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
@@ -195,10 +208,12 @@ interface VisionSystemDiagramProps {
   // Controlled positions (optional). When provided, drag updates call onChange instead of internal state.
   cameraPos?: { x: number; y: number };
   lightPos?: { x: number; y: number };
+  productPos?: { x: number; y: number };
   cameraRotation?: number;
   lightRotation?: number;
   onCameraPosChange?: (p: { x: number; y: number }) => void;
   onLightPosChange?: (p: { x: number; y: number }) => void;
+  onProductPosChange?: (p: { x: number; y: number }) => void;
   onCameraRotationChange?: (r: number) => void;
   onLightRotationChange?: (r: number) => void;
 }
@@ -657,8 +672,8 @@ export function VisionSystemDiagram({
   diagramLightItems = [], onDiagramLightItemPositionChange, onDiagramLightItemDistanceChange, onDiagramLightItemRotationChange,
   roiStrategy = 'full', moduleType = 'defect',
   interactive = true, className,
-  cameraPos, lightPos, cameraRotation, lightRotation,
-  onCameraPosChange, onLightPosChange,
+  cameraPos, lightPos, productPos, cameraRotation, lightRotation,
+  onCameraPosChange, onLightPosChange, onProductPosChange,
   onCameraRotationChange, onLightRotationChange,
 }: VisionSystemDiagramProps) {
 
@@ -701,10 +716,6 @@ export function VisionSystemDiagram({
     multiLightDragRef.current = null;
   }, []);
 
-  // Product is fixed
-  const productY = 420;
-  const productCenterX = 275;
-
   // Draggable positions (controlled if cameraPos/lightPos supplied)
   const camLensDrag = useSvgDrag(
     svgRef,
@@ -718,6 +729,18 @@ export function VisionSystemDiagram({
     interactive,
     lightPos ? { value: lightPos, onChange: onLightPosChange } : undefined
   );
+  const productDrag = useSvgDrag(
+    svgRef,
+    DEFAULT_PRODUCT_POS,
+    interactive,
+    productPos ? { value: clampProductPosition(productPos), onChange: onProductPosChange } : undefined,
+    clampProductPosition
+  );
+  const productY = productDrag.pos.y;
+  const productCenterX = productDrag.pos.x;
+  const productX = productCenterX - 75;
+  const roiWidth = roiStrategy === 'full' ? 140 : 100;
+  const roiX = productCenterX - (roiWidth / 2);
 
   // Rotation angles (controlled if cameraRotation/lightRotation supplied)
   const [internalCamRot, setInternalCamRot] = useState(0);
@@ -929,19 +952,23 @@ export function VisionSystemDiagram({
           );
         })()}
 
-        {/* ===== Product (fixed) ===== */}
-        <g>
-          <rect x="200" y={productY} width="150" height="40" rx="3" fill="hsl(220, 10%, 85%)" />
-          <rect x="200" y={productY} width="150" height="40" rx="3" fill="none" stroke="hsl(220, 10%, 70%)" strokeWidth="1" />
+        {/* ===== Product (vertical draggable) ===== */}
+        <g
+          data-testid="diagram-product"
+          style={{ cursor: interactive ? 'ns-resize' : 'default' }}
+          {...(interactive ? productDrag.handlers : {})}
+        >
+          <rect data-testid="diagram-product-body" x={productX} y={productY} width="150" height="40" rx="3" fill="hsl(220, 10%, 85%)" />
+          <rect x={productX} y={productY} width="150" height="40" rx="3" fill="none" stroke="hsl(220, 10%, 70%)" strokeWidth="1" />
           <rect 
-            x={roiStrategy === 'full' ? 205 : 225} y={productY + 4} 
-            width={roiStrategy === 'full' ? 140 : 100} height="32" rx="2"
+            x={roiX} y={productY + 4} 
+            width={roiWidth} height="32" rx="2"
             fill="none" stroke="hsl(120, 70%, 50%)" strokeWidth="1.5" strokeDasharray="4,2" opacity="0.7"
           />
-          <text x="275" y={productY + 23} textAnchor="middle" fill="#333333" style={{ fontSize: '10px', fontWeight: 500 }}>产品</text>
+          <text x={productCenterX} y={productY + 23} textAnchor="middle" fill="#333333" style={{ fontSize: '10px', fontWeight: 500 }}>产品</text>
           {/* Detection point */}
-          <circle cx="275" cy={productY + 15} r="5" fill="hsl(220, 80%, 55%)" />
-          <circle cx="275" cy={productY + 15} r="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1" opacity="0.5" />
+          <circle cx={productCenterX} cy={productY + 15} r="5" fill="hsl(220, 80%, 55%)" />
+          <circle cx={productCenterX} cy={productY + 15} r="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1" opacity="0.5" />
         </g>
 
         {/* ===== Working distance dimension line (dynamic, rotation-aware) ===== */}

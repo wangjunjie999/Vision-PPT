@@ -208,6 +208,7 @@ function Model({
 
 function ImagePlane({ url, index, total }: { url: string; index: number; total: number }) {
   const [map, setMap] = useState<THREE.Texture | null>(null);
+  const proxiedUrl = toLocalProxyUrl(url);
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
@@ -215,7 +216,7 @@ function ImagePlane({ url, index, total }: { url: string; index: number; total: 
     let cancelled = false;
     let current: THREE.Texture | null = null;
     loader.load(
-      url,
+      proxiedUrl,
       (tex) => {
         if (cancelled) {
           tex.dispose();
@@ -234,7 +235,7 @@ function ImagePlane({ url, index, total }: { url: string; index: number; total: 
       current?.dispose();
       setMap(null);
     };
-  }, [url]);
+  }, [proxiedUrl]);
 
   const angle = (index / total) * Math.PI * 2;
   const radius = 3;
@@ -573,6 +574,7 @@ export function Product3DViewer({
   ]);
 
   if (isImageMode) {
+    const currentImageUrl = toLocalProxyUrl(imageUrls[currentImageIndex]);
     return (
       <div className={fillContainer ? 'h-full w-full flex items-center justify-center bg-muted' : 'space-y-2'}>
         <div className={cn(
@@ -580,7 +582,7 @@ export function Product3DViewer({
           fillContainer ? 'h-full w-full flex items-center justify-center' : 'aspect-video bg-muted rounded-lg'
         )}>
           <img
-            src={imageUrls[currentImageIndex]}
+            src={currentImageUrl}
             alt={`产品图片 ${currentImageIndex + 1}`}
             className={fillContainer ? 'max-w-full max-h-full object-contain' : 'w-full h-full object-contain'}
             onLoad={() => setImageLoaded(true)}

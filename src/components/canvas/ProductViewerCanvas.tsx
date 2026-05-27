@@ -17,13 +17,25 @@ import {
 export function ProductViewerCanvas() {
   const { viewerAssetData, exitViewerMode, transitionViewerToAnnotation } = useAppStore();
   const { selectedWorkstationId } = useData();
-  const [viewerRef, setViewerRef] = useState<Product3DViewerHandle | null>(null);
+  const [viewerRef, setViewerRef] = useState<{ key: string; handle: Product3DViewerHandle } | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const viewerAssetKey = viewerAssetData
+    ? [
+        viewerAssetData.assetId,
+        viewerAssetData.preferredDisplayMode,
+        viewerAssetData.modelUrl || '',
+        ...viewerAssetData.imageUrls,
+      ].join('|')
+    : 'empty';
+  const activeViewerRef = viewerRef?.key === viewerAssetKey ? viewerRef.handle : null;
+  const handleViewerReady = useCallback((handle: Product3DViewerHandle) => {
+    setViewerRef({ key: viewerAssetKey, handle });
+  }, [viewerAssetKey]);
 
   const handleScreenshot = useCallback(async () => {
     if (!viewerAssetData || capturing) return;
 
-    const viewerStatus = viewerRef?.getStatus() || 'loading';
+    const viewerStatus = activeViewerRef?.getStatus() || 'loading';
     if (viewerStatus === 'unsupported' && viewerAssetData.imageUrls.length === 0) {
       toast.error(getSupportedProductModelHint());
       return;
@@ -37,9 +49,9 @@ export function ProductViewerCanvas() {
     let capturedSnapshot: string | null = null;
     setCapturing(true);
     try {
-      if (viewerRef?.canTakeScreenshot()) {
+      if (activeViewerRef?.canTakeScreenshot()) {
         try {
-          capturedSnapshot = await viewerRef.takeScreenshot();
+          capturedSnapshot = await activeViewerRef.takeScreenshot();
         } catch (e) {
           console.warn('Screenshot failed:', e);
         }
@@ -74,7 +86,7 @@ export function ProductViewerCanvas() {
     } finally {
       setCapturing(false);
     }
-  }, [viewerRef, viewerAssetData, transitionViewerToAnnotation, selectedWorkstationId, capturing]);
+  }, [activeViewerRef, viewerAssetData, transitionViewerToAnnotation, selectedWorkstationId, capturing]);
 
   if (!viewerAssetData) return null;
 
@@ -97,10 +109,11 @@ export function ProductViewerCanvas() {
       {/* Full-size viewer */}
       <div className="flex-1 min-h-0">
         <Product3DViewer
+          key={viewerAssetKey}
           modelUrl={viewerAssetData.modelUrl}
           imageUrls={viewerAssetData.imageUrls}
           preferredDisplayMode={viewerAssetData.preferredDisplayMode}
-          onReady={setViewerRef}
+          onReady={handleViewerReady}
           fillContainer
         />
       </div>

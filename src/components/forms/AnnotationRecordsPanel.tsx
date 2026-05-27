@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Annotation } from '@/components/product/AnnotationCanvas';
+import { toLocalProxyUrl } from '@/utils/storageUrl';
 
 interface AnnotationRecord {
   id: string;
@@ -154,7 +155,7 @@ export function AnnotationRecordsPanel() {
                     title="点击放大查看"
                   >
                     <img
-                      src={record.snapshot_url}
+                      src={toLocalProxyUrl(record.snapshot_url)}
                       alt={`标注版本${record.version}`}
                       className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
                     />
@@ -224,7 +225,7 @@ export function AnnotationRecordsPanel() {
         <DialogContent className="max-w-[90vw] max-h-[90vh] p-2">
           {previewUrl && (
             <img
-              src={previewUrl}
+              src={toLocalProxyUrl(previewUrl)}
               alt="标注大图"
               className="w-full h-full object-contain max-h-[85vh]"
             />

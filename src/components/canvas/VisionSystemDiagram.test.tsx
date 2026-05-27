@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { VisionSystemDiagram } from './VisionSystemDiagram';
 
 describe('VisionSystemDiagram export mode', () => {
@@ -53,5 +53,66 @@ describe('VisionSystemDiagram export mode', () => {
     expect(screen.getByText((content) => content.includes('研华') && content.includes('IPC547G'))).toBeInTheDocument();
     expect(screen.getByText('GPU: NVIDIA Quadro P2000')).toBeInTheDocument();
     expect(screen.queryByText(/其余|略/)).not.toBeInTheDocument();
+  });
+
+  it('renders the product at the controlled vertical position', () => {
+    const { container } = render(
+      <VisionSystemDiagram
+        camera={null}
+        lens={null}
+        light={null}
+        interactive={false}
+        productPos={{ x: 275, y: 350 }}
+      />,
+    );
+
+    const productBody = container.querySelector('[data-testid="diagram-product-body"]');
+    expect(productBody).toHaveAttribute('x', '200');
+    expect(productBody).toHaveAttribute('y', '350');
+  });
+
+  it('keeps product dragging vertical and clamps the diagram bounds', () => {
+    const originalCreateSvgPoint = SVGSVGElement.prototype.createSVGPoint;
+    const originalGetScreenCTM = SVGSVGElement.prototype.getScreenCTM;
+    const originalSetPointerCapture = Element.prototype.setPointerCapture;
+
+    SVGSVGElement.prototype.createSVGPoint = function () {
+      return {
+        x: 0,
+        y: 0,
+        matrixTransform() {
+          return { x: this.x, y: this.y };
+        },
+      } as DOMPoint;
+    };
+    SVGSVGElement.prototype.getScreenCTM = function () {
+      return { inverse: () => ({}) } as DOMMatrix;
+    };
+    Element.prototype.setPointerCapture = vi.fn();
+
+    try {
+      const onProductPosChange = vi.fn();
+      const { container } = render(
+        <VisionSystemDiagram
+          camera={null}
+          lens={null}
+          light={null}
+          interactive={true}
+          productPos={{ x: 275, y: 420 }}
+          onProductPosChange={onProductPosChange}
+        />,
+      );
+
+      const product = container.querySelector('[data-testid="diagram-product"]');
+      expect(product).not.toBeNull();
+      fireEvent.pointerDown(product!, { clientX: 275, clientY: 420, pointerId: 1 });
+      fireEvent.pointerMove(product!, { clientX: 390, clientY: 100, pointerId: 1 });
+
+      expect(onProductPosChange).toHaveBeenLastCalledWith({ x: 275, y: 300 });
+    } finally {
+      SVGSVGElement.prototype.createSVGPoint = originalCreateSvgPoint;
+      SVGSVGElement.prototype.getScreenCTM = originalGetScreenCTM;
+      Element.prototype.setPointerCapture = originalSetPointerCapture;
+    }
   });
 });

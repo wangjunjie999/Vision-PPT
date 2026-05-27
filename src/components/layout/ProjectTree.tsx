@@ -18,9 +18,11 @@ import {
   Layers,
   Zap,
   Search,
-  X
+  X,
+  GripVertical
 } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import type { DragEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,6 +69,12 @@ interface TreeNodeProps {
   onToggle?: () => void;
   onAction?: () => void;
   actionMenu?: React.ReactNode;
+  dragDisabled?: boolean;
+  dragOverPosition?: 'before' | 'after' | null;
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void;
+  onDragOver?: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop?: (event: DragEvent<HTMLDivElement>) => void;
+  onDragEnd?: () => void;
 }
 
 function TreeNode({ 
@@ -80,7 +88,13 @@ function TreeNode({
   depth,
   onClick,
   onToggle,
-  actionMenu
+  actionMenu,
+  dragDisabled = false,
+  dragOverPosition,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd
 }: TreeNodeProps) {
   const depthStyles = {
     0: 'pl-2',
@@ -102,9 +116,42 @@ function TreeNode({
           'shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)]',
         ],
         // Click animation
-        'active:animate-click-shake'
+        'active:animate-click-shake',
+        dragOverPosition && 'bg-primary/10'
       )}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
+      {dragOverPosition && (
+        <div
+          className={cn(
+            'absolute left-2 right-2 h-0.5 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.65)]',
+            dragOverPosition === 'before' ? '-top-0.5' : '-bottom-0.5'
+          )}
+        />
+      )}
+
+      <button
+        type="button"
+        draggable={!dragDisabled}
+        onClick={(event) => event.stopPropagation()}
+        onDragStart={(event) => {
+          event.stopPropagation();
+          onDragStart?.(event);
+        }}
+        onDragEnd={() => onDragEnd?.()}
+        title={dragDisabled ? '搜索状态下不可排序' : '拖拽调整顺序'}
+        aria-label="拖拽调整顺序"
+        className={cn(
+          'shrink-0 p-0.5 rounded transition-all duration-150',
+          dragDisabled
+            ? 'cursor-not-allowed text-muted-foreground/25'
+            : 'cursor-grab text-muted-foreground/45 hover:text-primary hover:bg-secondary active:cursor-grabbing'
+        )}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+
       {/* Expand/Collapse Button */}
       {hasChildren !== undefined && (
         <button 
@@ -241,6 +288,55 @@ function getModuleIcon(type: string) {
   }
 }
 
+type DragTreeNode = {
+  type: 'project' | 'workstation' | 'module';
+  id: string;
+  parentId?: string;
+};
+
+type DragOverState = DragTreeNode & {
+  position: 'before' | 'after';
+};
+
+function isSameDragScope(source: DragTreeNode | null, target: DragTreeNode) {
+  if (!source || source.id === target.id || source.type !== target.type) return false;
+  if (source.type === 'project') return true;
+  return source.parentId === target.parentId;
+}
+
+function getDropPosition(event: DragEvent<HTMLElement>): 'before' | 'after' {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+}
+
+function reorderIds(
+  ids: string[],
+  draggedId: string,
+  targetId: string,
+  position: 'before' | 'after',
+) {
+  const currentIndex = ids.indexOf(draggedId);
+  const targetIndex = ids.indexOf(targetId);
+  if (currentIndex < 0 || targetIndex < 0 || draggedId === targetId) return ids;
+
+  const next = [...ids];
+  next.splice(currentIndex, 1);
+  let insertIndex = targetIndex + (position === 'after' ? 1 : 0);
+  if (currentIndex < insertIndex) insertIndex -= 1;
+  next.splice(insertIndex, 0, draggedId);
+  return next;
+}
+
+function parseDragNode(value: string): DragTreeNode | null {
+  try {
+    const parsed = JSON.parse(value) as DragTreeNode;
+    if (parsed?.type && parsed?.id) return parsed;
+  } catch {
+    // Older drag payloads are ignored; tree drag starts always write JSON.
+  }
+  return null;
+}
+
 export function ProjectTree() {
   const {
     projects,
@@ -260,6 +356,9 @@ export function ProjectTree() {
     duplicateProject,
     duplicateWorkstation,
     duplicateModule,
+    reorderProjects,
+    reorderWorkstations,
+    reorderModules,
     updateProject,
     updateWorkstation,
     updateModule,
@@ -291,6 +390,9 @@ export function ProjectTree() {
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchScope, setSearchScope] = useState<'all' | 'project' | 'workstation' | 'module'>('all');
+  const isSearchActive = searchQuery.trim().length > 0;
+  const [dragOverNode, setDragOverNode] = useState<DragOverState | null>(null);
+  const draggingNodeRef = useRef<DragTreeNode | null>(null);
   
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewWorkstation, setShowNewWorkstation] = useState(false);
@@ -359,6 +461,54 @@ export function ProjectTree() {
     }
   };
 
+  const handleDragStart = (event: DragEvent<HTMLButtonElement>, node: DragTreeNode) => {
+    if (isSearchActive) return;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', JSON.stringify(node));
+    draggingNodeRef.current = node;
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>, target: DragTreeNode) => {
+    if (isSearchActive || !isSameDragScope(draggingNodeRef.current, target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    setDragOverNode({ ...target, position: getDropPosition(event) });
+  };
+
+  const handleDrop = async (
+    event: DragEvent<HTMLDivElement>,
+    target: DragTreeNode,
+    siblingIds: string[],
+  ) => {
+    const source = draggingNodeRef.current || parseDragNode(event.dataTransfer.getData('text/plain'));
+    if (isSearchActive || !isSameDragScope(source, target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const position = getDropPosition(event);
+    const orderedIds = reorderIds(siblingIds, source!.id, target.id, position);
+    setDragOverNode(null);
+    draggingNodeRef.current = null;
+    if (orderedIds.join('|') === siblingIds.join('|')) return;
+
+    try {
+      if (target.type === 'project') {
+        await reorderProjects(orderedIds);
+      } else if (target.type === 'workstation' && target.parentId) {
+        await reorderWorkstations(target.parentId, orderedIds);
+      } else if (target.type === 'module' && target.parentId) {
+        await reorderModules(target.parentId, orderedIds);
+      }
+    } catch {
+      // DataContext owns rollback and toast.
+    }
+  };
+
+  const handleDragEnd = () => {
+    draggingNodeRef.current = null;
+    setDragOverNode(null);
+  };
+
   // Filter results based on search
   const filteredData = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -373,7 +523,7 @@ export function ProjectTree() {
     // Search projects
     if (searchScope === 'all' || searchScope === 'project') {
       projects.forEach(p => {
-        if (p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query)) {
+        if (p.name.toLowerCase().includes(query) || (p.code || '').toLowerCase().includes(query)) {
           matchedProjects.add(p.id);
         }
       });
@@ -382,7 +532,7 @@ export function ProjectTree() {
     // Search workstations
     if (searchScope === 'all' || searchScope === 'workstation') {
       workstations.forEach(ws => {
-        if (ws.name.toLowerCase().includes(query) || ws.code.toLowerCase().includes(query)) {
+        if (ws.name.toLowerCase().includes(query) || (ws.code || '').toLowerCase().includes(query)) {
           matchedWorkstations.add(ws.id);
           matchedProjects.add(ws.project_id); // Also show parent project
         }
@@ -713,6 +863,12 @@ export function ProjectTree() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     }
+                    dragDisabled={isSearchActive}
+                    dragOverPosition={dragOverNode?.type === 'project' && dragOverNode.id === project.id ? dragOverNode.position : null}
+                    onDragStart={(event) => handleDragStart(event, { type: 'project', id: project.id })}
+                    onDragOver={(event) => handleDragOver(event, { type: 'project', id: project.id })}
+                    onDrop={(event) => handleDrop(event, { type: 'project', id: project.id }, filteredData.projects.map(p => p.id))}
+                    onDragEnd={handleDragEnd}
                   />
                     );
                   })()}
@@ -730,8 +886,7 @@ export function ProjectTree() {
                         const wsSelected = selectedWorkstationId === ws.id && !selectedModuleId;
                         const wsStatus = getWorkstationStatus(ws.id);
                         
-                        // Generate workstation display code: project.code + "." + sequential index
-                        const wsDisplayCode = `${project.code}.${String(wsIndex + 1).padStart(2, '0')}`;
+                        const wsDisplayCode = ws.code?.trim() || '未编号';
                         
                         return (
                           <div 
@@ -796,6 +951,16 @@ export function ProjectTree() {
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               }
+                              dragDisabled={isSearchActive}
+                              dragOverPosition={dragOverNode?.type === 'workstation' && dragOverNode.id === ws.id ? dragOverNode.position : null}
+                              onDragStart={(event) => handleDragStart(event, { type: 'workstation', id: ws.id, parentId: project.id })}
+                              onDragOver={(event) => handleDragOver(event, { type: 'workstation', id: ws.id, parentId: project.id })}
+                              onDrop={(event) => handleDrop(
+                                event,
+                                { type: 'workstation', id: ws.id, parentId: project.id },
+                                displayWorkstations.map(item => item.id),
+                              )}
+                              onDragEnd={handleDragEnd}
                             />
                             
                             {/* Modules */}
@@ -849,6 +1014,16 @@ export function ProjectTree() {
                                             </DropdownMenuContent>
                                           </DropdownMenu>
                                         }
+                                        dragDisabled={isSearchActive}
+                                        dragOverPosition={dragOverNode?.type === 'module' && dragOverNode.id === mod.id ? dragOverNode.position : null}
+                                        onDragStart={(event) => handleDragStart(event, { type: 'module', id: mod.id, parentId: ws.id })}
+                                        onDragOver={(event) => handleDragOver(event, { type: 'module', id: mod.id, parentId: ws.id })}
+                                        onDrop={(event) => handleDrop(
+                                          event,
+                                          { type: 'module', id: mod.id, parentId: ws.id },
+                                          displayModules.map(item => item.id),
+                                        )}
+                                        onDragEnd={handleDragEnd}
                                       />
                                     </div>
                                   );

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
+import { sortByEntityOrder } from '@/utils/sortByCode';
 
 type Workstation = Database['public']['Tables']['workstations']['Row'];
 type WorkstationInsert = Database['public']['Tables']['workstations']['Insert'];
@@ -27,7 +28,7 @@ export function useWorkstations(projectId?: string) {
 
       if (error) throw error;
       setError(null);
-      setWorkstations(data || []);
+      setWorkstations(sortByEntityOrder(data || [], 'code'));
     } catch (err) {
       setError(err as Error);
     } finally {
@@ -47,7 +48,7 @@ export function useWorkstations(projectId?: string) {
       .single();
 
     if (error) throw error;
-    setWorkstations(prev => [...prev, data]);
+    setWorkstations(prev => sortByEntityOrder([...prev, data], 'code'));
     return data;
   };
 
@@ -60,7 +61,7 @@ export function useWorkstations(projectId?: string) {
       .single();
 
     if (error) throw error;
-    setWorkstations(prev => prev.map(w => w.id === id ? data : w));
+    setWorkstations(prev => sortByEntityOrder(prev.map(w => w.id === id ? data : w), 'code'));
     return data;
   };
 

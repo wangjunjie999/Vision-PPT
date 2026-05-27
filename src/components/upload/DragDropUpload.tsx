@@ -103,6 +103,10 @@ export function DragDropUpload({
     async (fileList: FileList | File[]) => {
       const newFiles: FilePreview[] = [];
       const errors: string[] = [];
+      if (!multiple && fileList.length > 1) {
+        setError('一次只能上传一个文件');
+        return;
+      }
       const filesToProcess = Array.from(fileList).slice(0, multiple ? maxFiles : 1);
 
       for (const file of filesToProcess) {

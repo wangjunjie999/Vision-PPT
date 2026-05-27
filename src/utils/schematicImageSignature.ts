@@ -1,4 +1,4 @@
-export const SCHEMATIC_IMAGE_SIGNATURE_VERSION = 3;
+export const SCHEMATIC_IMAGE_SIGNATURE_VERSION = 4;
 
 type SchematicPoint = { x: number; y: number };
 
@@ -13,6 +13,7 @@ export function createSchematicImageSignature({
   controllerId,
   camera,
   light,
+  product,
   cameraRotation,
   lightRotation,
   fovAngle,
@@ -33,6 +34,7 @@ export function createSchematicImageSignature({
   controllerId?: string | null;
   camera: SchematicPoint;
   light: SchematicPoint;
+  product: SchematicPoint;
   cameraRotation: number;
   lightRotation: number;
   fovAngle: number;
@@ -64,6 +66,7 @@ export function createSchematicImageSignature({
     controllerId: controllerId || null,
     camera: { x: roundForSignature(camera.x), y: roundForSignature(camera.y) },
     light: { x: roundForSignature(light.x), y: roundForSignature(light.y) },
+    product: { x: roundForSignature(product.x), y: roundForSignature(product.y) },
     cameraRotation: roundForSignature(cameraRotation),
     lightRotation: roundForSignature(lightRotation),
     fovAngle: roundForSignature(fovAngle),

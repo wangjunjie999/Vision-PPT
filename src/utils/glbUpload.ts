@@ -4,6 +4,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { validate3DModelFile } from './fileValidation';
+import { uploadStorageFile } from './storageUpload';
 import { toast } from 'sonner';
 
 const BUCKET = '3d-models';
@@ -49,20 +50,12 @@ export async function uploadGLBFile(
     const safeExt = extRaw.toLowerCase().replace(/[^a-z0-9]/g, '') || 'glb';
     const safeName = `${safeBase}.${safeExt}`;
     const fileName = `${user.id}/${folder}/${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(fileName, file, {
-        contentType: 'model/gltf-binary',
-        upsert: true,
-      });
+    const { publicUrl } = await uploadStorageFile(BUCKET, fileName, file, {
+      contentType: 'model/gltf-binary',
+      upsert: true,
+    });
 
-    if (uploadError) throw uploadError;
-
-    const { data: urlData } = supabase.storage
-      .from(BUCKET)
-      .getPublicUrl(fileName);
-
-    return urlData.publicUrl;
+    return publicUrl;
   } catch (error) {
     console.error('GLB upload error:', error);
     toast.error('3D模型上传失败');

@@ -7,10 +7,12 @@ import { cn } from '@/lib/utils';
 
 const CUSTOM_SENTINEL = '__custom__';
 
+export type EditableSelectOption = string | { value: string; label: React.ReactNode };
+
 export interface EditableSelectProps {
   value: string;
   onValueChange: (value: string) => void;
-  options: string[];
+  options: EditableSelectOption[];
   placeholder?: string;
   customLabel?: string;
   className?: string;
@@ -33,7 +35,13 @@ export function EditableSelect({
   inputPlaceholder = '请输入自定义内容',
   disabled,
 }: EditableSelectProps) {
-  const isCustomValue = !!value && !options.includes(value);
+  const normalizedOptions = React.useMemo(() => options.map((option) => (
+    typeof option === 'string'
+      ? { value: option, label: option }
+      : option
+  )), [options]);
+  const optionValues = React.useMemo(() => normalizedOptions.map((option) => option.value), [normalizedOptions]);
+  const isCustomValue = !!value && !optionValues.includes(value);
   const [manualMode, setManualMode] = React.useState(isCustomValue);
 
   React.useEffect(() => {
@@ -71,7 +79,7 @@ export function EditableSelect({
 
   return (
     <Select
-      value={options.includes(value) ? value : ''}
+      value={optionValues.includes(value) ? value : ''}
       disabled={disabled}
       onValueChange={(v) => {
         if (v === CUSTOM_SENTINEL) {
@@ -86,9 +94,9 @@ export function EditableSelect({
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt}>
-            {opt}
+        {normalizedOptions.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
           </SelectItem>
         ))}
         <SelectSeparator />

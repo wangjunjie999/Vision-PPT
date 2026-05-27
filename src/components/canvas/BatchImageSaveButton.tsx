@@ -58,6 +58,7 @@ interface ImageList {
 interface SchematicLayoutState {
   camera: { x: number; y: number };
   light: { x: number; y: number };
+  product: { x: number; y: number };
   lights?: Array<{ id: string; position: { x: number; y: number }; rotation?: number }>;
   cameraRotation: number;
   lightRotation: number;
@@ -70,11 +71,14 @@ interface SchematicLayoutState {
 const DEFAULT_SCHEMATIC_LAYOUT: SchematicLayoutState = {
   camera: { x: 275, y: 77 },
   light: { x: 275, y: 231 },
+  product: { x: 275, y: 420 },
   cameraRotation: 0,
   lightRotation: 0,
   fovAngle: 45,
   lightDistance: 335,
 };
+const PRODUCT_MIN_Y = 300;
+const PRODUCT_MAX_Y = 430;
 
 function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -86,6 +90,14 @@ function readPoint(value: unknown, fallback: { x: number; y: number }) {
   return {
     x: toFiniteNumber(point.x, fallback.x),
     y: toFiniteNumber(point.y, fallback.y),
+  };
+}
+
+function readProductPoint(value: unknown) {
+  const point = readPoint(value, DEFAULT_SCHEMATIC_LAYOUT.product);
+  return {
+    x: DEFAULT_SCHEMATIC_LAYOUT.product.x,
+    y: Math.max(PRODUCT_MIN_Y, Math.min(PRODUCT_MAX_Y, point.y)),
   };
 }
 
@@ -107,6 +119,7 @@ function resolveSchematicLayout(rawLayout: unknown): SchematicLayoutState {
   return {
     camera: readPoint(data.camera, DEFAULT_SCHEMATIC_LAYOUT.camera),
     light: readPoint(data.light, DEFAULT_SCHEMATIC_LAYOUT.light),
+    product: readProductPoint(data.product),
     lights: Array.isArray(data.lights)
       ? data.lights.map((item: any) => ({
           id: String(item.id || ''),
@@ -258,6 +271,7 @@ function createBatchSchematicImageSignature(
     controllerId: selectedControllerId,
     camera: schematicLayout.camera,
     light: schematicLayout.light,
+    product: schematicLayout.product,
     cameraRotation: schematicLayout.cameraRotation,
     lightRotation: schematicLayout.lightRotation,
     fovAngle: schematicLayout.fovAngle,
@@ -485,6 +499,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                   ...existingSchematicLayout,
                   camera: schematicLayout.camera,
                   light: schematicLayout.light,
+                  product: schematicLayout.product,
                   lights: diagramLightItems.map(item => ({
                     id: item.id,
                     position: item.position,
@@ -683,6 +698,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       interactive={false}
                       cameraPos={currentSchematicLayout.camera}
                       lightPos={currentSchematicLayout.light}
+                      productPos={currentSchematicLayout.product}
                       diagramLightItems={currentDiagramLightItems}
                       cameraRotation={currentSchematicLayout.cameraRotation}
                       lightRotation={currentSchematicLayout.lightRotation}

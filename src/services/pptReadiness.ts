@@ -228,12 +228,9 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     }
     
     // 检查成像参数（FOV、工作距离等）
-    const config = (mod.defect_config || mod.positioning_config || mod.measurement_config || mod.ocr_config) as Record<string, unknown> | null;
+    const config = getModuleConfig(mod);
     if (config) {
-      const missingImaging: string[] = [];
-      if (!config.fieldOfView && !config.fieldOfViewWidth) missingImaging.push('视野范围(FOV)');
-      if (!config.workingDistance) missingImaging.push('工作距离');
-      if (!config.resolutionPerPixel) missingImaging.push('像素精度');
+      const missingImaging = getMissingImagingParams(config);
       
       if (missingImaging.length > 0) {
         warnings.push({
@@ -385,4 +382,86 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
       missingSchematicImages,
     },
   };
+}
+
+function getModuleConfig(module: DbModule): Record<string, unknown> | null {
+  return getObject(module.defect_config)
+    || getObject(module.positioning_config)
+    || getObject(module.measurement_config)
+    || getObject(module.ocr_config)
+    || getObject(module.deep_learning_config)
+    || null;
+}
+
+function getMissingImagingParams(config: Record<string, unknown>): string[] {
+  const imaging = getObject(config.imaging);
+  const missingImaging: string[] = [];
+
+  if (!hasFieldOfView(config, imaging)) missingImaging.push('视野范围(FOV)');
+  if (!hasWorkingDistance(config, imaging)) missingImaging.push('工作距离');
+  if (!hasPixelAccuracy(config, imaging)) missingImaging.push('像素精度');
+
+  return missingImaging;
+}
+
+function hasFieldOfView(
+  config: Record<string, unknown>,
+  imaging: Record<string, unknown> | null,
+): boolean {
+  return firstPresent(
+    joinFov(imaging?.fieldOfViewWidth, imaging?.fieldOfViewHeight),
+    imaging?.fieldOfView,
+    imaging?.fieldOfViewCommon,
+    joinFov(config.fieldOfViewWidth, config.fieldOfViewHeight),
+    config.fieldOfView,
+    config.fieldOfViewCommon,
+    config.fieldOfViewWidth,
+    config.measurementFieldOfView,
+    config.ocrCameraFieldOfView,
+    config.dlFieldOfView,
+  ) !== undefined;
+}
+
+function hasWorkingDistance(
+  config: Record<string, unknown>,
+  imaging: Record<string, unknown> | null,
+): boolean {
+  return firstPresent(
+    imaging?.workingDistance,
+    config.workingDistance,
+    config.ocrWorkingDistance,
+  ) !== undefined;
+}
+
+function hasPixelAccuracy(
+  config: Record<string, unknown>,
+  imaging: Record<string, unknown> | null,
+): boolean {
+  return firstPresent(
+    imaging?.resolutionPerPixel,
+    config.resolutionPerPixel,
+    config.measurementResolution,
+    config.ocrResolution,
+  ) !== undefined;
+}
+
+function getObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function firstPresent(...values: unknown[]): string | number | boolean | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    return value as string | number | boolean;
+  }
+  return undefined;
+}
+
+function joinFov(width: unknown, height: unknown): string | undefined {
+  const w = firstPresent(width);
+  const h = firstPresent(height);
+  return w !== undefined && h !== undefined ? `${w}*${h}` : undefined;
 }

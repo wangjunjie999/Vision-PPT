@@ -489,6 +489,12 @@ const STRATEGY_REQUIRED_PIXELS: Record<Exclude<RedundancyStrategy, 'custom'>, nu
   high: 10,
 };
 
+function getRequiredPixels(strategy: RedundancyStrategy = 'standard', customRequiredPixels?: number): number {
+  return strategy === 'custom'
+    ? (customRequiredPixels ?? 5)
+    : STRATEGY_REQUIRED_PIXELS[strategy];
+}
+
 export interface PrecisionAnalysisResult {
   pixelSizeMm: number;
   targetFeatureSizeMm: number;
@@ -516,9 +522,7 @@ export function calculatePrecisionAnalysis(params: {
 }): PrecisionAnalysisResult {
   const { pixelSizeMm, targetFeatureSizeMm, strategy = 'standard' } = params;
 
-  const requiredPixels = strategy === 'custom'
-    ? (params.customRequiredPixels ?? 5)
-    : STRATEGY_REQUIRED_PIXELS[strategy];
+  const requiredPixels = getRequiredPixels(strategy, params.customRequiredPixels);
 
   const featurePixels = pixelSizeMm > 0 ? targetFeatureSizeMm / pixelSizeMm : 0;
   const featurePixelsR = Math.round(featurePixels * 10) / 10;
@@ -690,7 +694,7 @@ export function calculateImagingParams(input: ImagingCalculationInput): ImagingC
     meetsAccuracy = precisionAnalysis.meetsRequirement;
 
     if (!meetsAccuracy && fovEffective) {
-      const requiredRes = featureSize / (input.redundancyStrategy === 'conservative' ? 3 : input.redundancyStrategy === 'high' ? 10 : 5);
+      const requiredRes = featureSize / getRequiredPixels(input.redundancyStrategy, input.customRequiredPixels);
       const required = calculateRequiredResolution(fovEffective, requiredRes);
       recommendedCamera = `${required.width}x${required.height} (${required.megapixels.toFixed(1)}MP)`;
     }

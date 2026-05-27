@@ -194,6 +194,13 @@ export function AnnotationEditor() {
 
       setSaveDialogOpen(false);
       setSaveRemark('');
+      setAnnotations([]);
+      setSequentialMode(false);
+      setCurrentEditIndex(0);
+      setEditingAnnotations([]);
+      setHighlightId(null);
+      setImageTransform({ rotation: 0, flipH: false, flipV: false });
+      exitAnnotationMode();
       toast.success('标注已保存');
     } catch (error) {
       console.error('Save annotation failed:', error);
@@ -201,7 +208,7 @@ export function AnnotationEditor() {
     } finally {
       setSaving(false);
     }
-  }, [annotationSnapshot, annotationAssetId, annotationWorkstationId, annotationExistingData, annotations, saveRemark, user]);
+  }, [annotationSnapshot, annotationAssetId, annotationWorkstationId, annotationExistingData, annotations, imageTransform, saveRemark, user, exitAnnotationMode]);
 
   if (!annotationSnapshot) {
     return (

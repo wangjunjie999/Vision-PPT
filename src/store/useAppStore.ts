@@ -212,6 +212,8 @@ export const useAppStore = create<Store>()(
       }),
 
       enterAnnotationMode: (snapshot, assetId, scope, workstationId, existingData) => set({
+        viewerMode: false,
+        viewerAssetData: null,
         annotationMode: true,
         annotationSnapshot: snapshot,
         annotationAssetId: assetId,
@@ -241,8 +243,13 @@ export const useAppStore = create<Store>()(
       viewerMode: false,
       viewerAssetData: null,
       enterViewerMode: (modelUrl, imageUrls, assetId, scope, preferredDisplayMode = 'auto') => set({
+        annotationMode: false,
+        annotationSnapshot: null,
+        annotationAssetId: null,
+        annotationWorkstationId: null,
+        annotationExistingData: null,
         viewerMode: true,
-        viewerAssetData: { modelUrl, imageUrls, assetId, scope, preferredDisplayMode },
+        viewerAssetData: { modelUrl, imageUrls: imageUrls.slice(0, 1), assetId, scope, preferredDisplayMode },
       }),
       exitViewerMode: () => set({
         viewerMode: false,
