@@ -899,19 +899,19 @@ export async function generatePPTX(
   const coverBgUrl = `${window.location.origin}/ppt-covers/tech-shine-cover.png`;
   let coverBgData: string | null = null;
   try {
-    coverBgData = await fetchImageAsDataUri(coverBgUrl);
+    coverBgData = await fetchImageAsDataUri(coverBgUrl, { timeoutMs: 60000 });
   } catch (err) {
-    console.warn('Failed to load cover background image:', err);
+    console.warn('[Cover] Failed to load cover background image:', (err as Error)?.message || err);
   }
-  
+
   if (coverBgData) {
-    // Full slide background with company cover image - no modifications
+    // Full slide background with company cover image - no modifications, preserve full HD
     coverSlide.addImage({
       data: coverBgData,
-      x: 0, y: 0, w: '100%', h: '100%',
-      sizing: { type: 'cover', w: 10, h: 5.625 },
+      x: 0, y: 0, w: 10, h: 5.625,
     });
   } else {
+    console.warn('[Cover] Falling back to text cover (image data is empty)');
     // Fallback: simple cover with company name if image fails to load
     coverSlide.addShape('rect', {
       x: 0, y: 0, w: '100%', h: '100%',
