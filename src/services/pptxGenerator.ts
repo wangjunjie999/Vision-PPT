@@ -300,7 +300,7 @@ function buildModuleTocEntries(
   for (let i = 0; i < workstations.length; i++) {
     const ws = workstations[i];
     const wsModules = modules.filter(m => m.workstation_id === ws.id);
-    const wsCode = getWorkstationCode(projectCode, i);
+    const wsCode = getWorkstationCode(projectCode, i, ws.code);
     const wsModuleIds = new Set(wsModules.map(m => m.id));
     const wsAnnotations = annotations?.filter(a =>
       (a.scope_type === 'workstation' && a.workstation_id === ws.id) ||
@@ -1002,7 +1002,7 @@ export async function generatePPTX(
   ]);
 
   const wsTableRows: TableRow[] = workstations.map((ws, index) => row([
-    getWorkstationCode(project.code, index),
+    getWorkstationCode(project.code, index, ws.code),
     ws.name,
     WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type,
     ws.cycle_time?.toString() || '-',
@@ -1131,7 +1131,7 @@ export async function generatePPTX(
     const ws = workstations[i];
     const wsLayout = layouts.find(l => l.workstation_id === ws.id) || null;
     const wsModules = modules.filter(m => m.workstation_id === ws.id);
-    const wsCode = getWorkstationCode(project.code, i);
+    const wsCode = getWorkstationCode(project.code, i, ws.code);
     
     const wsModuleIds = new Set(wsModules.map(m => m.id));
     const wsAnnotations = annotations?.filter(a =>
