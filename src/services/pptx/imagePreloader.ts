@@ -37,7 +37,7 @@ const failedUrls = new Set<string>();
  * 3. Local bundled assets (hardware images)
  * 4. Network fetch with CORS fallback
  */
-export async function fetchImageAsDataUri(url: string): Promise<string> {
+export async function fetchImageAsDataUri(url: string, options?: { timeoutMs?: number }): Promise<string> {
   if (!url || url.trim() === '') return '';
   
   // 1. Check memory cache first (using original URL as key)
@@ -77,7 +77,7 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
     // Bundled assets from Vite have paths like /assets/camera-basler-abc123.png
     if (resolvedUrl.includes('/assets/') || resolvedUrl.startsWith('data:')) {
       try {
-        const dataUri = await fetchFromUrl(resolvedUrl);
+        const dataUri = await fetchFromUrl(resolvedUrl, options?.timeoutMs);
         if (dataUri) {
           addToCache(url, dataUri); // Cache with original URL as key
           return dataUri;
@@ -101,7 +101,7 @@ export async function fetchImageAsDataUri(url: string): Promise<string> {
   const isSupabaseUrl = absoluteUrl.includes('supabase.co/storage');
   
   try {
-    const dataUri = await fetchFromUrl(absoluteUrl);
+    const dataUri = await fetchFromUrl(absoluteUrl, options?.timeoutMs);
     if (dataUri) {
       addToCache(url, dataUri);
       return dataUri;
@@ -192,9 +192,9 @@ function addToCache(key: string, value: string): void {
 /**
  * Fetch image from URL and convert to dataUri
  */
-async function fetchFromUrl(url: string): Promise<string> {
+async function fetchFromUrl(url: string, timeoutMs: number = 10000): Promise<string> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
     const response = await fetch(url, { signal: controller.signal });

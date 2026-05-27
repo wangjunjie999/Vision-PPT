@@ -899,19 +899,19 @@ export async function generatePPTX(
   const coverBgUrl = `${window.location.origin}/ppt-covers/tech-shine-cover.png`;
   let coverBgData: string | null = null;
   try {
-    coverBgData = await fetchImageAsDataUri(coverBgUrl);
+    coverBgData = await fetchImageAsDataUri(coverBgUrl, { timeoutMs: 60000 });
   } catch (err) {
-    console.warn('Failed to load cover background image:', err);
+    console.warn('[Cover] Failed to load cover background image:', (err as Error)?.message || err);
   }
-  
+
   if (coverBgData) {
-    // Full slide background with company cover image - no modifications
+    // Full slide background with company cover image - no modifications, preserve full HD
     coverSlide.addImage({
       data: coverBgData,
-      x: 0, y: 0, w: '100%', h: '100%',
-      sizing: { type: 'cover', w: 10, h: 5.625 },
+      x: 0, y: 0, w: 10, h: 5.625,
     });
   } else {
+    console.warn('[Cover] Falling back to text cover (image data is empty)');
     // Fallback: simple cover with company name if image fails to load
     coverSlide.addShape('rect', {
       x: 0, y: 0, w: '100%', h: '100%',
@@ -1425,20 +1425,29 @@ export async function generatePPTX(
     row(['', '', '', isZh ? '总计' : 'Total', `${totalDevices}${isZh ? '台' : ''}`, '']),
   ];
 
-  const hardwareRowsPerPage = 15;
+  // Evenly distribute rows across pages so each page table has consistent size.
+  // Rule: ≤15 items → 1 page; >15 → split evenly (e.g. 20 → 10/10, 31 → 11/11/9).
+  const MAX_ROWS_PER_PAGE = 15;
+  const totalItems = hwDataRows.length;
+  const pageCount = Math.max(1, Math.ceil(totalItems / MAX_ROWS_PER_PAGE));
+  const rowsPerPage = pageCount > 0 ? Math.ceil(totalItems / pageCount) : MAX_ROWS_PER_PAGE;
   const hardwareChunks: TableRow[][] = [];
-  for (let i = 0; i < hwDataRows.length; i += hardwareRowsPerPage) {
-    hardwareChunks.push(hwDataRows.slice(i, i + hardwareRowsPerPage));
+  for (let i = 0; i < totalItems; i += rowsPerPage) {
+    hardwareChunks.push(hwDataRows.slice(i, i + rowsPerPage));
   }
   if (hardwareChunks.length === 0) {
     hardwareChunks.push([]);
   }
 
+  // Fixed row heights so every page renders an identically-sized table,
+  // regardless of how many rows that specific page holds.
+  const HEADER_ROW_H = 0.32;
+  const DATA_ROW_H = 0.34;
+
   const hardwareTableOptions = {
     x: SLIDE_LAYOUT.contentLeft,
     y: 0.85,
     w: SLIDE_LAYOUT.contentWidth,
-    h: SLIDE_LAYOUT.contentBottom - 0.85 - 0.18,
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [0.5, 1.4, 1.2, 2.0, 0.6, 1.8],
@@ -1453,9 +1462,15 @@ export async function generatePPTX(
     const slide = pageIndex === 0
       ? hwSlide
       : createHardwareSummarySlide(` (${pageIndex + 1}/${hardwareChunks.length})`);
+    const totalRowCount = 1 + chunk.length + (isLastPage ? 1 : 0);
+    const rowH: number[] = [
+      HEADER_ROW_H,
+      ...Array(chunk.length + (isLastPage ? 1 : 0)).fill(DATA_ROW_H),
+    ];
+    void totalRowCount;
     slide.addTable(
       [...hwHeader, ...chunk, ...(isLastPage ? hwTotalRow : [])],
-      hardwareTableOptions
+      { ...hardwareTableOptions, rowH },
     );
   });
 
