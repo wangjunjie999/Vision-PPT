@@ -35,6 +35,7 @@ import {
 } from '@/services/labelMaps';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import { buildModuleVisionChecklist } from '@/utils/moduleVisionChecklist';
+import { getThreeDDisplayInfo, type ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 
 // Type definitions
 type TableCell = { text: string; options?: Record<string, unknown> };
@@ -1676,6 +1677,18 @@ export async function generateModuleOpticalSlide(
   data: WorkstationSlideData,
   moduleIndex: number
 ): Promise<void> {
+  const modCheck = data.modules[moduleIndex];
+  if (modCheck) {
+    const threeDRaw = extractThreeDConfig(modCheck);
+    const imagingIs3D = isImaging3D(modCheck);
+    if (threeDRaw || imagingIs3D) {
+      const info = getThreeDDisplayInfo(threeDRaw || {});
+      if (info.hasAny || imagingIs3D) {
+        await generateModule3DOpticalSlide(ctx, data, moduleIndex, info);
+        return;
+      }
+    }
+  }
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { modules, layout, hardware } = data;
   const mod = modules[moduleIndex];
