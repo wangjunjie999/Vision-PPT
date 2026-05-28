@@ -115,6 +115,9 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
 
   const selectedCameraResolution = selectedCamera?.resolution || null;
   const selectedSensorSize = selectedCamera?.sensor_size || null;
+  const selectedPixelSizeUm = (selectedCamera as { pixel_size_um?: number | null })?.pixel_size_um ?? null;
+  const selectedSensorWidthMm = (selectedCamera as { sensor_width_mm?: number | null })?.sensor_width_mm ?? null;
+  const selectedSensorHeightMm = (selectedCamera as { sensor_height_mm?: number | null })?.sensor_height_mm ?? null;
 
   // 获取选中镜头的属性
   const selectedLens = useMemo(() => {
@@ -186,6 +189,9 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
     return computeVisionParams({
       cameraResolution: selectedCameraResolution || undefined,
       sensorSize: selectedSensorSize || undefined,
+      pixelSizeUm: selectedPixelSizeUm ?? undefined,
+      sensorWidthMm: selectedSensorWidthMm ?? undefined,
+      sensorHeightMm: selectedSensorHeightMm ?? undefined,
       focalLengthStr: selectedLens?.focal_length || undefined,
       fNumberStr: form.lensAperture || undefined,
       fov: fovForCalc,
@@ -207,7 +213,7 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
   }, [
     form.fieldOfView, form.fieldOfViewCommon, form.type,
     selectedCameraResolution, form.accuracyRequirement,
-    selectedSensorSize, selectedLens,
+    selectedSensorSize, selectedPixelSizeUm, selectedSensorWidthMm, selectedSensorHeightMm, selectedLens,
     form.workingDistance, form.lensAperture,
     targetFeatureSizeMm, form.redundancyStrategy,
     form.exposure, form.lineSpeed, form.triggerType,
