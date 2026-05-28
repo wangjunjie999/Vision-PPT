@@ -927,14 +927,16 @@ export function VisionSystemDiagram({
   });
 
   return (
-    <div className={cn("relative w-full h-full min-h-[500px]", className)} style={{ backgroundColor: '#ffffff', contain: 'layout style paint' }}>
+    <div className={cn("relative w-full h-full min-h-[560px]", className)} style={{ backgroundColor: '#ffffff', contain: 'layout style paint' }}>
       <svg 
         ref={svgRef}
-        viewBox="0 0 800 540"
+        viewBox="0 0 800 640"
         className="w-full h-full"
         preserveAspectRatio="xMidYMid meet"
         shapeRendering="geometricPrecision"
         style={{ maxHeight: '100%' }}
+        onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
+        onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
       >
         <defs>
           <linearGradient id="fovGradient" x1="0%" y1="0%" x2="0%" y2="100%">
