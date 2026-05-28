@@ -1148,19 +1148,19 @@ export function VisionSystemDiagram({
               {diagramLightItems.map((item) => {
                 const itemLight = item.light;
                 const rotation = item.rotation ?? 0;
+                const labelAbove = item.position.y <= productY;
+                const labelY = labelAbove ? item.position.y - 10 : item.position.y + 22;
                 return (
                   <g key={item.id}>
                     <g
                       transform={`translate(${item.position.x}, ${item.position.y}) rotate(${rotation}) scale(0.65) translate(-80, -16)`}
                       style={{ cursor: interactive ? 'grab' : 'default' }}
                       onPointerDown={interactive ? (e) => handleDiagramLightPointerDown(item.id, item.position, e) : undefined}
-                      onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
-                      onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
                     >
                       <LightSVGShape hasImage={!!itemLight?.front_view_url} imageUrl={itemLight?.front_view_url} brand={itemLight?.brand} lightType={itemLight?.type} />
                     </g>
                     <circle cx={item.position.x} cy={item.position.y} r="4" fill="hsl(220, 80%, 55%)" opacity="0.9" />
-                    <text x={item.position.x + 10} y={item.position.y - 10} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
+                    <text x={item.position.x + 10} y={labelY} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
                       {item.label || 'LIGHT'}
                     </text>
                   </g>
