@@ -10,6 +10,60 @@ import { Badge } from '@/components/ui/badge';
 import { Check } from 'lucide-react';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { type DistanceUnit, formatDistanceInput, formatDistanceLabel, normalizeDistanceUnit } from '@/utils/distanceUnits';
+import { resolveSensorDimensions, parseResolution } from '@/utils/imagingCalculations';
+
+// ─── Display helpers for camera / lens / FOV cards ───
+function formatOpticalFormat(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim().replace(/["”'']/g, '');
+  if (!s) return null;
+  return `${s}"光学格式`;
+}
+
+function formatLensSupportedSensor(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim().replace(/["”'']/g, '');
+  if (!s) return null;
+  return `支持 ${s}"靶面`;
+}
+
+function getCameraSensorInfo(camera: Camera | null | undefined) {
+  if (!camera) return { effectiveSensorText: null as string | null, pixelText: null as string | null, sourceLabel: null as string | null };
+  const resolution = camera.resolution ? parseResolution(camera.resolution) : null;
+  const resolved = resolveSensorDimensions(camera.sensor_size, {
+    pixelSizeUm: camera.pixel_size_um ?? undefined,
+    sensorWidthMm: camera.sensor_width_mm ?? undefined,
+    sensorHeightMm: camera.sensor_height_mm ?? undefined,
+    resolution: resolution || undefined,
+  });
+  // 只在 manual / pixel_size 来源时展示精确尺寸，sensor_map 估算时不展示具体毫米数避免误导
+  let effectiveSensorText: string | null = null;
+  if (resolved && (resolved.source === 'manual' || resolved.source === 'pixel_size')) {
+    effectiveSensorText = `有效靶面 ${resolved.width.toFixed(2)} × ${resolved.height.toFixed(2)} mm`;
+  }
+  const pixelText = camera.pixel_size_um && camera.pixel_size_um > 0
+    ? `像元 ${camera.pixel_size_um} μm`
+    : null;
+  return {
+    effectiveSensorText,
+    pixelText,
+    sourceLabel: resolved?.sourceLabel ?? null,
+  };
+}
+
+function getLensSupportedSensorText(lens: Lens | null | undefined): string | null {
+  if (!lens) return null;
+  const raw = (lens as unknown as Record<string, unknown>);
+  const candidate = (raw.max_sensor_size as string | null | undefined)
+    || (raw.supported_sensor_size as string | null | undefined)
+    || (raw.max_sensor_format as string | null | undefined)
+    || (raw.image_circle as string | null | undefined);
+  return formatLensSupportedSensor(candidate);
+}
+
+function joinDotParts(parts: Array<string | null | undefined>): string {
+  return parts.filter((p): p is string => Boolean(p && p.trim())).join(' · ');
+}
 
 const DEFAULT_PRODUCT_POS = { x: 275, y: 420 };
 const PRODUCT_MIN_Y = 300;
@@ -805,6 +859,10 @@ export function VisionSystemDiagram({
       : Math.round(2 * Math.tan(fovRadians) * workingDistanceMM);
   const fovWidthDisplay = formatDistanceLabel(fovWidthMM, distanceUnit);
 
+  // Camera/Lens display info (memo-cheap; computed each render)
+  const cameraSensorInfo = getCameraSensorInfo(camera ?? null);
+  const lensSupportedText = getLensSupportedSensorText(lens ?? null);
+
   const legacyDiagramLightDistanceMM = Math.round(Math.abs(productY - lightDrag.pos.y) * (lightDistance / (productY - 175)));
   const controlledLightDistanceMM =
     typeof lightDistanceMm === 'number' && Number.isFinite(lightDistanceMm) && lightDistanceMm > 0
@@ -1176,7 +1234,14 @@ export function VisionSystemDiagram({
                 </div>
                 {hasCamera ? (
                   <>
-                    <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>{camera.resolution} · 靶面{camera.sensor_size}</p>
+                    <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>
+                      {joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}
+                    </p>
+                    {(cameraSensorInfo.effectiveSensorText || cameraSensorInfo.pixelText) && (
+                      <p style={{ fontSize: '10px', color: '#444444', margin: 0 }}>
+                        {joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText])}
+                      </p>
+                    )}
                     <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</p>
                   </>
                 ) : (
@@ -1193,7 +1258,12 @@ export function VisionSystemDiagram({
                   </div>
                   {hasLens ? (
                     <>
-                      <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>焦距 {lens.focal_length} · 靶面 {lens.max_sensor_size || '-'}</p>
+                      <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>
+                        {joinDotParts([
+                          lens.focal_length ? `焦距 ${lens.focal_length}` : null,
+                          lensSupportedText ?? '支持靶面：待维护',
+                        ])}
+                      </p>
                       <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{lens.brand} {lens.model}</p>
                     </>
                   ) : (
@@ -1304,6 +1374,9 @@ export function VisionSystemDiagram({
                     <span style={{ fontSize: '10px', color: '#333333' }}>{distanceUnit}</span>
                   </div>
                   <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>视野宽度约 {fovWidthDisplay}</p>
+                  {cameraSensorInfo.sourceLabel && (
+                    <p style={{ fontSize: '10px', color: '#888888', margin: 0 }}>计算依据：{cameraSensorInfo.sourceLabel}</p>
+                  )}
                 </div>
               </div>
 
@@ -1334,17 +1407,29 @@ export function VisionSystemDiagram({
 
               cards.push(
                 <g key="cam" transform={`translate(${cardX}, ${y})`}>
-                  <rect width={cardW} height={cardH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                  <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📷 工业相机</text>
-                  {hasCamera ? (
-                    <>
-                      <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{camera.resolution} · 靶面{camera.sensor_size}</text>
-                      <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{camera.brand} {camera.model}</text>
-                    </>
-                  ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择相机</text>}
+                  {(() => {
+                    const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
+                    const camH = hasCamera ? (line2 ? 66 : 52) : cardH;
+                    return (
+                      <>
+                        <rect width={cardW} height={camH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                        <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📷 工业相机</text>
+                        {hasCamera ? (
+                          <>
+                            <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}</text>
+                            {line2 && <text x="12" y="45" fill={tc} style={{ fontSize: '10px' }}>{line2}</text>}
+                            <text x="12" y={line2 ? 58 : 45} fill={ts} style={{ fontSize: '10px' }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</text>
+                          </>
+                        ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择相机</text>}
+                      </>
+                    );
+                  })()}
                 </g>
               );
-              y += cardH + cardGap;
+              {
+                const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
+                y += (hasCamera ? (line2 ? 66 : 52) : cardH) + cardGap;
+              }
 
               if (!is3DCamera) {
                 cards.push(
@@ -1353,7 +1438,7 @@ export function VisionSystemDiagram({
                     <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🔭 工业镜头</text>
                     {hasLens ? (
                       <>
-                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>焦距 {lens.focal_length} · 靶面 {lens.max_sensor_size || '-'}</text>
+                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])}</text>
                         <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{lens.brand} {lens.model}</text>
                       </>
                     ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择镜头</text>}
@@ -1389,17 +1474,22 @@ export function VisionSystemDiagram({
                 y += lh + cardGap;
               }
 
-              cards.push(
-                <g key="fov" transform={`translate(${cardX}, ${y})`}>
-                  <rect width={cardW} height={62} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                  <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
-                  <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
-                  <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}</text>
-                  <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthDisplay}</text>
-                </g>
-              );
-
-              y += 62 + cardGap;
+              {
+                const fovH = cameraSensorInfo.sourceLabel ? 76 : 62;
+                cards.push(
+                  <g key="fov" transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={fovH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
+                    <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
+                    <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}</text>
+                    <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthDisplay}</text>
+                    {cameraSensorInfo.sourceLabel && (
+                      <text x="12" y="70" fill={ts} style={{ fontSize: '10px' }}>计算依据：{cameraSensorInfo.sourceLabel}</text>
+                    )}
+                  </g>
+                );
+                y += fovH + cardGap;
+              }
 
               if (hasController) {
                 cards.push(
