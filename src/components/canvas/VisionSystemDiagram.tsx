@@ -1219,7 +1219,7 @@ export function VisionSystemDiagram({
 
         {/* ===== Right annotation panel ===== */}
         {interactive ? (
-          <foreignObject x="500" y="20" width="290" height="500">
+          <foreignObject x="500" y="20" width="290" height="600">
             <div
               style={{
                 height: '100%',
