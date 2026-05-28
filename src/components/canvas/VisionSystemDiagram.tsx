@@ -1374,6 +1374,9 @@ export function VisionSystemDiagram({
                     <span style={{ fontSize: '10px', color: '#333333' }}>{distanceUnit}</span>
                   </div>
                   <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>视野宽度约 {fovWidthDisplay}</p>
+                  {cameraSensorInfo.sourceLabel && (
+                    <p style={{ fontSize: '10px', color: '#888888', margin: 0 }}>计算依据：{cameraSensorInfo.sourceLabel}</p>
+                  )}
                 </div>
               </div>
 
