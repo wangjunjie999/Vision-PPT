@@ -107,6 +107,8 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   }
   
   // 2. 检查项目必填字段（草案版最低要求）
+  const projectUses3D = Boolean((project as any).use_3d);
+
   const projectMissing: string[] = [];
   if (!project.code || project.code.trim() === '') {
     projectMissing.push('项目编号');
@@ -191,7 +193,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
           warning: '未配置相机',
         });
       }
-      if (!selectedLens || selectedLens.length === 0) {
+      if (!projectUses3D && (!selectedLens || selectedLens.length === 0)) {
         warnings.push({
           level: 'workstation',
           id: ws.id,
@@ -199,7 +201,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
           warning: '未配置镜头',
         });
       }
-      if (!selectedLights || selectedLights.length === 0) {
+      if (!projectUses3D && (!selectedLights || selectedLights.length === 0)) {
         warnings.push({
           level: 'workstation',
           id: ws.id,
@@ -293,7 +295,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
             targetId: ws.id,
           });
         }
-        if (!selectedLens || selectedLens.length === 0) {
+        if (!projectUses3D && (!selectedLens || selectedLens.length === 0)) {
           missing.push({
             level: 'workstation',
             id: ws.id,
@@ -329,15 +331,16 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   // 11. 检查模块关键参数缺失（警告级别）
   projectModules.forEach(mod => {
     const modWarnings: string[] = [];
+    const moduleUses3D = isModule3DCamera(mod, projectUses3D);
     
     // 检查硬件配置
     if (!mod.selected_camera) {
       modWarnings.push('未选择相机');
     }
-    if (!mod.selected_lens) {
+    if (!moduleUses3D && !mod.selected_lens) {
       modWarnings.push('未选择镜头');
     }
-    if (!mod.selected_light) {
+    if (!moduleUses3D && !mod.selected_light) {
       modWarnings.push('未选择光源');
     }
     
@@ -391,6 +394,21 @@ function getModuleConfig(module: DbModule): Record<string, unknown> | null {
     || getObject(module.ocr_config)
     || getObject(module.deep_learning_config)
     || null;
+}
+
+function isModule3DCamera(module: DbModule, projectUses3D: boolean): boolean {
+  if (projectUses3D) return true;
+  const config = getModuleConfig(module);
+  const imaging = getObject(config?.imaging);
+  return toBoolean(imaging?.is3DCamera);
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
 function getMissingImagingParams(config: Record<string, unknown>): string[] {

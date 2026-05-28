@@ -250,6 +250,7 @@ export type {
   PrecisionStatus,
   PrecisionAnalysisResult,
   FOVReconciliation,
+  FOVReconciliationMode,
 } from './imagingCalculations';
 
 export {

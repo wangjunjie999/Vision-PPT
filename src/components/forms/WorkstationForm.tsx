@@ -111,6 +111,23 @@ const createDefaultLayoutForm = () => ({
 
 type LayoutFormState = ReturnType<typeof createDefaultLayoutForm>;
 
+function strip3DWorkstationLayout(form: LayoutFormState): LayoutFormState {
+  return {
+    ...form,
+    lensCount: 0,
+    lightCount: 0,
+    selectedLenses: [],
+    selectedLights: [],
+  };
+}
+
+function needs3DWorkstationLayoutStrip(form: LayoutFormState) {
+  return form.lensCount !== 0
+    || form.lightCount !== 0
+    || safeHardwareArray(form.selectedLenses).length > 0
+    || safeHardwareArray(form.selectedLights).length > 0;
+}
+
 interface WorkstationDraftPayload {
   wsForm: WorkstationFormState;
   layoutForm: LayoutFormState;
@@ -318,6 +335,7 @@ export function WorkstationForm() {
     workstations, 
     updateWorkstation, 
     layouts, 
+    projects,
     upsertLayout,
     getLayoutByWorkstation,
     getWorkstationModules,
@@ -326,6 +344,8 @@ export function WorkstationForm() {
   const { controllers } = useControllers();
   
   const workstation = workstations.find(ws => ws.id === selectedWorkstationId);
+  const project = workstation ? projects.find(p => p.id === workstation.project_id) : null;
+  const isProject3D = Boolean(project?.use_3d);
   const layout = getLayoutByWorkstation(selectedWorkstationId || '');
   const wsModules = useMemo(
     () => selectedWorkstationId ? getWorkstationModules(selectedWorkstationId) : [],
@@ -393,11 +413,15 @@ export function WorkstationForm() {
       layoutToForm(layout as any, controllers),
       0,
     );
+    const normalizedPayload = {
+      ...nextPayload,
+      layoutForm: isProject3D ? strip3DWorkstationLayout(nextPayload.layoutForm) : nextPayload.layoutForm,
+    };
 
-    setWsForm(nextPayload.wsForm);
-    setLayoutForm(nextPayload.layoutForm);
-    setCurrentStep(nextPayload.currentStep || 0);
-    baselineSnapshotRef.current = stringifyFormDraft(nextPayload);
+    setWsForm(normalizedPayload.wsForm);
+    setLayoutForm(normalizedPayload.layoutForm);
+    setCurrentStep(normalizedPayload.currentStep || 0);
+    baselineSnapshotRef.current = stringifyFormDraft(normalizedPayload);
     setDraftDirty(Boolean(draft));
     setDraftReady(true);
     initializedWorkstationIdRef.current = workstation.id;
@@ -405,7 +429,12 @@ export function WorkstationForm() {
     if (draft) {
       toast.info('已恢复未保存草稿');
     }
-  }, [controllers, layout, readDraft, workstation]);
+  }, [controllers, isProject3D, layout, readDraft, workstation]);
+
+  useEffect(() => {
+    if (!draftReady || !workstation || !isProject3D) return;
+    setLayoutForm(prev => needs3DWorkstationLayoutStrip(prev) ? strip3DWorkstationLayout(prev) : prev);
+  }, [draftReady, isProject3D, workstation?.id]);
 
   useEffect(() => {
     if (!draftReady || !workstation) return;
@@ -543,26 +572,27 @@ export function WorkstationForm() {
         status: 'incomplete' 
       } as any, { silent: true });
       
-      const selectedCameras = sanitizeHardwareArray(layoutForm.selectedCameras);
-      const selectedLenses = sanitizeHardwareArray(layoutForm.selectedLenses);
-      const selectedLights = sanitizeHardwareArray(layoutForm.selectedLights);
-      const selectedController = sanitizeController(layoutForm.selectedController);
+      const layoutFormForSave = isProject3D ? strip3DWorkstationLayout(layoutForm) : layoutForm;
+      const selectedCameras = sanitizeHardwareArray(layoutFormForSave.selectedCameras);
+      const selectedLenses = sanitizeHardwareArray(layoutFormForSave.selectedLenses);
+      const selectedLights = sanitizeHardwareArray(layoutFormForSave.selectedLights);
+      const selectedController = sanitizeController(layoutFormForSave.selectedController);
 
       const layoutPayload: Record<string, unknown> = {
         name: wsForm.name || '布局',
-        conveyor_type: layoutForm.conveyorType,
-        camera_count: layoutForm.cameraCount,
-        lens_count: layoutForm.lensCount,
-        light_count: layoutForm.lightCount,
-        camera_mounts: layoutForm.cameraMounts,
-        mechanisms: layoutForm.mechanisms,
+        conveyor_type: layoutFormForSave.conveyorType,
+        camera_count: layoutFormForSave.cameraCount,
+        lens_count: layoutFormForSave.lensCount,
+        light_count: layoutFormForSave.lightCount,
+        camera_mounts: layoutFormForSave.cameraMounts,
+        mechanisms: layoutFormForSave.mechanisms,
         selected_cameras: selectedCameras,
         selected_lenses: selectedLenses,
         selected_lights: selectedLights,
         selected_controller: selectedController,
-        primary_view: layoutForm.primaryView,
-        auxiliary_view: layoutForm.auxiliaryView,
-        layout_description: layoutForm.layoutDescription,
+        primary_view: layoutFormForSave.primaryView,
+        auxiliary_view: layoutFormForSave.auxiliaryView,
+        layout_description: layoutFormForSave.layoutDescription,
       };
 
       const upsertLayoutWithCompatibility = async () => {
@@ -607,8 +637,9 @@ export function WorkstationForm() {
 
       // Upsert layout - this will update context state and trigger canvas re-render
       await upsertLayoutWithCompatibility();
+      setLayoutForm(layoutFormForSave);
       clearDraft();
-      baselineSnapshotRef.current = stringifyFormDraft(draftPayload);
+      baselineSnapshotRef.current = stringifyFormDraft(createWorkstationDraftPayload(wsForm, layoutFormForSave, currentStep));
       setDraftDirty(false);
       
       toast.success('工位配置已保存');
@@ -628,11 +659,15 @@ export function WorkstationForm() {
       layoutToForm(layout as any, controllers),
       0,
     );
+    const normalizedPayload = {
+      ...nextPayload,
+      layoutForm: isProject3D ? strip3DWorkstationLayout(nextPayload.layoutForm) : nextPayload.layoutForm,
+    };
     clearDraft();
-    setWsForm(nextPayload.wsForm);
-    setLayoutForm(nextPayload.layoutForm);
-    setCurrentStep(nextPayload.currentStep);
-    baselineSnapshotRef.current = stringifyFormDraft(nextPayload);
+    setWsForm(normalizedPayload.wsForm);
+    setLayoutForm(normalizedPayload.layoutForm);
+    setCurrentStep(normalizedPayload.currentStep);
+    baselineSnapshotRef.current = stringifyFormDraft(normalizedPayload);
     setDraftDirty(false);
   };
 
@@ -1242,11 +1277,12 @@ export function WorkstationForm() {
         initialLenses={layoutForm.selectedLenses}
         initialLights={layoutForm.selectedLights}
         initialController={layoutForm.selectedController}
+        hideLensAndLight={isProject3D}
         onHardwareChange={(config) => setLayoutForm(p => ({
           ...p,
           selectedCameras: config.cameras,
-          selectedLenses: config.lenses,
-          selectedLights: config.lights,
+          selectedLenses: isProject3D ? [] : config.lenses,
+          selectedLights: isProject3D ? [] : config.lights,
           selectedController: config.controller,
         }))}
       />
@@ -1287,14 +1323,14 @@ export function WorkstationForm() {
       id: 'hardware',
       title: '硬件配置',
       shortTitle: '硬件',
-      description: '选择相机、镜头、光源和控制器',
+      description: isProject3D ? '选择3D相机和控制器' : '选择相机、镜头、光源和控制器',
       content: Step3HardwareConfig,
       isComplete: isStep3Complete,
       nextHint: isStep3Complete 
         ? '配置完成！点击"保存完成"保存所有设置' 
         : '请至少选择一个相机',
     },
-  ], [Step1WorkstationInfo, Step2MechanicalLayout, Step3HardwareConfig, isStep1Complete, isStep2Complete, isStep3Complete]);
+  ], [Step1WorkstationInfo, Step2MechanicalLayout, Step3HardwareConfig, isProject3D, isStep1Complete, isStep2Complete, isStep3Complete]);
 
   return (
     <FormStepWizard

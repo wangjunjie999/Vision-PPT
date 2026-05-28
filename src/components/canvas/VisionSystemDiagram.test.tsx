@@ -55,6 +55,68 @@ describe('VisionSystemDiagram export mode', () => {
     expect(screen.queryByText(/其余|略/)).not.toBeInTheDocument();
   });
 
+  it('hides lens and light graphics/cards in 3D mode', () => {
+    render(
+      <VisionSystemDiagram
+        camera={{
+          id: 'camera-1',
+          brand: 'CameraBrand',
+          model: 'CAM-3D',
+          resolution: '4000*3000',
+          sensor_size: '1/1.7',
+          frame_rate: '9',
+          enabled: true,
+        } as any}
+        lens={{
+          id: 'lens-1',
+          brand: 'LensBrand',
+          model: 'LENS-OLD',
+          focal_length: '12mm',
+          enabled: true,
+        } as any}
+        light={{
+          id: 'light-1',
+          brand: 'LightBrand',
+          model: 'LIGHT-OLD',
+          color: 'white',
+          type: 'bar',
+          power: '10W',
+          enabled: true,
+        } as any}
+        controller={{
+          id: 'controller-1',
+          brand: 'IPCBrand',
+          model: 'IPC-1',
+          cpu: 'Intel i7',
+          memory: '16GB',
+          storage: '1TB',
+          enabled: true,
+        } as any}
+        interactive={false}
+        is3DCamera
+        diagramLightItems={[{
+          id: 'legacy-light',
+          label: 'LIGHT1',
+          light: {
+            id: 'light-legacy',
+            brand: 'LegacyLight',
+            model: 'LEGACY-LIGHT',
+            enabled: true,
+          } as any,
+          position: { x: 220, y: 230 },
+          rotation: 0,
+          distanceMm: 180,
+        }]}
+      />,
+    );
+
+    expect(screen.getByText((content) => content.includes('CameraBrand') && content.includes('CAM-3D'))).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes('IPCBrand') && content.includes('IPC-1'))).toBeInTheDocument();
+    expect(screen.queryByText((content) => content.includes('LensBrand') || content.includes('LENS-OLD'))).not.toBeInTheDocument();
+    expect(screen.queryByText((content) => content.includes('LightBrand') || content.includes('LIGHT-OLD'))).not.toBeInTheDocument();
+    expect(screen.queryByText((content) => content.includes('LegacyLight') || content.includes('LIGHT1'))).not.toBeInTheDocument();
+  });
+
   it('renders the product at the controlled vertical position', () => {
     const { container } = render(
       <VisionSystemDiagram

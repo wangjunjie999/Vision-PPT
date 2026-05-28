@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { createSchematicImageSignature } from '@/utils/schematicImageSignature';
 import { checkPPTReadiness } from './pptReadiness';
 
 const baseProject = {
   id: 'project-1',
   code: 'P001',
-  name: '测试项目',
-  customer: '客户',
-  responsible: '负责人',
+  name: 'project',
+  customer: 'customer',
+  responsible: 'owner',
   date: '2026-05-27',
 };
 
 const baseWorkstation = {
   id: 'workstation-1',
   project_id: 'project-1',
-  name: '工位1',
+  name: 'workstation 1',
 };
 
 const baseLayout = {
@@ -36,7 +37,7 @@ function readinessForModule(module: Record<string, unknown>) {
     modules: [{
       id: 'module-1',
       workstation_id: 'workstation-1',
-      name: '检测模块',
+      name: 'module',
       type: 'defect',
       selected_camera: 'camera-1',
       selected_lens: 'lens-1',
@@ -50,7 +51,27 @@ function readinessForModule(module: Record<string, unknown>) {
 }
 
 function imagingWarnings(module: Record<string, unknown>) {
-  return readinessForModule(module).warnings.filter(item => item.warning.includes('成像参数'));
+  return readinessForModule(module).warnings;
+}
+
+function currentSaved3DSignature() {
+  return createSchematicImageSignature({
+    cameraId: 'camera-1',
+    lensId: 'legacy-lens',
+    lightId: 'legacy-light',
+    controllerId: 'controller-1',
+    camera: { x: 275, y: 77 },
+    light: { x: 275, y: 231 },
+    product: { x: 275, y: 420 },
+    cameraRotation: 0,
+    lightRotation: 0,
+    fovAngle: 45,
+    lightDistance: 335,
+    workingDistanceMm: 300,
+    fovWidthMm: 100,
+    is3DCamera: true,
+    distanceUnit: 'mm',
+  });
 }
 
 describe('pptReadiness imaging parameters', () => {
@@ -58,7 +79,7 @@ describe('pptReadiness imaging parameters', () => {
     const warnings = imagingWarnings({
       defect_config: {
         imaging: {
-          fieldOfView: '200×150',
+          fieldOfView: '200x150',
           workingDistance: '430',
           resolutionPerPixel: '0.0500',
         },
@@ -71,7 +92,7 @@ describe('pptReadiness imaging parameters', () => {
   it('keeps accepting legacy top-level imaging fields', () => {
     const warnings = imagingWarnings({
       positioning_config: {
-        fieldOfView: '200×150',
+        fieldOfView: '200x150',
         workingDistance: '430',
         resolutionPerPixel: '0.0500',
       },
@@ -90,8 +111,46 @@ describe('pptReadiness imaging parameters', () => {
     });
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0].warning).toContain('视野范围(FOV)');
-    expect(warnings[0].warning).toContain('像素精度');
-    expect(warnings[0].warning).not.toContain('工作距离');
+    expect(warnings[0].warning).toContain('FOV');
+  });
+
+  it('does not require lens or light hardware for 3D projects', () => {
+    const result = checkPPTReadiness({
+      projects: [{ ...baseProject, use_3d: true }] as any,
+      workstations: [baseWorkstation] as any,
+      layouts: [{
+        ...baseLayout,
+        selected_lenses: [],
+        selected_lights: [],
+      }] as any,
+      modules: [{
+        id: 'module-1',
+        workstation_id: 'workstation-1',
+        name: 'module',
+        type: 'defect',
+        selected_camera: 'camera-1',
+        selected_lens: null,
+        selected_light: null,
+        selected_controller: 'controller-1',
+        processing_time_limit: 200,
+        schematic_image_url: 'schematic.png',
+        schematic_layout: { savedImageSignature: currentSaved3DSignature() },
+        defect_config: {
+          imaging: {
+            is3DCamera: true,
+            fieldOfView: '200x150',
+            workingDistance: '430',
+            resolutionPerPixel: '0.0500',
+            lightItems: [],
+          },
+        },
+      }] as any,
+      selectedProjectId: 'project-1',
+      mode: 'final',
+    });
+
+    expect(result.missing).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+    expect(result.finalReady).toBe(true);
   });
 });

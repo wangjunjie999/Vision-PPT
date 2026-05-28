@@ -39,6 +39,7 @@ interface ModuleHardwareSelectionProps {
   lights: HardwareItem[];
   controllers: HardwareItem[];
   workstationLayout?: unknown;
+  isProject3D?: boolean;
 }
 
 const kindMeta: Record<ModuleHardwareKind, { title: string; Icon: typeof Camera; emptyText: string; hint: string }> = {
@@ -162,6 +163,7 @@ export function ModuleHardwareSelection({
   lights,
   controllers,
   workstationLayout,
+  isProject3D = false,
 }: ModuleHardwareSelectionProps) {
   const cameraSlots = useMemo(
     () => getModuleHardwareSlots<HardwareItem>(workstationLayout, 'camera', cameras),
@@ -180,9 +182,10 @@ export function ModuleHardwareSelection({
     [workstationLayout, controllers],
   );
 
+  const is3DMode = isProject3D || form.is3DCamera;
   const hasStationHardware = cameraSlots.length > 0
-    || lensSlots.length > 0
-    || lightSlots.length > 0
+    || (!is3DMode && lensSlots.length > 0)
+    || (!is3DMode && lightSlots.length > 0)
     || controllerSlots.length > 0;
 
   const applyLightItems = (prev: ModuleFormState, lightItems: ModuleLightItem[]): ModuleFormState => {
@@ -234,11 +237,11 @@ export function ModuleHardwareSelection({
   };
 
   const handleInheritHardware = () => {
-    const inheritedLights = lightSlots.length > 0
+    const inheritedLights = !is3DMode && lightSlots.length > 0
       ? [createModuleLightItem({ selectedLight: lightSlots[0].value })]
       : [];
     setForm(prev => {
-      const selectedLens = prev.is3DCamera ? '' : lensSlots[0]?.value || prev.selectedLens;
+      const selectedLens = is3DMode ? '' : lensSlots[0]?.value || prev.selectedLens;
       const next = {
         ...applyLightItems(prev, inheritedLights),
         selectedCamera: cameraSlots[0]?.value || prev.selectedCamera,
@@ -284,7 +287,7 @@ export function ModuleHardwareSelection({
           workstationLayout={workstationLayout}
           onChange={(selectedCamera) => setForm(prev => ({ ...prev, selectedCamera }))}
         />
-        {form.is3DCamera ? (
+        {is3DMode ? (
           <div className="space-y-1.5">
             <Label className="text-xs font-medium flex items-center gap-1.5">
               <Aperture className="h-3.5 w-3.5 text-muted-foreground" />
@@ -315,6 +318,7 @@ export function ModuleHardwareSelection({
         />
       </div>
 
+      {!is3DMode && (
       <div className="space-y-2 border-t border-border/60 pt-3">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -363,6 +367,7 @@ export function ModuleHardwareSelection({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

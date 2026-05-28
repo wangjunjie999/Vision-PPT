@@ -150,6 +150,12 @@ function getPersistedImaging(module: any): Record<string, any> {
   return getModuleConfig(module)?.imaging || {};
 }
 
+function isBatchModule3DCamera(module: any, projectUses3D = false): boolean {
+  if (projectUses3D) return true;
+  const imaging = getPersistedImaging(module);
+  return imaging.is3DCamera === true || String(imaging.is3DCamera || '') === 'true';
+}
+
 function getPersistedWorkingDistance(module: any): string {
   const cfg = getModuleConfig(module);
   return String(cfg?.imaging?.workingDistance ?? cfg?.workingDistance ?? '');
@@ -189,7 +195,8 @@ function readSchematicLayoutRecord(rawLayout: unknown): Record<string, unknown> 
   return layout && typeof layout === 'object' && !Array.isArray(layout) ? { ...(layout as Record<string, unknown>) } : {};
 }
 
-function getModuleLightItemsForBatch(module: any) {
+function getModuleLightItemsForBatch(module: any, projectUses3D = false) {
+  if (isBatchModule3DCamera(module, projectUses3D)) return [];
   const imaging = getPersistedImaging(module);
   return normalizeModuleLightItems(imaging.lightItems, {
     selectedLight: module?.selected_light || module?.light_id || '',
@@ -207,10 +214,12 @@ function getBatchDiagramLightItems(
   layout: any,
   schematicLayout: SchematicLayoutState,
   lights: any[],
+  projectUses3D = false,
 ) {
+  if (isBatchModule3DCamera(module, projectUses3D)) return [];
   const imaging = getPersistedImaging(module);
   const distanceUnit = normalizeDistanceUnit(imaging.distanceUnit);
-  return getModuleLightItemsForBatch(module).map((item, index) => {
+  return getModuleLightItemsForBatch(module, projectUses3D).map((item, index) => {
     const resolved = resolveModuleHardwareSelection(item.selectedLight, layout, 'light', lights);
     const saved = schematicLayout.lights?.find(lightItem => lightItem.id === item.id);
     const horizontalMm = signedToMillimeters(item.lightDistanceHorizontal, distanceUnit) ?? 0;
@@ -238,15 +247,16 @@ function createBatchSchematicImageSignature(
   layout: any,
   schematicLayout: SchematicLayoutState,
   lights: any[],
+  projectUses3D = false,
 ) {
   const imaging = getPersistedImaging(module);
   const distanceUnit = normalizeDistanceUnit(imaging.distanceUnit);
-  const moduleLightItems = getModuleLightItemsForBatch(module);
+  const moduleLightItems = getModuleLightItemsForBatch(module, projectUses3D);
   const firstLightItem = getFirstModuleLightItem(moduleLightItems);
-  const is3DCamera = imaging.is3DCamera === true || String(imaging.is3DCamera || '') === 'true';
+  const is3DCamera = isBatchModule3DCamera(module, projectUses3D);
   const selectedCameraId = module?.selected_camera || module?.camera_id || null;
   const selectedLensId = is3DCamera ? null : (module?.selected_lens || module?.lens_id || null);
-  const selectedLightId = firstLightItem?.selectedLight || module?.selected_light || module?.light_id || null;
+  const selectedLightId = is3DCamera ? null : (firstLightItem?.selectedLight || module?.selected_light || module?.light_id || null);
   const selectedControllerId = module?.selected_controller || module?.controller_id || null;
   const workingDistanceMm = toMillimeters(getPersistedWorkingDistance(module), distanceUnit);
   const fovInput = getPersistedFov(module);
@@ -262,7 +272,7 @@ function createBatchSchematicImageSignature(
     ?? (lightDistanceVerticalMm !== null
       ? Math.sqrt(lightDistanceHorizontalMm * lightDistanceHorizontalMm + lightDistanceVerticalMm * lightDistanceVerticalMm)
       : null);
-  const diagramLightItems = getBatchDiagramLightItems(module, layout, schematicLayout, lights);
+  const diagramLightItems = getBatchDiagramLightItems(module, layout, schematicLayout, lights, projectUses3D);
 
   return createSchematicImageSignature({
     cameraId: selectedCameraId,
@@ -281,7 +291,7 @@ function createBatchSchematicImageSignature(
     diagramLightDistanceMm,
     lightDistanceHorizontalMm,
     lightDistanceVerticalMm,
-    lightCount: diagramLightItems.length || schematicLayout.lightCount || 1,
+    lightCount: is3DCamera ? 0 : diagramLightItems.length || schematicLayout.lightCount || 1,
     lightItems: diagramLightItems.map(item => ({
       id: item.id,
       hardwareId: item.light?.id || null,
@@ -299,6 +309,7 @@ function createBatchSchematicImageSignature(
 
 export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
   const { 
+    projects,
     workstations,
     modules,
     layouts,
@@ -325,6 +336,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
   const renderCompleteResolve = useRef<(() => void) | null>(null);
 
   const projectWorkstations = getProjectWorkstations(projectId);
+  const projectUses3D = Boolean(projects.find(p => p.id === projectId)?.use_3d);
   
   // Calculate missing images (only those without URLs)
   const missingImages = useMemo<ImageList>(() => {
@@ -480,11 +492,12 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
               ? layouts.find(l => l.workstation_id === moduleForSignature.workstation_id) as any
               : null;
             const schematicLayout = resolveSchematicLayout(moduleForSignature?.schematic_layout);
+            const is3DCamera = moduleForSignature ? isBatchModule3DCamera(moduleForSignature, projectUses3D) : false;
             const diagramLightItems = moduleForSignature
-              ? getBatchDiagramLightItems(moduleForSignature, layoutForSignature, schematicLayout, lights)
+              ? getBatchDiagramLightItems(moduleForSignature, layoutForSignature, schematicLayout, lights, projectUses3D)
               : [];
             const savedImageSignature = moduleForSignature
-              ? createBatchSchematicImageSignature(moduleForSignature, layoutForSignature, schematicLayout, lights)
+              ? createBatchSchematicImageSignature(moduleForSignature, layoutForSignature, schematicLayout, lights, projectUses3D)
               : undefined;
             const existingSchematicLayout = moduleForSignature
               ? readSchematicLayoutRecord(moduleForSignature.schematic_layout)
@@ -500,7 +513,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                   camera: schematicLayout.camera,
                   light: schematicLayout.light,
                   product: schematicLayout.product,
-                  lights: diagramLightItems.map(item => ({
+                  lights: is3DCamera ? [] : diagramLightItems.map(item => ({
                     id: item.id,
                     position: item.position,
                     rotation: item.rotation,
@@ -509,7 +522,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                   lightRotation: schematicLayout.lightRotation,
                   fovAngle: schematicLayout.fovAngle,
                   lightDistance: schematicLayout.lightDistance,
-                  lightCount: diagramLightItems.length || schematicLayout.lightCount || 1,
+                  lightCount: is3DCamera ? 0 : diagramLightItems.length || schematicLayout.lightCount || 1,
                   savedImageSignature,
                 },
               } : {}
@@ -538,7 +551,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
       setCurrentRenderModule(null);
       setTimeout(() => setShowDialog(false), 1500);
     }
-  }, [missingImages, allImages, layouts, modules, lights, waitForRender, updateLayout, updateModule]);
+  }, [missingImages, allImages, layouts, modules, lights, projectUses3D, waitForRender, updateLayout, updateModule]);
 
   // Get current module data for schematic rendering
   const currentModuleData = currentRenderModule 
@@ -552,8 +565,9 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
     [currentModuleData?.schematic_layout]
   );
   const currentDistanceUnit = normalizeDistanceUnit(getPersistedImaging(currentModuleData).distanceUnit);
+  const currentIs3DCamera = currentModuleData ? isBatchModule3DCamera(currentModuleData, projectUses3D) : false;
   const currentDiagramLightItems = currentModuleData
-    ? getBatchDiagramLightItems(currentModuleData, currentModuleLayout, currentSchematicLayout, lights)
+    ? getBatchDiagramLightItems(currentModuleData, currentModuleLayout, currentSchematicLayout, lights, projectUses3D)
     : [];
 
   return (
@@ -667,6 +681,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                     lenses={lenses}
                     lights={lights}
                     controllers={controllers}
+                    projectUses3D={projectUses3D}
                   />
                 </div>
               )}
@@ -676,9 +691,10 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                   <div className="vision-diagram-container" style={{ width: '1000px', height: '680px', backgroundColor: '#ffffff' }}>
                     <VisionSystemDiagram
                       camera={resolveModuleHardwareSelection(currentModuleData.selected_camera, currentModuleLayout, 'camera', cameras)?.item || null}
-                      lens={resolveModuleHardwareSelection(currentModuleData.selected_lens, currentModuleLayout, 'lens', lenses)?.item || null}
-                      light={resolveModuleHardwareSelection(currentModuleData.selected_light, currentModuleLayout, 'light', lights)?.item || null}
+                      lens={currentIs3DCamera ? null : resolveModuleHardwareSelection(currentModuleData.selected_lens, currentModuleLayout, 'lens', lenses)?.item || null}
+                      light={currentIs3DCamera ? null : resolveModuleHardwareSelection(currentModuleData.selected_light, currentModuleLayout, 'light', lights)?.item || null}
                       controller={resolveModuleHardwareSelection(currentModuleData.selected_controller, currentModuleLayout, 'controller', controllers)?.item || null}
+                      is3DCamera={currentIs3DCamera}
                       cameras={cameras}
                       lenses={lenses}
                       lights={lights}
@@ -688,7 +704,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       onLightSelect={() => {}}
                       onControllerSelect={() => {}}
                       lightDistance={currentSchematicLayout.lightDistance}
-                      lightCount={currentDiagramLightItems.length || 1}
+                      lightCount={currentIs3DCamera ? 0 : currentDiagramLightItems.length || 1}
                       fovAngle={currentSchematicLayout.fovAngle}
                       distanceUnit={currentDistanceUnit}
                       onFovAngleChange={() => {}}
@@ -699,7 +715,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       cameraPos={currentSchematicLayout.camera}
                       lightPos={currentSchematicLayout.light}
                       productPos={currentSchematicLayout.product}
-                      diagramLightItems={currentDiagramLightItems}
+                      diagramLightItems={currentIs3DCamera ? [] : currentDiagramLightItems}
                       cameraRotation={currentSchematicLayout.cameraRotation}
                       lightRotation={currentSchematicLayout.lightRotation}
                       className="w-full h-full"
@@ -724,12 +740,14 @@ function OffscreenSimpleLayout({
   lenses,
   lights,
   controllers,
+  projectUses3D = false,
 }: { 
   workstationId: string;
   cameras: any[];
   lenses: any[];
   lights: any[];
   controllers: any[];
+  projectUses3D?: boolean;
 }) {
   const { 
     workstations, 
@@ -759,8 +777,8 @@ function OffscreenSimpleLayout({
   const cameraMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
 
   const selectedCameras = safeHardwareArray(layout?.selected_cameras);
-  const selectedLenses = safeHardwareArray(layout?.selected_lenses);
-  const selectedLights = safeHardwareArray(layout?.selected_lights);
+  const selectedLenses = projectUses3D ? [] : safeHardwareArray(layout?.selected_lenses);
+  const selectedLights = projectUses3D ? [] : safeHardwareArray(layout?.selected_lights);
   const selectedController = safeController(layout?.selected_controller);
 
   const hardwareSummary = {

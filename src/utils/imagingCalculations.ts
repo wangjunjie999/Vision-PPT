@@ -216,12 +216,19 @@ export function recommendFocalLength(
 export function calculateFOVFromSensor(
   sensorSize: string,
   focalLength: number,
-  workingDistance: number
+  workingDistance: number,
+  cameraResolution?: string | { width: number; height: number } | null
 ): { width: number; height: number } | null {
   const sensor = parseSensorSize(sensorSize);
   if (!sensor || focalLength <= 0 || workingDistance <= 0) return null;
+  const parsedResolution = typeof cameraResolution === 'string'
+    ? parseResolution(cameraResolution)
+    : cameraResolution;
+  const sensorHeight = parsedResolution?.width && parsedResolution?.height
+    ? sensor.width * (parsedResolution.height / parsedResolution.width)
+    : sensor.height;
   const w = sensor.width * workingDistance / focalLength;
-  const h = sensor.height * workingDistance / focalLength;
+  const h = sensorHeight * workingDistance / focalLength;
   return { width: Math.round(w * 100) / 100, height: Math.round(h * 100) / 100 };
 }
 
@@ -572,6 +579,8 @@ export interface FOVReconciliation {
   message: string | null;
 }
 
+export type FOVReconciliationMode = 'advisory' | 'expand';
+
 /**
  * FOV 向上修正：当用户输入 FOV 小于靶面推算 FOV 时，
  * 自动扩大到靶面理论最小值（物理约束）。
@@ -580,6 +589,7 @@ export interface FOVReconciliation {
 export function reconcileFOV(params: {
   inputFov: { width: number; height: number } | null;
   sensorFov: { width: number; height: number } | null;
+  mode?: FOVReconciliationMode;
 }): FOVReconciliation | null {
   if (!params.inputFov) return null;
   if (!params.sensorFov) {
@@ -597,20 +607,24 @@ export function reconcileFOV(params: {
   const sW = ceil1(params.sensorFov.width);
   const sH = ceil1(params.sensorFov.height);
 
-  const effW = Math.max(params.inputFov.width, sW);
-  const effH = Math.max(params.inputFov.height, sH);
+  const mode = params.mode ?? 'advisory';
+  const effW = mode === 'expand' ? Math.max(params.inputFov.width, sW) : params.inputFov.width;
+  const effH = mode === 'expand' ? Math.max(params.inputFov.height, sH) : params.inputFov.height;
 
-  const wAdj = effW > params.inputFov.width;
-  const hAdj = effH > params.inputFov.height;
+  const wAdj = mode === 'expand'
+    ? effW > params.inputFov.width
+    : Math.abs(params.inputFov.width - sW) > 0.05;
+  const hAdj = mode === 'expand'
+    ? effH > params.inputFov.height
+    : Math.abs(params.inputFov.height - sH) > 0.05;
   const wasAdjusted = wAdj || hAdj;
   const adjustedAxis: FOVReconciliation['adjustedAxis'] = wAdj && hAdj ? 'both' : wAdj ? 'width' : hAdj ? 'height' : null;
 
   let message: string | null = null;
   if (wasAdjusted) {
-    const parts: string[] = [];
-    if (wAdj) parts.push(`宽度 ${params.inputFov.width}→${effW}mm`);
-    if (hAdj) parts.push(`高度 ${params.inputFov.height}→${effH}mm`);
-    message = `FOV ${parts.join('、')} 已修正为靶面理论最小视野（靶面+焦距+WD 约束）`;
+    message = mode === 'expand'
+      ? `FOV 已修正为靶面理论视野 ${effW}×${effH}mm`
+      : `当前保存FOV ${params.inputFov.width}×${params.inputFov.height}mm；靶面推算FOV ${sW}×${sH}mm，仅作参考`;
   }
 
   return {
@@ -628,6 +642,7 @@ export function reconcileFOV(params: {
 export interface ImagingCalculationInput {
   cameraResolution?: string;
   fov?: string;
+  fovReconciliationMode?: FOVReconciliationMode;
   targetAccuracy?: number;
   sensorSize?: string;
   focalLength?: number;
@@ -667,11 +682,15 @@ export function calculateImagingParams(input: ImagingCalculationInput): ImagingC
   // 靶面反推 FOV（需要在 reconcile 之前计算）
   let fovFromSensor: { width: number; height: number } | null = null;
   if (input.sensorSize && input.focalLength && input.workingDistanceInput) {
-    fovFromSensor = calculateFOVFromSensor(input.sensorSize, input.focalLength, input.workingDistanceInput);
+    fovFromSensor = calculateFOVFromSensor(input.sensorSize, input.focalLength, input.workingDistanceInput, cameraParsed);
   }
 
   // FOV 靶面联动修正：用户输入 < 靶面推算 → 向上修正
-  const fovReconciliation = reconcileFOV({ inputFov: fovParsed, sensorFov: fovFromSensor });
+  const fovReconciliation = reconcileFOV({
+    inputFov: fovParsed,
+    sensorFov: fovFromSensor,
+    mode: input.fovReconciliationMode ?? 'advisory',
+  });
   const fovEffective = fovReconciliation?.effectiveFov ?? fovParsed;
 
   // 用修正后的 FOV 计算像素精度（核心下游依赖）

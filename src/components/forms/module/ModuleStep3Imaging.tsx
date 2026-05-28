@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calculator, AlertCircle, CheckCircle2, Focus, Crosshair, Zap, ScanEye, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { ModuleFormState } from './types';
 import { useMemo, useEffect, useRef } from 'react';
-import { computeVisionParams } from '@/utils/visionCalcEngine';
+import { calculateResolutionPerPixel, computeVisionParams, formatResolutionPerPixel } from '@/utils/visionCalcEngine';
 import { useCameras, useLenses } from '@/hooks/useHardware';
 import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getLensImagingAutoFill, getLensImagingAutoFillKey } from '@/utils/lensImagingAutoFill';
@@ -19,6 +19,7 @@ import {
 import {
   DISTANCE_UNITS,
   type DistanceUnit,
+  fromMillimeters,
   formatDistanceInput,
   normalizeDistanceUnit,
   signedToMillimeters,
@@ -35,6 +36,12 @@ function formatMmForCalc(value: string | undefined, unit: DistanceUnit): string 
   const mm = toMillimeters(value, unit);
   if (mm === null) return undefined;
   return String(Number(mm.toFixed(3)));
+}
+
+function formatFovInput(valueMm: number, unit: DistanceUnit): string {
+  const converted = fromMillimeters(valueMm, unit);
+  const precision = unit === 'm' ? 3 : 2;
+  return String(Number(converted.toFixed(precision)));
 }
 
 function formatFovForCalc(
@@ -213,31 +220,26 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
     if (!calculationResult.resolutionPerPixel) return;
     setForm(p => ({ ...p, resolutionPerPixel: calculationResult.resolutionPerPixel || p.resolutionPerPixel }));
   };
-  
-  // 自动填充像素精度
-  useEffect(() => {
-    if (calculationResult.resolutionPerPixel) {
-      setForm(p => ({ ...p, resolutionPerPixel: calculationResult.resolutionPerPixel || '' }));
-    }
-  }, [calculationResult.resolutionPerPixel, setForm]);
 
-  // FOV 靶面联动修正：只向上调整，防循环（仅当值不同时回写）
   const fovRecon = calculationResult.fovReconciliation;
-  useEffect(() => {
-    if (!fovRecon?.wasAdjusted) return;
-    const eff = fovRecon.effectiveFov;
-    const currentW = form.fieldOfViewWidth;
-    const currentH = form.fieldOfViewHeight;
-    const newW = formatDistanceInput(eff.width, distanceUnit);
-    const newH = formatDistanceInput(eff.height, distanceUnit);
-    if (currentW === newW && currentH === newH) return;
+  const handleApplySensorFov = () => {
+    if (!calculationResult.fovFromSensor) return;
+    const newW = formatFovInput(calculationResult.fovFromSensor.width, distanceUnit);
+    const newH = formatFovInput(calculationResult.fovFromSensor.height, distanceUnit);
     const combined = `${newW}×${newH}`;
-    if (form.type === 'positioning') {
-      setForm(p => ({ ...p, fieldOfViewWidth: newW, fieldOfViewHeight: newH, fieldOfView: combined }));
-    } else {
-      setForm(p => ({ ...p, fieldOfViewWidth: newW, fieldOfViewHeight: newH, fieldOfViewCommon: combined }));
-    }
-  }, [fovRecon, form.fieldOfViewWidth, form.fieldOfViewHeight, form.type, distanceUnit, setForm]);
+    const sensorPixelSize = formatResolutionPerPixel(
+      calculateResolutionPerPixel(calculationResult.fovFromSensor, calculationResult.cameraParsed)
+    );
+
+    setForm(p => ({
+      ...p,
+      fieldOfViewWidth: newW,
+      fieldOfViewHeight: newH,
+      fieldOfView: p.type === 'positioning' ? combined : p.fieldOfView,
+      fieldOfViewCommon: p.type === 'positioning' ? p.fieldOfViewCommon : combined,
+      resolutionPerPixel: sensorPixelSize || p.resolutionPerPixel,
+    }));
+  };
 
   const applyLightItems = (prev: ModuleFormState, lightItems: ModuleLightItem[]): ModuleFormState => {
     const first = lightItems[0];
@@ -340,8 +342,16 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
           )}
 
           {/* Extended optical parameters */}
-          {(calculationResult.magnification || calculationResult.depthOfField || calculationResult.recommendedFocalLength || calculationResult.fovFromSensor) && (
+          {(calculationResult.magnification || calculationResult.depthOfField || calculationResult.recommendedFocalLength || calculationResult.fovFromSensor || calculationResult.fovParsed) && (
             <div className="mt-2 pt-2 border-t border-border/50 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              {calculationResult.fovParsed && (
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">当前保存FOV:</span>
+                  <code className="px-1 bg-primary/10 text-primary rounded font-mono">
+                    {calculationResult.fovParsed.width}×{calculationResult.fovParsed.height}
+                  </code>
+                </div>
+              )}
               {calculationResult.magnification !== null && (
                 <div className="flex items-center gap-1">
                   <Focus className="h-3 w-3 text-muted-foreground" />
@@ -532,6 +542,16 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                   <Calculator className="h-3.5 w-3.5" />
                   一键计算
                 </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-9 shrink-0 gap-1.5 px-3"
+                  onClick={handleApplySensorFov}
+                  disabled={!calculationResult.fovFromSensor}
+                >
+                  应用推算FOV
+                </Button>
               </div>
             </div>
             <div className="space-y-1.5 w-24 shrink-0">
@@ -689,121 +709,125 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
         </div>
       )}
 
-      {/* Light source parameters */}
-      <div className="space-y-3">
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">光源参数</h4>
-        {form.lightItems.length === 0 ? (
-          <div className="rounded-lg border border-dashed bg-muted/20 px-3 py-4 text-xs text-muted-foreground">
-            暂未配置模块光源。请先在“基本信息”的光源型号区域添加 LIGHT。
-          </div>
-        ) : (
+      {!form.is3DCamera && (
+        <>
+          {/* Light source parameters */}
           <div className="space-y-3">
-            {form.lightItems.map((item, index) => (
-              <div key={item.id} className="space-y-3 rounded-lg border bg-muted/10 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">LIGHT{index + 1} 参数</div>
-                  <div className="text-xs text-muted-foreground">
-                    {item.selectedLight || '未选择型号'}
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">光源模式</Label>
-                    <EditableSelect
-                      value={item.lightMode}
-                      onValueChange={v => updateLightItem(item.id, { lightMode: v })}
-                      options={['常亮', '频闪', 'PWM']}
-                      placeholder="选择"
-                      inputPlaceholder="请输入工作模式"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">光源角度</Label>
-                    <Input
-                      value={item.lightAngle || ''}
-                      onChange={e => updateLightItem(item.id, { lightAngle: e.target.value })}
-                      placeholder="45°"
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">空间距离 ({distanceUnit})</Label>
-                    <Input
-                      value={item.lightDistance || ''}
-                      onChange={e => updateLightItem(item.id, getModuleLightGeometryPatch(item, { lightDistance: e.target.value }))}
-                      placeholder="100"
-                      className="h-9"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">水平距离 ({distanceUnit})</Label>
-                    <Input
-                      value={item.lightDistanceHorizontal || ''}
-                      onChange={e => updateLightItem(item.id, getModuleLightGeometryPatch(item, { lightDistanceHorizontal: e.target.value }))}
-                      placeholder="50-70"
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">垂直距离 ({distanceUnit})</Label>
-                    <Input
-                      value={item.lightDistanceVertical || ''}
-                      onChange={e => updateLightItem(item.id, getModuleLightGeometryPatch(item, { lightDistanceVertical: e.target.value }))}
-                      placeholder="80-100"
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">光源备注</Label>
-                    <Input
-                      value={item.lightNote || ''}
-                      onChange={e => updateLightItem(item.id, { lightNote: e.target.value })}
-                      placeholder="例如: 光源暂不下单"
-                      className="h-9"
-                    />
-                  </div>
-                </div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">光源参数</h4>
+            {form.lightItems.length === 0 ? (
+              <div className="rounded-lg border border-dashed bg-muted/20 px-3 py-4 text-xs text-muted-foreground">
+                暂未配置模块光源。请先在“基本信息”的光源型号区域添加 LIGHT。
               </div>
-            ))}
+            ) : (
+              <div className="space-y-3">
+                {form.lightItems.map((item, index) => (
+                  <div key={item.id} className="space-y-3 rounded-lg border bg-muted/10 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium">LIGHT{index + 1} 参数</div>
+                      <div className="text-xs text-muted-foreground">
+                        {item.selectedLight || '未选择型号'}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">光源模式</Label>
+                        <EditableSelect
+                          value={item.lightMode}
+                          onValueChange={v => updateLightItem(item.id, { lightMode: v })}
+                          options={['常亮', '频闪', 'PWM']}
+                          placeholder="选择"
+                          inputPlaceholder="请输入工作模式"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">光源角度</Label>
+                        <Input
+                          value={item.lightAngle || ''}
+                          onChange={e => updateLightItem(item.id, { lightAngle: e.target.value })}
+                          placeholder="45°"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">空间距离 ({distanceUnit})</Label>
+                        <Input
+                          value={item.lightDistance || ''}
+                          onChange={e => updateLightItem(item.id, getModuleLightGeometryPatch(item, { lightDistance: e.target.value }))}
+                          placeholder="100"
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">水平距离 ({distanceUnit})</Label>
+                        <Input
+                          value={item.lightDistanceHorizontal || ''}
+                          onChange={e => updateLightItem(item.id, getModuleLightGeometryPatch(item, { lightDistanceHorizontal: e.target.value }))}
+                          placeholder="50-70"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">垂直距离 ({distanceUnit})</Label>
+                        <Input
+                          value={item.lightDistanceVertical || ''}
+                          onChange={e => updateLightItem(item.id, getModuleLightGeometryPatch(item, { lightDistanceVertical: e.target.value }))}
+                          placeholder="80-100"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">光源备注</Label>
+                        <Input
+                          value={item.lightNote || ''}
+                          onChange={e => updateLightItem(item.id, { lightNote: e.target.value })}
+                          placeholder="例如: 光源暂不下单"
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Lens parameters */}
-      <div className="space-y-3">
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">镜头参数</h4>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">光圈 (F值)</Label>
-            <Input 
-              value={form.lensAperture || ''} 
-              onChange={e => setForm(p => ({ ...p, lensAperture: e.target.value }))} 
-              placeholder="F2.8"
-              className="h-9" 
-            />
+          {/* Lens parameters */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">镜头参数</h4>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">光圈 (F值)</Label>
+                <Input 
+                  value={form.lensAperture || ''} 
+                  onChange={e => setForm(p => ({ ...p, lensAperture: e.target.value }))} 
+                  placeholder="F2.8"
+                  className="h-9" 
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">靶面尺寸</Label>
+                <Input 
+                  value={form.depthOfField || ''} 
+                  onChange={e => setForm(p => ({ ...p, depthOfField: e.target.value }))} 
+                  placeholder='例如: 2/3"'
+                  className="h-9" 
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">工作距离公差 (±{distanceUnit})</Label>
+                <Input 
+                  value={form.workingDistanceTolerance || ''} 
+                  onChange={e => setForm(p => ({ ...p, workingDistanceTolerance: e.target.value }))} 
+                  placeholder="20"
+                  className="h-9" 
+                />
+              </div>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">靶面尺寸</Label>
-            <Input 
-              value={form.depthOfField || ''} 
-              onChange={e => setForm(p => ({ ...p, depthOfField: e.target.value }))} 
-              placeholder='例如: 2/3"'
-              className="h-9" 
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">工作距离公差 (±{distanceUnit})</Label>
-            <Input 
-              value={form.workingDistanceTolerance || ''} 
-              onChange={e => setForm(p => ({ ...p, workingDistanceTolerance: e.target.value }))} 
-              placeholder="20"
-              className="h-9" 
-            />
-          </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Camera installation notes */}
       <div className="space-y-3">

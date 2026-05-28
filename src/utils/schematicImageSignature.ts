@@ -1,4 +1,4 @@
-export const SCHEMATIC_IMAGE_SIGNATURE_VERSION = 4;
+export const SCHEMATIC_IMAGE_SIGNATURE_VERSION = 5;
 
 type SchematicPoint = { x: number; y: number };
 
@@ -58,26 +58,27 @@ export function createSchematicImageSignature({
   is3DCamera?: boolean;
   distanceUnit?: string;
 }) {
+  const is3D = Boolean(is3DCamera);
   return JSON.stringify({
     v: SCHEMATIC_IMAGE_SIGNATURE_VERSION,
     cameraId: cameraId || null,
-    lensId: lensId || null,
-    lightId: lightId || null,
+    lensId: is3D ? null : lensId || null,
+    lightId: is3D ? null : lightId || null,
     controllerId: controllerId || null,
     camera: { x: roundForSignature(camera.x), y: roundForSignature(camera.y) },
-    light: { x: roundForSignature(light.x), y: roundForSignature(light.y) },
+    light: is3D ? null : { x: roundForSignature(light.x), y: roundForSignature(light.y) },
     product: { x: roundForSignature(product.x), y: roundForSignature(product.y) },
     cameraRotation: roundForSignature(cameraRotation),
-    lightRotation: roundForSignature(lightRotation),
+    lightRotation: is3D ? null : roundForSignature(lightRotation),
     fovAngle: roundForSignature(fovAngle),
-    lightDistance: roundForSignature(lightDistance),
+    lightDistance: is3D ? null : roundForSignature(lightDistance),
     workingDistanceMm: workingDistanceMm ? roundForSignature(workingDistanceMm) : null,
     fovWidthMm: fovWidthMm ? roundForSignature(fovWidthMm) : null,
-    diagramLightDistanceMm: diagramLightDistanceMm ? roundForSignature(diagramLightDistanceMm) : null,
-    lightDistanceHorizontalMm: lightDistanceHorizontalMm !== null && lightDistanceHorizontalMm !== undefined ? roundForSignature(lightDistanceHorizontalMm) : null,
-    lightDistanceVerticalMm: lightDistanceVerticalMm ? roundForSignature(lightDistanceVerticalMm) : null,
-    lightCount: lightCount || 1,
-    lightItems: (lightItems || []).map(item => ({
+    diagramLightDistanceMm: is3D ? null : diagramLightDistanceMm ? roundForSignature(diagramLightDistanceMm) : null,
+    lightDistanceHorizontalMm: is3D ? null : lightDistanceHorizontalMm !== null && lightDistanceHorizontalMm !== undefined ? roundForSignature(lightDistanceHorizontalMm) : null,
+    lightDistanceVerticalMm: is3D ? null : lightDistanceVerticalMm ? roundForSignature(lightDistanceVerticalMm) : null,
+    lightCount: is3D ? 0 : lightCount || 1,
+    lightItems: is3D ? [] : (lightItems || []).map(item => ({
       id: item.id,
       hardwareId: item.hardwareId || null,
       position: item.position ? { x: roundForSignature(item.position.x), y: roundForSignature(item.position.y) } : null,
@@ -87,7 +88,7 @@ export function createSchematicImageSignature({
       verticalMm: item.verticalMm !== null && item.verticalMm !== undefined ? roundForSignature(item.verticalMm) : null,
       angle: item.angle || null,
     })),
-    is3DCamera: Boolean(is3DCamera),
+    is3DCamera: is3D,
     distanceUnit: distanceUnit || 'mm',
   });
 }

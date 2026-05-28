@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { ModuleFormState } from './types';
 import { ModuleHardwareSelection } from './ModuleHardwareSelection';
+import { strip3DOpticsFromForm } from './threeDCamera';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -17,6 +18,7 @@ interface ModuleStep1BasicProps {
   lights?: any[];
   controllers?: any[];
   workstationLayout?: any;
+  isProject3D?: boolean;
 }
 
 export function ModuleStep1Basic({
@@ -27,6 +29,7 @@ export function ModuleStep1Basic({
   lights = [],
   controllers = [],
   workstationLayout,
+  isProject3D = false,
 }: ModuleStep1BasicProps) {
   return (
     <div className="space-y-4">
@@ -118,13 +121,14 @@ export function ModuleStep1Basic({
           type="button"
           variant={form.is3DCamera ? 'default' : 'outline'}
           className="h-9 justify-center"
-          onClick={() => setForm(p => ({
-            ...p,
-            is3DCamera: !p.is3DCamera,
-            selectedLens: !p.is3DCamera ? '' : p.selectedLens,
-          }))}
+          disabled={isProject3D}
+          onClick={() => setForm(p => (
+            p.is3DCamera
+              ? { ...p, is3DCamera: false }
+              : strip3DOpticsFromForm(p)
+          ))}
         >
-          {form.is3DCamera ? '已启用3D相机' : '是否为3D相机'}
+          {isProject3D ? '项目已强制3D相机' : form.is3DCamera ? '已启用3D相机' : '是否为3D相机'}
         </Button>
       </div>
 
@@ -136,6 +140,7 @@ export function ModuleStep1Basic({
         lights={lights}
         controllers={controllers}
         workstationLayout={workstationLayout}
+        isProject3D={isProject3D}
       />
     </div>
   );

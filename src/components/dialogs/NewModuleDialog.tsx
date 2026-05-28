@@ -11,8 +11,16 @@ import { getModuleHardwareSlots } from '@/utils/moduleHardwareSlots';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 
+const CONFIG_FIELD_BY_TYPE: Record<ModuleType, string> = {
+  positioning: 'positioning_config',
+  defect: 'defect_config',
+  ocr: 'ocr_config',
+  deeplearning: 'deep_learning_config',
+  measurement: 'measurement_config',
+};
+
 export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: boolean; onOpenChange: (open: boolean) => void; workstationId: string | null }) {
-  const { addModule, selectModule, getLayoutByWorkstation } = useData();
+  const { addModule, selectModule, getLayoutByWorkstation, workstations, projects } = useData();
   const [form, setForm] = useState({ name: '', type: 'defect' as ModuleType });
   const [loading, setLoading] = useState(false);
 
@@ -31,10 +39,13 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
       
       // Get workstation layout to inherit hardware
       const layout = getLayoutByWorkstation(workstationId);
+      const workstation = workstations.find(ws => ws.id === workstationId);
+      const project = workstation ? projects.find(p => p.id === workstation.project_id) : null;
+      const isProject3D = Boolean(project?.use_3d);
       
       const cameraSlot = getModuleHardwareSlots(layout, 'camera')[0]?.value || null;
-      const lensSlot = getModuleHardwareSlots(layout, 'lens')[0]?.value || null;
-      const lightSlot = getModuleHardwareSlots(layout, 'light')[0]?.value || null;
+      const lensSlot = isProject3D ? null : getModuleHardwareSlots(layout, 'lens')[0]?.value || null;
+      const lightSlot = isProject3D ? null : getModuleHardwareSlots(layout, 'light')[0]?.value || null;
       const controllerSlot = getModuleHardwareSlots(layout, 'controller')[0]?.value || null;
       
       // Inherit hardware from workstation (take first item of each type)
@@ -50,6 +61,14 @@ export function NewModuleDialog({ open, onOpenChange, workstationId }: { open: b
         selected_light: lightSlot,
         selected_controller: controllerSlot,
       };
+      if (isProject3D) {
+        moduleData[CONFIG_FIELD_BY_TYPE[form.type]] = {
+          imaging: {
+            is3DCamera: true,
+            lightItems: [],
+          },
+        };
+      }
       
       const mod = await addModule(moduleData);
       selectModule(mod.id);

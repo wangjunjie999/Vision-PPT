@@ -1,4 +1,4 @@
-import { memo, useRef, useCallback, useState, useMemo, useEffect, Suspense } from 'react';
+import { Component, memo, useRef, useCallback, useState, useMemo, useEffect, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { Canvas, useThree, useFrame, ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, Box, Cone, Line, Text, Grid, Plane, Sphere, Cylinder, useGLTF, Billboard } from '@react-three/drei';
 import { Button } from '@/components/ui/button';
@@ -244,8 +244,9 @@ interface Layout3DPreviewProps {
   selectedObjectId?: string | null;
   onUpdateObject?: (id: string, updates: Partial<LayoutObject>) => void;
   onUpdateProductDimensions?: (dims: { length: number; width: number; height: number }) => void;
-  onScreenshotReady?: (fn: () => string | null) => void;
+  onScreenshotReady?: (fn: IsometricScreenshotFn | null) => void;
   onFitAllReady?: (fn: IsometricFitAllFn) => void;
+  onIsometricSceneStatusChange?: (status: IsometricSceneStatus) => void;
   productPosition?: { posX: number; posY: number; posZ: number };
   onUpdateProductPosition?: (pos: { posX: number; posY: number; posZ: number }) => void;
   onStageLayout?: () => void;
@@ -261,13 +262,92 @@ export type IsometricCameraAction = {
 };
 
 export type IsometricFitAllFn = (options?: IsometricFitOptions) => void;
+export type IsometricScreenshotFn = () => string | null;
 
-const DEFAULT_ISOMETRIC_FIT_PADDING = 1.55;
+export type IsometricSceneStatus = {
+  ready: boolean;
+  pendingModelCount: number;
+  failedModelCount: number;
+};
+
+export const DEFAULT_ISOMETRIC_FIT_PADDING = 1.55;
+export const ISOMETRIC_CAPTURE_PADDING = 1.18;
+export const ISOMETRIC_CAPTURE_FALLBACK_PADDING = 1.32;
 const FIT_OBJECT_MARGIN = 0.18;
 
-function ScreenshotHelper({ onScreenshotReady }: { onScreenshotReady: (fn: () => string | null) => void }) {
+export function getIsometricModelLoadKey(obj: LayoutObject): string | null {
+  if (obj.type !== 'mechanism') return null;
+  const url = String((obj as any).model3dUrl || '').trim();
+  return url ? `${obj.id}:${url}` : null;
+}
+
+export function getIsometricModelLoadKeys(objects: LayoutObject[]): string[] {
+  const keys = new Set<string>();
+  objects.forEach(obj => {
+    const key = getIsometricModelLoadKey(obj);
+    if (key) keys.add(key);
+  });
+  return Array.from(keys);
+}
+
+function pruneModelKeySet(keys: Set<string>, expectedKeys: string[]): Set<string> {
+  const expected = new Set(expectedKeys);
+  const next = new Set(Array.from(keys).filter(key => expected.has(key)));
+  if (next.size === keys.size && Array.from(next).every(key => keys.has(key))) {
+    return keys;
+  }
+  return next;
+}
+
+export function deriveIsometricSceneStatus(
+  objects: LayoutObject[],
+  loadedModelKeys: Iterable<string>,
+  failedModelKeys: Iterable<string>,
+): IsometricSceneStatus {
+  const expectedKeys = getIsometricModelLoadKeys(objects);
+  const loaded = loadedModelKeys instanceof Set ? loadedModelKeys : new Set(loadedModelKeys);
+  const failed = failedModelKeys instanceof Set ? failedModelKeys : new Set(failedModelKeys);
+  let pendingModelCount = 0;
+  let failedModelCount = 0;
+
+  expectedKeys.forEach(key => {
+    if (failed.has(key)) {
+      failedModelCount += 1;
+      return;
+    }
+    if (!loaded.has(key)) {
+      pendingModelCount += 1;
+    }
+  });
+
+  return {
+    ready: pendingModelCount === 0 && failedModelCount === 0,
+    pendingModelCount,
+    failedModelCount,
+  };
+}
+
+export function isIsometricCaptureReady(
+  status: IsometricSceneStatus,
+  hasScreenshotFn: boolean,
+  hasFitAllFn: boolean,
+): boolean {
+  return status.ready && status.failedModelCount === 0 && hasScreenshotFn && hasFitAllFn;
+}
+
+function ScreenshotHelper({
+  enabled,
+  onScreenshotReady,
+}: {
+  enabled: boolean;
+  onScreenshotReady: (fn: IsometricScreenshotFn | null) => void;
+}) {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
+    if (!enabled) {
+      onScreenshotReady(null);
+      return;
+    }
     onScreenshotReady(() => {
       try {
         gl.render(scene, camera);
@@ -276,7 +356,8 @@ function ScreenshotHelper({ onScreenshotReady }: { onScreenshotReady: (fn: () =>
         return null;
       }
     });
-  }, [gl, scene, camera, onScreenshotReady]);
+    return () => onScreenshotReady(null);
+  }, [enabled, gl, scene, camera, onScreenshotReady]);
   return null;
 }
 
@@ -1317,8 +1398,51 @@ function DefaultMechanismModel({ w, h, d, selected, xray }: { w: number; h: numb
   );
 }
 
+type ModelLoadErrorBoundaryProps = {
+  loadKey: string;
+  fallback: ReactNode;
+  children: ReactNode;
+  onError?: (loadKey: string, error: unknown) => void;
+};
+
+class ModelLoadErrorBoundary extends Component<ModelLoadErrorBoundaryProps, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, _errorInfo: ErrorInfo) {
+    this.props.onError?.(this.props.loadKey, error);
+  }
+
+  componentDidUpdate(prevProps: ModelLoadErrorBoundaryProps) {
+    if (prevProps.loadKey !== this.props.loadKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children;
+  }
+}
+
 // --- GLB Model Renderer (isolated instances via useRef) ---
-function GLBModelRenderer({ url, w, h, d }: { url: string; w: number; h: number; d: number }) {
+function GLBModelRenderer({
+  url,
+  w,
+  h,
+  d,
+  loadKey,
+  onLoaded,
+}: {
+  url: string;
+  w: number;
+  h: number;
+  d: number;
+  loadKey: string;
+  onLoaded?: (loadKey: string) => void;
+}) {
   const proxied = toLocalProxyUrl(url);
   useGLTF.preload(proxied);
   const { scene } = useGLTF(proxied, undefined, undefined, (loader) => {
@@ -1347,19 +1471,22 @@ function GLBModelRenderer({ url, w, h, d }: { url: string; w: number; h: number;
     cloned.position.set(-center.x * uniformScale, -center.y * uniformScale + h / 2, -center.z * uniformScale);
 
     groupRef.current.add(cloned);
-  }, [scene, w, h, d]);
+    onLoaded?.(loadKey);
+  }, [scene, w, h, d, loadKey, onLoaded]);
 
   return <group ref={groupRef} />;
 }
 
 // --- Mechanism model with interaction type badge ---
-function Mechanism3DModel({ obj, selected, dimmed, hasIllegalMount, objects, xrayMode }: {
+function Mechanism3DModel({ obj, selected, dimmed, hasIllegalMount, objects, xrayMode, onModelLoaded, onModelFailed }: {
   obj: LayoutObject;
   selected: boolean;
   dimmed: boolean;
   hasIllegalMount: boolean;
   objects: LayoutObject[];
   xrayMode: boolean;
+  onModelLoaded?: (loadKey: string) => void;
+  onModelFailed?: (loadKey: string, error: unknown) => void;
 }) {
   const w = (obj.width || 100) * SCALE;
   const h = (obj.height || 100) * SCALE;
@@ -1371,11 +1498,22 @@ function Mechanism3DModel({ obj, selected, dimmed, hasIllegalMount, objects, xra
 
   let model: React.ReactNode;
   // Prioritize custom GLB model if available
-  if ((obj as any).model3dUrl) {
+  const modelLoadKey = getIsometricModelLoadKey(obj);
+  if ((obj as any).model3dUrl && modelLoadKey) {
+    const fallback = <DefaultMechanismModel w={w} h={h} d={d} selected={selected} xray={xrayMode} />;
     model = (
-      <Suspense fallback={<DefaultMechanismModel w={w} h={h} d={d} selected={selected} xray={xrayMode} />}>
-        <GLBModelRenderer url={(obj as any).model3dUrl} w={w} h={h} d={d} />
-      </Suspense>
+      <ModelLoadErrorBoundary loadKey={modelLoadKey} fallback={fallback} onError={onModelFailed}>
+        <Suspense fallback={fallback}>
+          <GLBModelRenderer
+            url={(obj as any).model3dUrl}
+            w={w}
+            h={h}
+            d={d}
+            loadKey={modelLoadKey}
+            onLoaded={onModelLoaded}
+          />
+        </Suspense>
+      </ModelLoadErrorBoundary>
     );
   } else {
     switch (mechType) {
@@ -2063,6 +2201,7 @@ export const Layout3DPreview = memo(function Layout3DPreview({
   onUpdateProductDimensions,
   onScreenshotReady,
   onFitAllReady,
+  onIsometricSceneStatusChange,
   productPosition: productPositionProp,
   onUpdateProductPosition,
   onStageLayout,
@@ -2076,6 +2215,8 @@ export const Layout3DPreview = memo(function Layout3DPreview({
   const [xrayMode, setXrayMode] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
+  const [loadedModelKeys, setLoadedModelKeys] = useState<Set<string>>(() => new Set());
+  const [failedModelKeys, setFailedModelKeys] = useState<Set<string>>(() => new Set());
   const SNAP_GRID = 10;
   const dragStateRef = useRef<DragState>({
     isDragging: false,
@@ -2097,6 +2238,51 @@ export const Layout3DPreview = memo(function Layout3DPreview({
 
   const relatedIds = useMemo(() => getRelatedIds(activeSelectedId, objects), [activeSelectedId, objects]);
   const hasFocus = !!activeSelectedId;
+  const expectedModelKeys = useMemo(() => getIsometricModelLoadKeys(objects), [objects]);
+  const isometricSceneStatus = useMemo(
+    () => deriveIsometricSceneStatus(objects, loadedModelKeys, failedModelKeys),
+    [objects, loadedModelKeys, failedModelKeys],
+  );
+
+  useEffect(() => {
+    setLoadedModelKeys(prev => pruneModelKeySet(prev, expectedModelKeys));
+    setFailedModelKeys(prev => pruneModelKeySet(prev, expectedModelKeys));
+  }, [expectedModelKeys]);
+
+  useEffect(() => {
+    onIsometricSceneStatusChange?.(isometricSceneStatus);
+  }, [isometricSceneStatus, onIsometricSceneStatusChange]);
+
+  const markModelLoaded = useCallback((loadKey: string) => {
+    setFailedModelKeys(prev => {
+      if (!prev.has(loadKey)) return prev;
+      const next = new Set(prev);
+      next.delete(loadKey);
+      return next;
+    });
+    setLoadedModelKeys(prev => {
+      if (prev.has(loadKey)) return prev;
+      const next = new Set(prev);
+      next.add(loadKey);
+      return next;
+    });
+  }, []);
+
+  const markModelFailed = useCallback((loadKey: string, error: unknown) => {
+    console.warn('3D model failed to load for isometric capture:', loadKey, error);
+    setLoadedModelKeys(prev => {
+      if (!prev.has(loadKey)) return prev;
+      const next = new Set(prev);
+      next.delete(loadKey);
+      return next;
+    });
+    setFailedModelKeys(prev => {
+      if (prev.has(loadKey)) return prev;
+      const next = new Set(prev);
+      next.add(loadKey);
+      return next;
+    });
+  }, []);
 
   const illegalMountMechIds = useMemo(() => {
     const ids = new Set<string>();
@@ -2419,6 +2605,8 @@ export const Layout3DPreview = memo(function Layout3DPreview({
                   hasIllegalMount={illegalMountMechIds.has(obj.id)}
                   objects={objects}
                   xrayMode={xrayMode}
+                  onModelLoaded={markModelLoaded}
+                  onModelFailed={markModelFailed}
                 />
               </DraggableGroup>
             );
@@ -2450,7 +2638,12 @@ export const Layout3DPreview = memo(function Layout3DPreview({
 
           <RelationshipLines objects={objects} xrayMode={xrayMode} productPosition={productPosition} />
           <CameraController cameraRef={cameraActionRef} isDragging={dragStateRef.current.isDragging} spaceHeld={spaceHeld} />
-          {onScreenshotReady && <ScreenshotHelper onScreenshotReady={onScreenshotReady} />}
+          {onScreenshotReady && (
+            <ScreenshotHelper
+              enabled={isometricSceneStatus.ready}
+              onScreenshotReady={onScreenshotReady}
+            />
+          )}
           <FitAllHelper
             objects={objects}
             productPosition={productPosition}

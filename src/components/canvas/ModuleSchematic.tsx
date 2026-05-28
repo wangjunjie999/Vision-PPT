@@ -220,6 +220,7 @@ export function ModuleSchematic() {
     selectedWorkstationId,
     modules, 
     workstations, 
+    projects,
     layouts,
     updateModule,
     selectModule
@@ -296,6 +297,7 @@ export function ModuleSchematic() {
   
   const module = modules.find(m => m.id === selectedModuleId) as any;
   const workstation = workstations.find(w => w.id === selectedWorkstationId) as any;
+  const project = workstation ? projects.find(p => p.id === workstation.project_id) as any : null;
   const layout = layouts.find(l => l.workstation_id === selectedWorkstationId) as any;
   const savedLayout = useMemo<SchematicLayoutState | null>(
     () => isSchematicLayout(module?.schematic_layout) ? (module.schematic_layout as SchematicLayoutState) : null,
@@ -306,18 +308,21 @@ export function ModuleSchematic() {
     liveForm ? liveForm.distanceUnit : getPersistedImagingField(module, 'distanceUnit'),
   );
   const is3DCamera = Boolean(
-    liveForm ? liveForm.is3DCamera : getPersistedImagingField(module, 'is3DCamera') === 'true',
+    project?.use_3d || (liveForm ? liveForm.is3DCamera : getPersistedImagingField(module, 'is3DCamera') === 'true'),
   );
   const persistedImaging = getModuleConfig(module)?.imaging || {};
-  const moduleLightItems = useMemo(() => normalizeModuleLightItems(liveForm?.lightItems ?? persistedImaging.lightItems, {
-    selectedLight: liveForm?.selectedLight || module?.selected_light || module?.light_id || '',
-    lightMode: liveForm?.lightMode ?? persistedImaging.lightMode ?? '',
-    lightAngle: liveForm?.lightAngle ?? persistedImaging.lightAngle ?? '',
-    lightDistance: liveForm?.lightDistance ?? persistedImaging.lightDistance ?? '',
-    lightDistanceHorizontal: liveForm?.lightDistanceHorizontal ?? persistedImaging.lightDistanceHorizontal ?? '',
-    lightDistanceVertical: liveForm?.lightDistanceVertical ?? persistedImaging.lightDistanceVertical ?? '',
-    lightNote: liveForm?.lightNote ?? persistedImaging.lightNote ?? '',
-  }), [
+  const moduleLightItems = useMemo(() => {
+    if (is3DCamera) return [];
+    return normalizeModuleLightItems(liveForm?.lightItems ?? persistedImaging.lightItems, {
+      selectedLight: liveForm?.selectedLight || module?.selected_light || module?.light_id || '',
+      lightMode: liveForm?.lightMode ?? persistedImaging.lightMode ?? '',
+      lightAngle: liveForm?.lightAngle ?? persistedImaging.lightAngle ?? '',
+      lightDistance: liveForm?.lightDistance ?? persistedImaging.lightDistance ?? '',
+      lightDistanceHorizontal: liveForm?.lightDistanceHorizontal ?? persistedImaging.lightDistanceHorizontal ?? '',
+      lightDistanceVertical: liveForm?.lightDistanceVertical ?? persistedImaging.lightDistanceVertical ?? '',
+      lightNote: liveForm?.lightNote ?? persistedImaging.lightNote ?? '',
+    });
+  }, [
     liveForm?.lightItems,
     liveForm?.selectedLight,
     liveForm?.lightMode,
@@ -326,6 +331,7 @@ export function ModuleSchematic() {
     liveForm?.lightDistanceHorizontal,
     liveForm?.lightDistanceVertical,
     liveForm?.lightNote,
+    is3DCamera,
     module?.selected_light,
     module?.light_id,
     persistedImaging.lightItems,
@@ -345,7 +351,7 @@ export function ModuleSchematic() {
   const diagramLightDistanceMm = toMillimeters(diagramLightDistanceInput, distanceUnit);
   const lightDistanceVerticalMm = toMillimeters(lightDistanceVerticalInput, distanceUnit);
   const lightDistanceHorizontalMm = signedToMillimeters(lightDistanceHorizontalInput, distanceUnit);
-  const lightCount = moduleLightItems.length || parseLightCount(liveForm ? liveForm.lightCount : getPersistedImagingField(module, 'lightCount'));
+  const lightCount = is3DCamera ? 0 : moduleLightItems.length || parseLightCount(liveForm ? liveForm.lightCount : getPersistedImagingField(module, 'lightCount'));
   const lightAngleDeg = parseAngle(firstLightItem?.lightAngle ?? '');
   const resolvedLightHorizontalMm = lightDistanceHorizontalMm ?? 0;
   const resolvedLightVerticalMm =
@@ -382,7 +388,7 @@ export function ModuleSchematic() {
   ]);
   const selectedCameraId = liveForm?.selectedCamera || module?.selected_camera || module?.camera_id || null;
   const selectedLensId = is3DCamera ? null : (liveForm?.selectedLens || module?.selected_lens || module?.lens_id || null);
-  const selectedLightId = firstLightItem?.selectedLight || liveForm?.selectedLight || module?.selected_light || module?.light_id || null;
+  const selectedLightId = is3DCamera ? null : (firstLightItem?.selectedLight || liveForm?.selectedLight || module?.selected_light || module?.light_id || null);
   const selectedControllerId = liveForm?.selectedController || module?.selected_controller || module?.controller_id || null;
   const resolvedCamera = useMemo(
     () => resolveModuleHardwareSelection(selectedCameraId, layout, 'camera', cameras),
@@ -397,6 +403,7 @@ export function ModuleSchematic() {
     [selectedLightId, layout, lights],
   );
   const resolvedDiagramLightItems = useMemo(() => {
+    if (is3DCamera) return [];
     return moduleLightItems.map((item, index) => {
       const resolved = resolveModuleHardwareSelection(item.selectedLight, layout, 'light', lights);
       const horizontalMm = signedToMillimeters(item.lightDistanceHorizontal, distanceUnit) ?? 0;
@@ -419,7 +426,7 @@ export function ModuleSchematic() {
         angle: item.lightAngle,
       };
     });
-  }, [distanceScale, distanceUnit, layout, lightLayouts, lights, moduleLightItems]);
+  }, [distanceScale, distanceUnit, is3DCamera, layout, lightLayouts, lights, moduleLightItems]);
   const resolvedController = useMemo(
     () => resolveModuleHardwareSelection(selectedControllerId, layout, 'controller', controllers),
     [selectedControllerId, layout, controllers],
@@ -603,7 +610,7 @@ export function ModuleSchematic() {
           camera: cameraPos,
           light: lightPos,
           product: productPos,
-          lights: resolvedDiagramLightItems.map(item => ({
+          lights: is3DCamera ? [] : resolvedDiagramLightItems.map(item => ({
             id: item.id,
             position: item.position,
             rotation: item.rotation,
@@ -612,7 +619,7 @@ export function ModuleSchematic() {
           lightRotation,
           fovAngle,
           lightDistance,
-          lightCount,
+          lightCount: is3DCamera ? 0 : lightCount,
           savedImageSignature: savedImageSignatureRef.current,
         },
       } as any).catch((err) => console.warn('Failed to persist schematic layout:', err));
@@ -621,7 +628,7 @@ export function ModuleSchematic() {
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraPos.x, cameraPos.y, lightPos.x, lightPos.y, productPos.x, productPos.y, cameraRotation, lightRotation, fovAngle, lightDistance, lightCount, resolvedDiagramLightItems, module?.id]);
+  }, [cameraPos.x, cameraPos.y, lightPos.x, lightPos.y, productPos.x, productPos.y, cameraRotation, lightRotation, fovAngle, is3DCamera, lightDistance, lightCount, resolvedDiagramLightItems, module?.id]);
 
   // All hooks must be above early returns
   const handleFovAngleChange = useCallback((angle: number) => {
@@ -920,7 +927,7 @@ export function ModuleSchematic() {
           camera: cameraPos,
           light: lightPos,
           product: productPos,
-          lights: resolvedDiagramLightItems.map(item => ({
+          lights: is3DCamera ? [] : resolvedDiagramLightItems.map(item => ({
             id: item.id,
             position: item.position,
             rotation: item.rotation,
@@ -929,7 +936,7 @@ export function ModuleSchematic() {
           lightRotation,
           fovAngle,
           lightDistance,
-          lightCount,
+          lightCount: is3DCamera ? 0 : lightCount,
           savedImageSignature: currentImageSignature,
         },
       });
@@ -1036,12 +1043,12 @@ export function ModuleSchematic() {
               <VisionSystemDiagram
                 key={module.id}
                 camera={selectedCamera || null}
-                lens={selectedLens || null}
-                light={selectedLight || null}
+                lens={is3DCamera ? null : selectedLens || null}
+                light={is3DCamera ? null : selectedLight || null}
                 controller={selectedController || null}
                 is3DCamera={is3DCamera}
                 lightDistance={lightDistance}
-                lightCount={lightCount}
+                lightCount={is3DCamera ? 0 : lightCount}
                 fovAngle={fovAngle}
                 onFovAngleChange={handleFovAngleChange}
                 onLightDistanceChange={handleLightDistanceChange}
@@ -1053,7 +1060,7 @@ export function ModuleSchematic() {
                 lightDistanceInput={diagramLightDistanceInput}
                 lightDistanceMm={resolvedDiagramLightDistanceMm}
                 onDiagramLightDistanceChange={handleDiagramLightDistanceChange}
-                diagramLightItems={resolvedDiagramLightItems}
+                diagramLightItems={is3DCamera ? [] : resolvedDiagramLightItems}
                 onDiagramLightItemPositionChange={handleDiagramLightItemPositionChange}
                 onDiagramLightItemDistanceChange={handleDiagramLightItemDistanceChange}
                 roiStrategy={module.roi_strategy || 'full'}
@@ -1117,12 +1124,12 @@ export function ModuleSchematic() {
           <VisionSystemDiagram
             key={`export-${module.id}`}
             camera={selectedCamera || null}
-            lens={selectedLens || null}
-            light={selectedLight || null}
+            lens={is3DCamera ? null : selectedLens || null}
+            light={is3DCamera ? null : selectedLight || null}
             controller={selectedController || null}
             is3DCamera={is3DCamera}
             lightDistance={lightDistance}
-            lightCount={lightCount}
+            lightCount={is3DCamera ? 0 : lightCount}
             fovAngle={fovAngle}
             onFovAngleChange={handleFovAngleChange}
             onLightDistanceChange={handleLightDistanceChange}
@@ -1134,7 +1141,7 @@ export function ModuleSchematic() {
             lightDistanceInput={diagramLightDistanceInput}
             lightDistanceMm={resolvedDiagramLightDistanceMm}
             onDiagramLightDistanceChange={handleDiagramLightDistanceChange}
-            diagramLightItems={resolvedDiagramLightItems}
+            diagramLightItems={is3DCamera ? [] : resolvedDiagramLightItems}
             roiStrategy={module.roi_strategy || 'full'}
             moduleType={module.type || 'positioning'}
             interactive={false}

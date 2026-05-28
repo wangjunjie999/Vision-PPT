@@ -15,7 +15,7 @@
 
 import type PptxGenJS from 'pptxgenjs';
 import { fetchImageAsDataUri } from './imagePreloader';
-import { calculateContainFit, getImageDimensions, calculateThreeViewLayout } from './imageLayoutUtils';
+import { calculateContainFit, getImageDimensions, calculateThreeViewLayout, trimImageWhitespaceDataUri } from './imageLayoutUtils';
 import { 
   COLORS, 
   SLIDE_LAYOUT, 
@@ -1704,9 +1704,10 @@ export async function generateModuleOpticalSlide(
     try {
       const dataUri = await fetchImageAsDataUri(mod.schematic_image_url);
       if (dataUri) {
-        const dims = await getImageDimensions(dataUri);
+        const trimmedDataUri = await trimImageWhitespaceDataUri(dataUri);
+        const dims = await getImageDimensions(trimmedDataUri);
         const fit = calculateContainFit(dims.width, dims.height, imageArea);
-        slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
+        slide.addImage({ data: trimmedDataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
       } else {
         throw new Error('Failed to fetch image');
       }

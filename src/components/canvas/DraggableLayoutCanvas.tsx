@@ -32,7 +32,16 @@ import { AUTO_ARRANGE_CONFIG } from './canvasTypes';
 import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasSVGDefs } from './CanvasSVGDefs';
 import { IsometricGrid } from './IsometricGrid';
-import { Layout3DPreview, getMechanismSurfaceHeight, getCameraMountPosition, type IsometricFitAllFn } from './Layout3DPreview';
+import {
+  Layout3DPreview,
+  getMechanismSurfaceHeight,
+  getCameraMountPosition,
+  ISOMETRIC_CAPTURE_FALLBACK_PADDING,
+  ISOMETRIC_CAPTURE_PADDING,
+  isIsometricCaptureReady,
+  type IsometricFitAllFn,
+  type IsometricSceneStatus,
+} from './Layout3DPreview';
 import { ConnectionLines } from './ConnectionLines';
 import { MechanismRenderer } from './MechanismRenderer';
 import { ProductRenderer } from './ProductRenderer';
@@ -138,6 +147,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   });
   const isometricScreenshotFnRef = useRef<(() => string | null) | null>(null);
   const fitAllFnRef = useRef<IsometricFitAllFn | null>(null);
+  const isometricSceneStatusRef = useRef<IsometricSceneStatus>({
+    ready: false,
+    pendingModelCount: 0,
+    failedModelCount: 0,
+  });
   const [cameraPickerOpen, setCameraPickerOpen] = useState(false);
 
   // Undo/Redo history
@@ -846,6 +860,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     setIsSavingAllViews(true);
     setSaveProgress(0);
     const originalView = currentView;
+    let isometricSkipReason: 'model-failed' | 'model-timeout' | 'invalid-image' | null = null;
     try {
       const updates = { layout_objects: objects, grid_enabled: gridEnabled, snap_enabled: snapEnabled, show_distances: showDistances };
       let layoutId = layout?.id;
@@ -862,6 +877,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         // Clear stale refs before switching away from isometric — the 3D component will unmount
         isometricScreenshotFnRef.current = null;
         fitAllFnRef.current = null;
+        isometricSceneStatusRef.current = { ready: false, pendingModelCount: 0, failedModelCount: 0 };
         setCurrentView('front');
         await new Promise(r => setTimeout(r, 400));
       }
@@ -885,37 +901,42 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         }
 
         // Capture isometric (3D) screenshot — poll for 3D scene readiness
+        isometricScreenshotFnRef.current = null;
+        fitAllFnRef.current = null;
+        isometricSceneStatusRef.current = { ready: false, pendingModelCount: 0, failedModelCount: 0 };
         setCurrentView('isometric');
-        // Wait for 3D canvas to mount and register screenshot/fitAll refs (up to 3s)
-        {
-          let attempts = 0;
-          while (!isometricScreenshotFnRef.current && attempts < 30) {
-            await wait(100);
-            attempts++;
-          }
-        }
-        if (isometricScreenshotFnRef.current) {
-          // Wait for fitAll ref too
-          {
-            let attempts = 0;
-            while (!fitAllFnRef.current && attempts < 10) {
-              await wait(100);
-              attempts++;
+        const waitForIsometricCaptureReady = async (timeoutMs = 10000) => {
+          const start = Date.now();
+          while (Date.now() - start < timeoutMs) {
+            const status = isometricSceneStatusRef.current;
+            if (status.failedModelCount > 0) {
+              return { ready: false as const, reason: 'model-failed' as const, status };
             }
+            if (isIsometricCaptureReady(status, Boolean(isometricScreenshotFnRef.current), Boolean(fitAllFnRef.current))) {
+              return { ready: true as const, reason: null, status };
+            }
+            await wait(120);
           }
-        }
-        if (isometricScreenshotFnRef.current) {
+          return {
+            ready: false as const,
+            reason: 'model-timeout' as const,
+            status: isometricSceneStatusRef.current,
+          };
+        };
+
+        const readiness = await waitForIsometricCaptureReady();
+        if (readiness.ready) {
           try {
             const captureIsometric = async (padding: number) => {
               fitAllFnRef.current?.({ padding });
-              await wait(350);
-              await waitForAnimationFrames(8);
+              await wait(450);
+              await waitForAnimationFrames(10);
               return isometricScreenshotFnRef.current?.() || null;
             };
 
-            let isoDataUrl = await captureIsometric(1.6);
+            let isoDataUrl = await captureIsometric(ISOMETRIC_CAPTURE_PADDING);
             if (!isUsableImageDataUrl(isoDataUrl)) {
-              isoDataUrl = await captureIsometric(1.95);
+              isoDataUrl = await captureIsometric(ISOMETRIC_CAPTURE_FALLBACK_PADDING);
             }
 
             if (isUsableImageDataUrl(isoDataUrl)) {
@@ -923,11 +944,16 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               const compressedIsoBlob = await compressImage(isoBlob, { quality: preset.quality, maxWidth: preset.maxWidth, maxHeight: preset.maxHeight, format: 'image/jpeg' });
               viewImages.push({ view: 'isometric' as ViewType, blob: compressedIsoBlob });
             } else {
+              isometricSkipReason = 'invalid-image';
               console.warn('Isometric screenshot skipped: invalid image data');
             }
           } catch (e) {
+            isometricSkipReason = 'invalid-image';
             console.warn('Isometric screenshot failed:', e);
           }
+        } else {
+          isometricSkipReason = readiness.reason;
+          console.warn('Isometric screenshot skipped:', readiness.reason, readiness.status);
         }
         setSaveProgress(50);
 
@@ -943,12 +969,27 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         const updateData: Record<string, any> = {};
         uploadResults.forEach(({ view, url }) => { updateData[`${view}_view_image_url`] = url; updateData[`${view}_view_saved`] = true; });
         await updateLayout(layoutId, updateData as any);
-        setViewSaveStatus({ front: true, side: true, top: true, isometric: true });
+        const didSaveIsometric = uploadResults.some(({ view }) => view === 'isometric');
+        setViewSaveStatus(prev => ({
+          ...prev,
+          front: true,
+          side: true,
+          top: true,
+          ...(didSaveIsometric ? { isometric: true } : {}),
+        }));
       }
       // Persist product position
       await updateWorkstation(workstationId, { product_position: localProductPosition as any }, { silent: true });
 
       setSaveProgress(100);
+      if (isometricSkipReason === 'model-failed' || isometricSkipReason === 'model-timeout') {
+        toast.warning('布局视图已保存，等轴测图因3D模型未加载完成已跳过，请稍后重试');
+        return;
+      }
+      if (isometricSkipReason === 'invalid-image') {
+        toast.warning('布局视图已保存，等轴测图生成失败已跳过，请稍后重试');
+        return;
+      }
       toast.success('布局和视图（含等轴测）已保存');
     } catch (error) {
       console.error('Save all error:', error);
@@ -1119,6 +1160,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             }}
             onScreenshotReady={(fn) => { isometricScreenshotFnRef.current = fn; }}
             onFitAllReady={(fn) => { fitAllFnRef.current = fn; }}
+            onIsometricSceneStatusChange={(status) => { isometricSceneStatusRef.current = status; }}
             productPosition={localProductPosition}
             onUpdateProductPosition={setLocalProductPosition}
             onStageLayout={handleStageLayout}

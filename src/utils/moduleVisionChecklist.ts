@@ -211,7 +211,7 @@ function formatPixelAccuracy(value: unknown): string {
     .replace(/px/gi, 'pixel');
   if (/mm\/pixel$/i.test(text)) return text.replace(/mm\/pixel$/i, 'mm/pixel');
   const parsed = parsePositiveNumber(text);
-  return parsed ? `${formatNumber(parsed, parsed < 0.01 ? 4 : 3)}mm/pixel` : text;
+  return parsed ? `${formatNumber(parsed, parsed < 0.01 ? 4 : 2)}mm/pixel` : text;
 }
 
 function calculatePixelAccuracy(fieldOfView: unknown, cameraResolution: unknown): string {

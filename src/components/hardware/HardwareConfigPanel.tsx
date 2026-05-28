@@ -325,6 +325,7 @@ interface HardwareConfigPanelProps {
   initialLenses?: (HardwareItemData | null)[];
   initialLights?: (HardwareItemData | null)[];
   initialController?: HardwareItemData | null;
+  hideLensAndLight?: boolean;
   onHardwareChange?: (config: {
     cameras: (HardwareItemData | null)[];
     lenses: (HardwareItemData | null)[];
@@ -388,6 +389,7 @@ export function HardwareConfigPanel({
   initialLenses = [],
   initialLights = [],
   initialController = null,
+  hideLensAndLight = false,
   onHardwareChange,
 }: HardwareConfigPanelProps) {
   const [cameras, setCameras] = useState<(HardwareItem | null)[]>([]);
@@ -661,67 +663,71 @@ export function HardwareConfigPanel({
           </div>
         </div>
 
-        {/* Lenses Section */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Lenses
-            </h4>
-            {onLensCountChange && (
-              <SlotCountControl
-                value={lensCount}
-                label="数量"
-                onIncrease={() => requestSlotCountChange('lenses', lensCount + 1)}
-                onDecrease={() => requestSlotCountChange('lenses', lensCount - 1)}
-                disableDecrease={lensCount <= 1}
-              />
-            )}
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {lenses.map((lens, index) => (
-              <HardwareSlot
-                key={`lens-${index}`}
-                label="LEN"
-                icon={<Focus className="h-3 w-3 text-accent" />}
-                item={lens}
-                slotIndex={index}
-                onSelect={() => openDialog('lenses', index)}
-                onClear={() => handleClear('lenses', index)}
-              />
-            ))}
-          </div>
-        </div>
+        {!hideLensAndLight && (
+          <>
+            {/* Lenses Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Lenses
+                </h4>
+                {onLensCountChange && (
+                  <SlotCountControl
+                    value={lensCount}
+                    label="数量"
+                    onIncrease={() => requestSlotCountChange('lenses', lensCount + 1)}
+                    onDecrease={() => requestSlotCountChange('lenses', lensCount - 1)}
+                    disableDecrease={lensCount <= 1}
+                  />
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {lenses.map((lens, index) => (
+                  <HardwareSlot
+                    key={`lens-${index}`}
+                    label="LEN"
+                    icon={<Focus className="h-3 w-3 text-accent" />}
+                    item={lens}
+                    slotIndex={index}
+                    onSelect={() => openDialog('lenses', index)}
+                    onClear={() => handleClear('lenses', index)}
+                  />
+                ))}
+              </div>
+            </div>
 
-        {/* Lights Section */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Lights
-            </h4>
-            {onLightCountChange && (
-              <SlotCountControl
-                value={lightCount}
-                label="数量"
-                onIncrease={() => requestSlotCountChange('lights', lightCount + 1)}
-                onDecrease={() => requestSlotCountChange('lights', lightCount - 1)}
-                disableDecrease={lightCount <= 1}
-              />
-            )}
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {lights.map((light, index) => (
-              <HardwareSlot
-                key={`light-${index}`}
-                label="LIGHT"
-                icon={<Lightbulb className="h-3 w-3 text-warning" />}
-                item={light}
-                slotIndex={index}
-                onSelect={() => openDialog('lights', index)}
-                onClear={() => handleClear('lights', index)}
-              />
-            ))}
-          </div>
-        </div>
+            {/* Lights Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Lights
+                </h4>
+                {onLightCountChange && (
+                  <SlotCountControl
+                    value={lightCount}
+                    label="数量"
+                    onIncrease={() => requestSlotCountChange('lights', lightCount + 1)}
+                    onDecrease={() => requestSlotCountChange('lights', lightCount - 1)}
+                    disableDecrease={lightCount <= 1}
+                  />
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {lights.map((light, index) => (
+                  <HardwareSlot
+                    key={`light-${index}`}
+                    label="LIGHT"
+                    icon={<Lightbulb className="h-3 w-3 text-warning" />}
+                    item={light}
+                    slotIndex={index}
+                    onSelect={() => openDialog('lights', index)}
+                    onClear={() => handleClear('lights', index)}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Industrial PC Section */}
         <div className="space-y-3">

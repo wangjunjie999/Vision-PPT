@@ -72,7 +72,7 @@ export const FONTS = {
 export const MASTER_SLIDE_SUBTITLE = {
   y: 0.55,
   h: 0.22,
-  fontSize: 14,
+  fontSize: 13,
   fontFace: FONTS.body,
   color: COLORS.white,
   align: 'center' as const,

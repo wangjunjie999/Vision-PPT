@@ -839,8 +839,8 @@ export function VisionSystemDiagram({
 
   const hasCamera = !!camera;
   const hasLens = !is3DCamera && !!lens;
-  const hasMultiLights = diagramLightItems.length > 0;
-  const hasLight = hasMultiLights ? diagramLightItems.some(item => !!item.light) : !!light;
+  const hasMultiLights = !is3DCamera && diagramLightItems.length > 0;
+  const hasLight = !is3DCamera && (hasMultiLights ? diagramLightItems.some(item => !!item.light) : !!light);
   const hasController = !!controller;
 
   // Camera+lens group center for drawing connections
@@ -998,7 +998,7 @@ export function VisionSystemDiagram({
         <g stroke="hsl(220, 80%, 50%)" strokeWidth="1" strokeDasharray="4,2" opacity="0.5">
           <line x1={rotCenterX + 45} y1={rotCenterY - 19} x2="495" y2="55" />
           {!is3DCamera && <line x1={lensExitX + 10} y1={lensExitY - 10} x2="495" y2="140" />}
-          <line x1={lightCenterX + 80} y1={lightCenterY} x2="495" y2="210" />
+          {!is3DCamera && <line x1={lightCenterX + 80} y1={lightCenterY} x2="495" y2="210" />}
         </g>
 
         {/* ===== Camera + Lens group (draggable + rotatable) ===== */}
@@ -1078,76 +1078,78 @@ export function VisionSystemDiagram({
         )}
 
         {/* ===== Light (draggable + rotatable) ===== */}
-        {hasMultiLights ? (
-          <g>
-            {diagramLightItems.map((item) => {
-              const itemLight = item.light;
-              const rotation = item.rotation ?? 0;
-              return (
-                <g key={item.id}>
-                  <g
-                    transform={`translate(${item.position.x}, ${item.position.y}) rotate(${rotation}) scale(0.65) translate(-80, -16)`}
-                    style={{ cursor: interactive ? 'grab' : 'default' }}
-                    onPointerDown={interactive ? (e) => handleDiagramLightPointerDown(item.id, item.position, e) : undefined}
-                    onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
-                    onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
-                  >
-                    <LightSVGShape hasImage={!!itemLight?.front_view_url} imageUrl={itemLight?.front_view_url} brand={itemLight?.brand} lightType={itemLight?.type} />
+        {!is3DCamera && (
+          hasMultiLights ? (
+            <g>
+              {diagramLightItems.map((item) => {
+                const itemLight = item.light;
+                const rotation = item.rotation ?? 0;
+                return (
+                  <g key={item.id}>
+                    <g
+                      transform={`translate(${item.position.x}, ${item.position.y}) rotate(${rotation}) scale(0.65) translate(-80, -16)`}
+                      style={{ cursor: interactive ? 'grab' : 'default' }}
+                      onPointerDown={interactive ? (e) => handleDiagramLightPointerDown(item.id, item.position, e) : undefined}
+                      onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
+                      onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
+                    >
+                      <LightSVGShape hasImage={!!itemLight?.front_view_url} imageUrl={itemLight?.front_view_url} brand={itemLight?.brand} lightType={itemLight?.type} />
+                    </g>
+                    <circle cx={item.position.x} cy={item.position.y} r="4" fill="hsl(220, 80%, 55%)" opacity="0.9" />
+                    <text x={item.position.x + 10} y={item.position.y - 10} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
+                      {item.label || 'LIGHT'}
+                    </text>
                   </g>
-                  <circle cx={item.position.x} cy={item.position.y} r="4" fill="hsl(220, 80%, 55%)" opacity="0.9" />
-                  <text x={item.position.x + 10} y={item.position.y - 10} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
-                    {item.label || 'LIGHT'}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-        ) : (
-          <>
-            <g
-              style={{ cursor: interactive ? 'grab' : 'default' }}
-              {...(interactive ? lightDrag.handlers : {})}
-            >
-              {lightInstances.map((instance, index) => (
-                <g
-                  key={instance.key}
-                  transform={`translate(${instance.x - 80}, ${instance.y - 16}) rotate(${lightRotationVal}, 80, 16)`}
-                >
-                  {interactive && index === 0 ? (
-                    <foreignObject x="0" y="0" width="160" height="32">
-                      <div className="w-full h-full" style={{ transform: 'translateZ(0)' }}>
-                        <HardwareSelectPopover
-                          type="light" items={lights} selectedId={light?.id || null}
-                          onSelect={onLightSelect || (() => {})} disabled={!onLightSelect}
-                        >
-                          <button className="relative w-full h-full cursor-pointer group bg-transparent border-0 p-0">
-                            <svg width="160" height="32" viewBox="0 0 160 32">
-                              <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
-                            </svg>
-                            {!hasLight && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded">
-                                <span className="text-xs text-muted-foreground">点击选择</span>
-                              </div>
-                            )}
-                          </button>
-                        </HardwareSelectPopover>
-                      </div>
-                    </foreignObject>
-                  ) : (
-                    <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
-                  )}
-                </g>
-              ))}
+                );
+              })}
             </g>
+          ) : (
+            <>
+              <g
+                style={{ cursor: interactive ? 'grab' : 'default' }}
+                {...(interactive ? lightDrag.handlers : {})}
+              >
+                {lightInstances.map((instance, index) => (
+                  <g
+                    key={instance.key}
+                    transform={`translate(${instance.x - 80}, ${instance.y - 16}) rotate(${lightRotationVal}, 80, 16)`}
+                  >
+                    {interactive && index === 0 ? (
+                      <foreignObject x="0" y="0" width="160" height="32">
+                        <div className="w-full h-full" style={{ transform: 'translateZ(0)' }}>
+                          <HardwareSelectPopover
+                            type="light" items={lights} selectedId={light?.id || null}
+                            onSelect={onLightSelect || (() => {})} disabled={!onLightSelect}
+                          >
+                            <button className="relative w-full h-full cursor-pointer group bg-transparent border-0 p-0">
+                              <svg width="160" height="32" viewBox="0 0 160 32">
+                                <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
+                              </svg>
+                              {!hasLight && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded">
+                                  <span className="text-xs text-muted-foreground">点击选择</span>
+                                </div>
+                              )}
+                            </button>
+                          </HardwareSelectPopover>
+                        </div>
+                      </foreignObject>
+                    ) : (
+                      <LightSVGShape hasImage={!!light?.front_view_url} imageUrl={light?.front_view_url} brand={light?.brand} lightType={light?.type} />
+                    )}
+                  </g>
+                ))}
+              </g>
 
-            {interactive && (
-              <RotationHandle
-                cx={lightDrag.pos.x} cy={lightDrag.pos.y}
-                radius={50} angle={lightRotationVal}
-                onAngleChange={setLightRotation} enabled={interactive}
-              />
-            )}
-          </>
+              {interactive && (
+                <RotationHandle
+                  cx={lightDrag.pos.x} cy={lightDrag.pos.y}
+                  radius={50} angle={lightRotationVal}
+                  onAngleChange={setLightRotation} enabled={interactive}
+                />
+              )}
+            </>
+          )
         )}
 
 
@@ -1201,65 +1203,67 @@ export function VisionSystemDiagram({
               )}
 
               {/* Light specs */}
-              <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                  <span style={{ fontSize: '14px' }}>💡</span>
-                  <span style={{ fontWeight: 600, fontSize: '12px', color: '#333333' }}>光源</span>
-                </div>
-                {hasMultiLights ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '210px', overflowY: 'auto', paddingRight: '2px' }}>
-                    {diagramLightItems.map((item, index) => {
-                      const itemLight = item.light;
-                      const distanceDisplay = item.distanceMm
-                        ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}`
-                        : '待填写';
-                      return (
-                        <div key={item.id} style={{ borderTop: index === 0 ? 'none' : '1px solid hsl(220, 15%, 86%)', paddingTop: index === 0 ? 0 : 4 }}>
-                          <p style={{ fontSize: '10px', color: '#333333', margin: 0, fontWeight: 600 }}>{item.label || `LIGHT${index + 1}`}</p>
-                          <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{itemLight ? `${itemLight.brand} ${itemLight.model}` : '未选择型号'}</p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                            <span style={{ fontSize: '10px', color: '#666666' }}>距离:</span>
-                            {onDiagramLightItemDistanceChange ? (
-                              <input
-                                type="number"
-                                value={item.distanceInput || ''}
-                                onChange={(e) => onDiagramLightItemDistanceChange(item.id, e.target.value)}
-                                style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
-                                min="0"
-                              />
-                            ) : (
-                              <span style={{ fontSize: '10px', color: '#666666' }}>{distanceDisplay}</span>
-                            )}
-                            {onDiagramLightItemDistanceChange && <span style={{ fontSize: '10px', color: '#666666' }}>{distanceUnit}</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
+              {!is3DCamera && (
+                <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '14px' }}>💡</span>
+                    <span style={{ fontWeight: 600, fontSize: '12px', color: '#333333' }}>光源</span>
                   </div>
-                ) : hasLight ? (
-                  <>
-                    <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>{light.color}{light.type} · {light.power}</p>
-                    <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{light.brand} {light.model} · 数量 {boundedLightCount}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                      <span style={{ fontSize: '10px', color: '#666666' }}>光源距产品:</span>
-                      {onDiagramLightDistanceChange ? (
-                        <input
-                          type="number"
-                          value={diagramLightDistanceValue}
-                          onChange={(e) => onDiagramLightDistanceChange(e.target.value)}
-                          style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
-                          min="0"
-                        />
-                      ) : (
-                        <span style={{ fontSize: '10px', color: '#666666' }}>{diagramLightDistanceDisplay}</span>
-                      )}
-                      {diagramLightDistanceDisplay !== '待填写' && <span style={{ fontSize: '10px', color: '#666666' }}>{distanceUnit}</span>}
+                  {hasMultiLights ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '210px', overflowY: 'auto', paddingRight: '2px' }}>
+                      {diagramLightItems.map((item, index) => {
+                        const itemLight = item.light;
+                        const distanceDisplay = item.distanceMm
+                          ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}`
+                          : '待填写';
+                        return (
+                          <div key={item.id} style={{ borderTop: index === 0 ? 'none' : '1px solid hsl(220, 15%, 86%)', paddingTop: index === 0 ? 0 : 4 }}>
+                            <p style={{ fontSize: '10px', color: '#333333', margin: 0, fontWeight: 600 }}>{item.label || `LIGHT${index + 1}`}</p>
+                            <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{itemLight ? `${itemLight.brand} ${itemLight.model}` : '未选择型号'}</p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                              <span style={{ fontSize: '10px', color: '#666666' }}>距离:</span>
+                              {onDiagramLightItemDistanceChange ? (
+                                <input
+                                  type="number"
+                                  value={item.distanceInput || ''}
+                                  onChange={(e) => onDiagramLightItemDistanceChange(item.id, e.target.value)}
+                                  style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
+                                  min="0"
+                                />
+                              ) : (
+                                <span style={{ fontSize: '10px', color: '#666666' }}>{distanceDisplay}</span>
+                              )}
+                              {onDiagramLightItemDistanceChange && <span style={{ fontSize: '10px', color: '#666666' }}>{distanceUnit}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </>
-                ) : (
-                  <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>点击左侧光源图标选择</p>
-                )}
-              </div>
+                  ) : hasLight ? (
+                    <>
+                      <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>{light.color}{light.type} · {light.power}</p>
+                      <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{light.brand} {light.model} · 数量 {boundedLightCount}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                        <span style={{ fontSize: '10px', color: '#666666' }}>光源距产品:</span>
+                        {onDiagramLightDistanceChange ? (
+                          <input
+                            type="number"
+                            value={diagramLightDistanceValue}
+                            onChange={(e) => onDiagramLightDistanceChange(e.target.value)}
+                            style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
+                            min="0"
+                          />
+                        ) : (
+                          <span style={{ fontSize: '10px', color: '#666666' }}>{diagramLightDistanceDisplay}</span>
+                        )}
+                        {diagramLightDistanceDisplay !== '待填写' && <span style={{ fontSize: '10px', color: '#666666' }}>{distanceUnit}</span>}
+                      </div>
+                    </>
+                  ) : (
+                    <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>点击左侧光源图标选择</p>
+                  )}
+                </div>
+              )}
 
               {/* FOV info */}
               <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
@@ -1358,30 +1362,32 @@ export function VisionSystemDiagram({
                 y += cardH + cardGap;
               }
 
-              const lightLineHeight = 14;
-              const lh = hasMultiLights ? 28 + diagramLightItems.length * lightLineHeight : (hasLight ? 62 : cardH);
-              cards.push(
-                <g key="light" transform={`translate(${cardX}, ${y})`}>
-                  <rect width={cardW} height={lh} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                  <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>💡 光源</text>
-                  {hasMultiLights ? (
-                    <>
-                      {diagramLightItems.map((item, index) => (
-                        <text key={item.id} x="12" y={34 + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: '9px' }}>
-                          {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {item.distanceMm ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}` : '待填写'}
-                        </text>
-                      ))}
-                    </>
-                  ) : hasLight ? (
-                    <>
-                      <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{light.color}{light.type} · {light.power}</text>
-                      <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{light.brand} {light.model}</text>
-                      <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>数量 {boundedLightCount} · 光源距产品: {diagramLightDistanceWithUnit}</text>
-                    </>
-                  ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择光源</text>}
-                </g>
-              );
-              y += lh + cardGap;
+              if (!is3DCamera) {
+                const lightLineHeight = 14;
+                const lh = hasMultiLights ? 28 + diagramLightItems.length * lightLineHeight : (hasLight ? 62 : cardH);
+                cards.push(
+                  <g key="light" transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={lh} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>💡 光源</text>
+                    {hasMultiLights ? (
+                      <>
+                        {diagramLightItems.map((item, index) => (
+                          <text key={item.id} x="12" y={34 + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: '9px' }}>
+                            {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {item.distanceMm ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}` : '待填写'}
+                          </text>
+                        ))}
+                      </>
+                    ) : hasLight ? (
+                      <>
+                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{light.color}{light.type} · {light.power}</text>
+                        <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{light.brand} {light.model}</text>
+                        <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>数量 {boundedLightCount} · 光源距产品: {diagramLightDistanceWithUnit}</text>
+                      </>
+                    ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择光源</text>}
+                  </g>
+                );
+                y += lh + cardGap;
+              }
 
               cards.push(
                 <g key="fov" transform={`translate(${cardX}, ${y})`}>

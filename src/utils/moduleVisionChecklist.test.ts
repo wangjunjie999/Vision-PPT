@@ -61,6 +61,29 @@ describe('moduleVisionChecklist', () => {
     expect(checklist.cameraInstall).toBe('顶部安装');
   });
 
+  it('keeps saved manual FOV fields and rounds saved pixel accuracy for PPT display', () => {
+    const checklist = buildModuleVisionChecklist({
+      module: {
+        selected_camera: 'cam_1',
+        measurement_config: {
+          imaging: {
+            fieldOfViewWidth: '380',
+            fieldOfViewHeight: '253',
+            fieldOfView: '373.76*249.17',
+            resolutionPerPixel: '0.0694',
+          },
+        },
+      },
+      hardware: {
+        cameras: [{ id: 'cam_1', brand: 'Hikvision', model: 'MV-CA', resolution: '5472×3648' }],
+      },
+      language: 'zh',
+    });
+
+    expect(checklist.fieldOfView).toBe('380*253mm');
+    expect(checklist.pixelAccuracy).toBe('0.07mm/pixel');
+  });
+
   it('builds upload-template module placeholder fields', () => {
     const fields = buildModuleVisionChecklistTemplateFields({
       module: {

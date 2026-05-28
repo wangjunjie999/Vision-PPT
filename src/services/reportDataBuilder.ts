@@ -542,6 +542,7 @@ function enrichLayoutController(
 export function buildReportData(input: BuilderInput): ReportData {
   const { project, workstations, layouts, modules, hardware, productAssets = [], annotations = [], language = 'zh' } = input;
   const lang = language;
+  const projectUses3D = Boolean(project.use_3d);
   
   // 转换环境数组
   const environmentArray = Array.isArray(project.environment) 
@@ -632,8 +633,8 @@ export function buildReportData(input: BuilderInput): ReportData {
       : null;
     
     const selectedCameras = safeHardwareArray(layout.selected_cameras);
-    const selectedLenses = safeHardwareArray(layout.selected_lenses);
-    const selectedLights = safeHardwareArray(layout.selected_lights);
+    const selectedLenses = projectUses3D ? [] : safeHardwareArray(layout.selected_lenses);
+    const selectedLights = projectUses3D ? [] : safeHardwareArray(layout.selected_lights);
     const selectedController = safeController(layout.selected_controller);
     
     return {
@@ -642,8 +643,8 @@ export function buildReportData(input: BuilderInput): ReportData {
       conveyor_type: layout.conveyor_type,
       conveyor_type_label: getLabel(layout.conveyor_type, CONVEYOR_LABELS, lang),
       camera_count: layout.camera_count,
-      lens_count: (layout as any).lens_count ?? layout.camera_count ?? 1,
-      light_count: (layout as any).light_count ?? 1,
+      lens_count: projectUses3D ? 0 : (layout as any).lens_count ?? layout.camera_count ?? 1,
+      light_count: projectUses3D ? 0 : (layout as any).light_count ?? 1,
       camera_mounts: cameraMounts,
       camera_mounts_labels: getArrayLabels(cameraMounts, CAMERA_MOUNT_LABELS, lang),
       mechanisms: mechanisms,
@@ -675,6 +676,18 @@ export function buildReportData(input: BuilderInput): ReportData {
   const reportModules: ReportModuleData[] = modules.map(mod => {
     const outputTypes = mod.output_types as string[] | null;
     const moduleLayout = layouts.find(layout => layout.workstation_id === mod.workstation_id) || null;
+    const moduleConfig = (
+      mod.defect_config
+      || mod.positioning_config
+      || mod.measurement_config
+      || mod.ocr_config
+      || mod.deep_learning_config
+    ) as any;
+    const moduleUses3D = projectUses3D
+      || moduleConfig?.imaging?.is3DCamera === true
+      || String(moduleConfig?.imaging?.is3DCamera || '') === 'true';
+    const selectedLensId = moduleUses3D ? null : mod.selected_lens;
+    const selectedLightId = moduleUses3D ? null : mod.selected_light;
     
     return {
       id: mod.id,
@@ -692,10 +705,10 @@ export function buildReportData(input: BuilderInput): ReportData {
       output_types_labels: getArrayLabels(outputTypes, OUTPUT_ACTION_LABELS, lang),
       selected_camera: mod.selected_camera,
       selected_camera_info: buildCameraInfo(mod.selected_camera, hardware, moduleLayout),
-      selected_lens: mod.selected_lens,
-      selected_lens_info: buildLensInfo(mod.selected_lens, hardware, moduleLayout),
-      selected_light: mod.selected_light,
-      selected_light_info: buildLightInfo(mod.selected_light, hardware, moduleLayout),
+      selected_lens: selectedLensId,
+      selected_lens_info: buildLensInfo(selectedLensId, hardware, moduleLayout),
+      selected_light: selectedLightId,
+      selected_light_info: buildLightInfo(selectedLightId, hardware, moduleLayout),
       selected_controller: mod.selected_controller,
       selected_controller_info: buildControllerInfo(mod.selected_controller, hardware, moduleLayout),
       schematic_image_url: mod.schematic_image_url,

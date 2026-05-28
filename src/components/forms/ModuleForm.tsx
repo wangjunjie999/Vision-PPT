@@ -21,6 +21,7 @@ import { normalizeModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getMinimumDefectSize, normalizeDefectItems } from '@/utils/defectItems';
 import { normalizeDistanceUnit } from '@/utils/distanceUnits';
 import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/moduleLightItems';
+import { needs3DOpticsStrip, strip3DOpticsFromForm } from './module/threeDCamera';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -47,13 +48,16 @@ const moduleTypeLabels: Record<string, string> = {
 };
 
 export function ModuleForm() {
-  const { selectedModuleId, modules, updateModule, layouts, getLayoutByWorkstation } = useData();
+  const { selectedModuleId, modules, updateModule, layouts, getLayoutByWorkstation, workstations, projects } = useData();
   const { cameras } = useCameras();
   const { lenses } = useLenses();
   const { lights } = useLights();
   const { controllers } = useControllers();
   
   const module = modules.find(m => m.id === selectedModuleId);
+  const workstation = module ? workstations.find(w => w.id === module.workstation_id) : null;
+  const project = workstation ? projects.find(p => p.id === workstation.project_id) : null;
+  const isProject3D = Boolean(project?.use_3d);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ModuleFormState>(getDefaultFormState());
   const [currentStep, setCurrentStep] = useState(0);
@@ -160,7 +164,7 @@ export function ModuleForm() {
         selectedLight: normalizeModuleHardwareSelection(item.selectedLight, workstationLayout, 'light'),
       }));
       const firstDraftLightItem = getFirstModuleLightItem(normalizedDraftLightItems);
-      setForm({
+      const restoredForm = {
         ...getDefaultFormState(),
         ...draftForm,
         selectedCamera: normalizeModuleHardwareSelection(draftForm.selectedCamera, workstationLayout, 'camera'),
@@ -168,9 +172,11 @@ export function ModuleForm() {
         selectedLight: firstDraftLightItem?.selectedLight || '',
         selectedController: normalizeModuleHardwareSelection(draftForm.selectedController, workstationLayout, 'controller'),
         lightItems: normalizedDraftLightItems,
-      });
+      };
+      const nextForm = isProject3D ? strip3DOpticsFromForm(restoredForm) : restoredForm;
+      setForm(nextForm);
       setCurrentStep(draft.payload.currentStep || 0);
-      baselineSnapshotRef.current = stringifyFormDraft(draft.payload);
+      baselineSnapshotRef.current = stringifyFormDraft(createModuleDraftPayload(nextForm, draft.payload.currentStep || 0));
       setDraftDirty(true);
       setDraftReady(true);
       initializedModuleIdRef.current = module.id;
@@ -194,8 +200,8 @@ export function ModuleForm() {
         signalDefinition: cfg.signalDefinition || '',
         dataRetentionDays: cfg.dataRetentionDays?.toString() || '',
       } : {};
-      const isLoaded3DCamera = Boolean(cfg?.imaging?.is3DCamera);
-      const loadedLightItems = normalizeModuleLightItems(cfg?.imaging?.lightItems, {
+      const isLoaded3DCamera = isProject3D || Boolean(cfg?.imaging?.is3DCamera);
+      const loadedLightItems = isLoaded3DCamera ? [] : normalizeModuleLightItems(cfg?.imaging?.lightItems, {
         selectedLight: module.selected_light || module.light_id || '',
         lightMode: cfg?.imaging?.lightMode || '',
         lightAngle: cfg?.imaging?.lightAngle || '',
@@ -219,8 +225,8 @@ export function ModuleForm() {
         is3DCamera: isLoaded3DCamera,
         workingDistance: cfg.imaging.workingDistance || '',
         fieldOfViewCommon: cfg.imaging.fieldOfView || '',
-        fieldOfViewWidth: (() => { const fov = cfg.imaging.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)$/); return m ? m[1] : ''; })(),
-        fieldOfViewHeight: (() => { const fov = cfg.imaging.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)$/); return m ? m[2] : ''; })(),
+        fieldOfViewWidth: cfg.imaging.fieldOfViewWidth || (() => { const fov = cfg.imaging.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)$/); return m ? m[1] : ''; })(),
+        fieldOfViewHeight: cfg.imaging.fieldOfViewHeight || (() => { const fov = cfg.imaging.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)$/); return m ? m[2] : ''; })(),
         resolutionPerPixel: cfg.imaging.resolutionPerPixel || '',
         exposure: cfg.imaging.exposure || '',
         gain: cfg.imaging.gain?.toString() || '',
@@ -239,7 +245,7 @@ export function ModuleForm() {
         lightNote: cfg.imaging.lightNote || '',
       } : {};
       
-      const nextForm: ModuleFormState = {
+      const loadedForm: ModuleFormState = {
         ...getDefaultFormState(),
         name: module.name,
         description: module.description || '',
@@ -275,8 +281,8 @@ export function ModuleForm() {
           guidingMode: posCfg.guidingMode || 'single_camera',
           guidingMechanism: posCfg.guidingMechanism || 'fixed',
           fieldOfView: posCfg.fieldOfView || '',
-          fieldOfViewWidth: (() => { const fov = posCfg.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)$/); return m ? m[1] : ''; })(),
-          fieldOfViewHeight: (() => { const fov = posCfg.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)$/); return m ? m[2] : ''; })(),
+          fieldOfViewWidth: posCfg.fieldOfViewWidth || (() => { const fov = posCfg.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)$/); return m ? m[1] : ''; })(),
+          fieldOfViewHeight: posCfg.fieldOfViewHeight || (() => { const fov = posCfg.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)$/); return m ? m[2] : ''; })(),
           workingDistance: posCfg.workingDistance || '',
           accuracyRequirement: posCfg.accuracyRequirement?.toString() || '0.1',
           repeatabilityRequirement: posCfg.repeatabilityRequirement?.toString() || '0.03',
@@ -333,13 +339,19 @@ export function ModuleForm() {
         }),
       };
       
+      const nextForm = isLoaded3DCamera ? strip3DOpticsFromForm(loadedForm) : loadedForm;
       setForm(nextForm);
       setCurrentStep(0);
       baselineSnapshotRef.current = stringifyFormDraft(createModuleDraftPayload(nextForm, 0));
       setDraftDirty(false);
       setDraftReady(true);
       initializedModuleIdRef.current = module.id;
-  }, [module, readDraft, resetVersion]);
+  }, [module, readDraft, resetVersion, isProject3D]);
+
+  useEffect(() => {
+    if (!draftReady || !module || !isProject3D) return;
+    setForm(prev => needs3DOpticsStrip(prev) ? strip3DOpticsFromForm(prev) : prev);
+  }, [draftReady, isProject3D, module?.id]);
 
   useEffect(() => {
     if (!draftReady || !module) return;
@@ -399,6 +411,7 @@ export function ModuleForm() {
           lights={lights}
           controllers={controllers}
           workstationLayout={workstationLayout}
+          isProject3D={isProject3D}
         />
       ),
       isComplete: isStep1Complete,
@@ -444,34 +457,37 @@ export function ModuleForm() {
         ? '配置完成！点击"保存完成"保存所有设置' 
         : '请至少选择一个输出动作',
     },
-  ], [form, setForm, cameras, lenses, lights, controllers, workstationLayout, isStep1Complete, isStep2Complete, isStep3Complete, isStep4Complete]);
+  ], [form, setForm, cameras, lenses, lights, controllers, workstationLayout, isProject3D, isStep1Complete, isStep2Complete, isStep3Complete, isStep4Complete]);
 
   if (!module) return null;
 
   const handleSave = async () => {
     try {
       setSaving(true);
+      const formForSave = (isProject3D || form.is3DCamera)
+        ? strip3DOpticsFromForm(form)
+        : form;
       
       const configs: any = {};
       
       // Common parameters (stored in all configs)
       const commonParams = {
-        detectionObject: form.detectionObject || null,
-        judgmentStrategy: form.judgmentStrategy,
-        outputAction: form.outputAction,
-        communicationMethod: form.communicationMethod || null,
-        signalDefinition: form.signalDefinition || null,
-        dataRetentionDays: form.dataRetentionDays ? parseInt(form.dataRetentionDays) : null,
+        detectionObject: formForSave.detectionObject || null,
+        judgmentStrategy: formForSave.judgmentStrategy,
+        outputAction: formForSave.outputAction,
+        communicationMethod: formForSave.communicationMethod || null,
+        signalDefinition: formForSave.signalDefinition || null,
+        dataRetentionDays: formForSave.dataRetentionDays ? parseInt(formForSave.dataRetentionDays) : null,
       };
 
-      const normalizedLightItems = normalizeModuleLightItems(form.lightItems, {
-        selectedLight: form.selectedLight,
-        lightMode: form.lightMode,
-        lightAngle: form.lightAngle,
-        lightDistance: form.lightDistance,
-        lightDistanceHorizontal: form.lightDistanceHorizontal,
-        lightDistanceVertical: form.lightDistanceVertical,
-        lightNote: form.lightNote,
+      const normalizedLightItems = normalizeModuleLightItems(formForSave.lightItems, {
+        selectedLight: formForSave.selectedLight,
+        lightMode: formForSave.lightMode,
+        lightAngle: formForSave.lightAngle,
+        lightDistance: formForSave.lightDistance,
+        lightDistanceHorizontal: formForSave.lightDistanceHorizontal,
+        lightDistanceVertical: formForSave.lightDistanceVertical,
+        lightNote: formForSave.lightNote,
       }).map(item => ({
         ...item,
         selectedLight: normalizeModuleHardwareSelection(item.selectedLight, workstationLayout, 'light'),
@@ -480,14 +496,16 @@ export function ModuleForm() {
       
       // Imaging parameters (stored in all configs)
       const imagingParams = {
-        distanceUnit: form.distanceUnit || 'mm',
-        is3DCamera: Boolean(form.is3DCamera),
-        workingDistance: form.workingDistance || null,
-        fieldOfView: form.fieldOfViewCommon || form.fieldOfView || null,
-        resolutionPerPixel: form.resolutionPerPixel || null,
-        exposure: form.exposure || null,
-        gain: form.gain ? parseFloat(form.gain) : null,
-        triggerDelay: form.triggerDelay ? parseFloat(form.triggerDelay) : null,
+        distanceUnit: formForSave.distanceUnit || 'mm',
+        is3DCamera: Boolean(formForSave.is3DCamera),
+        workingDistance: formForSave.workingDistance || null,
+        fieldOfViewWidth: formForSave.fieldOfViewWidth || null,
+        fieldOfViewHeight: formForSave.fieldOfViewHeight || null,
+        fieldOfView: formForSave.fieldOfViewCommon || formForSave.fieldOfView || null,
+        resolutionPerPixel: formForSave.resolutionPerPixel || null,
+        exposure: formForSave.exposure || null,
+        gain: formForSave.gain ? parseFloat(formForSave.gain) : null,
+        triggerDelay: formForSave.triggerDelay ? parseFloat(formForSave.triggerDelay) : null,
         lightItems: normalizedLightItems,
         lightMode: firstLightItem?.lightMode || null,
         lightAngle: firstLightItem?.lightAngle || null,
@@ -495,10 +513,10 @@ export function ModuleForm() {
         lightDistance: firstLightItem?.lightDistance || null,
         lightDistanceHorizontal: firstLightItem?.lightDistanceHorizontal || null,
         lightDistanceVertical: firstLightItem?.lightDistanceVertical || null,
-        lensAperture: form.lensAperture || null,
-        depthOfField: form.depthOfField || null,
-        workingDistanceTolerance: form.workingDistanceTolerance || null,
-        cameraInstallNote: form.cameraInstallNote || null,
+        lensAperture: formForSave.lensAperture || null,
+        depthOfField: formForSave.depthOfField || null,
+        workingDistanceTolerance: formForSave.workingDistanceTolerance || null,
+        cameraInstallNote: formForSave.cameraInstallNote || null,
         lightNote: firstLightItem?.lightNote || null,
       };
       
@@ -610,12 +628,12 @@ export function ModuleForm() {
         };
       }
 
-      const selectedCamera = normalizeModuleHardwareSelection(form.selectedCamera, workstationLayout, 'camera');
-      const selectedLens = normalizeModuleHardwareSelection(form.selectedLens, workstationLayout, 'lens');
+      const selectedCamera = normalizeModuleHardwareSelection(formForSave.selectedCamera, workstationLayout, 'camera');
+      const selectedLens = formForSave.is3DCamera ? '' : normalizeModuleHardwareSelection(formForSave.selectedLens, workstationLayout, 'lens');
       const selectedLight = firstLightItem?.selectedLight || '';
-      const selectedController = normalizeModuleHardwareSelection(form.selectedController, workstationLayout, 'controller');
+      const selectedController = normalizeModuleHardwareSelection(formForSave.selectedController, workstationLayout, 'controller');
       const savedForm = {
-        ...form,
+        ...formForSave,
         selectedCamera,
         selectedLens,
         selectedLight,
@@ -631,15 +649,15 @@ export function ModuleForm() {
       };
 
       await updateModule(module.id, {
-        name: form.name,
-        description: form.description || null,
-        type: form.type,
-        trigger_type: form.triggerType as TriggerType,
+        name: formForSave.name,
+        description: formForSave.description || null,
+        type: formForSave.type,
+        trigger_type: formForSave.triggerType as TriggerType,
         selected_camera: selectedCamera || null,
         selected_lens: selectedLens || null,
         selected_light: selectedLight || null,
         selected_controller: selectedController || null,
-        processing_time_limit: parseFloat(form.processingTimeLimit) || null,
+        processing_time_limit: parseFloat(formForSave.processingTimeLimit) || null,
         ...configs,
         status: 'incomplete',
       });

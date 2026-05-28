@@ -126,6 +126,18 @@ interface ModuleData {
   measurement_config?: Record<string, unknown> | null;
 }
 
+function isModule3DCameraForOutput(module: ModuleData, projectUses3D: boolean): boolean {
+  if (projectUses3D) return true;
+  const config = module.defect_config
+    || module.positioning_config
+    || module.measurement_config
+    || module.ocr_config
+    || module.deep_learning_config;
+  const imaging = config?.imaging as Record<string, unknown> | undefined;
+  const value = imaging?.is3DCamera;
+  return value === true || String(value || '').toLowerCase() === 'true';
+}
+
 interface HardwareData {
   cameras: Array<{
     id: string;
@@ -840,6 +852,7 @@ export async function generatePPTX(
   const pptx = new pptxgen();
   const isZh = options.language === 'zh';
   const isDraft = options.mode === 'draft';
+  const projectUses3D = Boolean((project as any).use_3d);
 
   // Use hardcoded corporate colors directly
   const activeColors = { ...COLORS };
@@ -1194,31 +1207,34 @@ export async function generatePPTX(
         height: wsLayout.height,
         depth: wsLayout.depth,
         selected_cameras: wsLayout.selected_cameras,
-        selected_lenses: wsLayout.selected_lenses,
-        selected_lights: wsLayout.selected_lights,
+        selected_lenses: projectUses3D ? [] : wsLayout.selected_lenses,
+        selected_lights: projectUses3D ? [] : wsLayout.selected_lights,
         selected_controller: wsLayout.selected_controller,
       } : null,
-      modules: wsModules.map(m => ({
-        id: m.id,
-        name: m.name,
-        type: m.type,
-        description: m.description,
-        trigger_type: m.trigger_type,
-        processing_time_limit: m.processing_time_limit,
-        selected_camera: m.selected_camera,
-        selected_lens: m.selected_lens,
-        selected_light: m.selected_light,
-        selected_controller: m.selected_controller,
-        schematic_image_url: m.schematic_image_url,
-        positioning_config: m.positioning_config,
-        defect_config: m.defect_config,
-        measurement_config: m.measurement_config,
-        ocr_config: m.ocr_config,
-        deep_learning_config: m.deep_learning_config,
-        output_types: m.output_types,
-        roi_strategy: m.roi_strategy,
-        lighting_photos: (m as any).lighting_photos || [],
-      })),
+      modules: wsModules.map(m => {
+        const moduleUses3D = isModule3DCameraForOutput(m, projectUses3D);
+        return {
+          id: m.id,
+          name: m.name,
+          type: m.type,
+          description: m.description,
+          trigger_type: m.trigger_type,
+          processing_time_limit: m.processing_time_limit,
+          selected_camera: m.selected_camera,
+          selected_lens: moduleUses3D ? null : m.selected_lens,
+          selected_light: moduleUses3D ? null : m.selected_light,
+          selected_controller: m.selected_controller,
+          schematic_image_url: m.schematic_image_url,
+          positioning_config: m.positioning_config,
+          defect_config: m.defect_config,
+          measurement_config: m.measurement_config,
+          ocr_config: m.ocr_config,
+          deep_learning_config: m.deep_learning_config,
+          output_types: m.output_types,
+          roi_strategy: m.roi_strategy,
+          lighting_photos: (m as any).lighting_photos || [],
+        };
+      }),
       annotations: wsAnnotations.map(a => ({
         snapshot_url: a.snapshot_url,
         annotations_json: a.annotations_json,
