@@ -399,7 +399,7 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                     {calculationResult.fovFromSensor.width}×{calculationResult.fovFromSensor.height}
                   </code>
                   {calculationResult.sensorSourceLabel && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary">
+                    <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary whitespace-nowrap shrink-0">
                       {calculationResult.sensorSourceLabel}
                     </span>
                   )}
@@ -613,12 +613,13 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">像素冗余策略</Label>
               <EditableSelect
-                value={form.redundancyStrategy || 'standard'}
+                value={form.redundancyStrategy}
                 onValueChange={v => setForm(p => ({ ...p, redundancyStrategy: v }))}
                 options={redundancyStrategyOptions}
                 placeholder="选择策略"
                 customLabel="自定义像素数..."
-                inputPlaceholder="例如: 7 或 7px"
+                inputPlaceholder="输入自定义像素数，例如 7 或 7px"
+                inputHint="自定义可填 7 或 7px"
               />
             </div>
           </div>

@@ -17,6 +17,7 @@ export interface EditableSelectProps {
   customLabel?: string;
   className?: string;
   inputPlaceholder?: string;
+  inputHint?: React.ReactNode;
   disabled?: boolean;
 }
 
@@ -33,6 +34,7 @@ export function EditableSelect({
   customLabel = '自定义...',
   className,
   inputPlaceholder = '请输入自定义内容',
+  inputHint,
   disabled,
 }: EditableSelectProps) {
   const normalizedOptions = React.useMemo(() => options.map((option) => (
@@ -50,15 +52,27 @@ export function EditableSelect({
 
   if (manualMode) {
     return (
-      <div className={cn('flex items-center gap-1', className)}>
-        <Input
-          value={value}
-          onChange={(e) => onValueChange(e.target.value)}
-          placeholder={inputPlaceholder}
-          className="h-9 flex-1"
-          disabled={disabled}
-          autoFocus={!isCustomValue}
-        />
+      <div className={cn('flex items-start gap-1', className)}>
+        <div className="min-w-0 flex-1 space-y-1">
+          <Input
+            value={value}
+            onChange={(e) => onValueChange(e.target.value)}
+            placeholder={inputPlaceholder}
+            className="h-9"
+            disabled={disabled}
+            autoFocus={!isCustomValue}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            aria-autocomplete="none"
+          />
+          {inputHint && (
+            <p className="px-1 text-[11px] leading-4 text-muted-foreground">
+              {inputHint}
+            </p>
+          )}
+        </div>
         <Button
           type="button"
           variant="ghost"
