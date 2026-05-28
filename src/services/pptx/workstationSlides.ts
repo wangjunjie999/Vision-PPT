@@ -1868,3 +1868,194 @@ export async function generateLightingPhotosSlide(
     }
   }
 }
+
+// ============ 3D Optical Slide ============
+
+function extractThreeDConfig(mod: WorkstationSlideData['modules'][number]): Record<string, unknown> | null {
+  const cfgs = [
+    mod.measurement_config,
+    mod.defect_config,
+    mod.positioning_config,
+    mod.ocr_config,
+    mod.deep_learning_config,
+  ] as Array<Record<string, unknown> | null | undefined>;
+  for (const c of cfgs) {
+    if (c && typeof c === 'object' && c.three_d && typeof c.three_d === 'object') {
+      return c.three_d as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+function isImaging3D(mod: WorkstationSlideData['modules'][number]): boolean {
+  const cfgs = [
+    mod.measurement_config,
+    mod.defect_config,
+    mod.positioning_config,
+    mod.ocr_config,
+    mod.deep_learning_config,
+  ] as Array<Record<string, unknown> | null | undefined>;
+  for (const c of cfgs) {
+    const imaging = c && typeof c === 'object' ? (c.imaging as Record<string, unknown> | undefined) : undefined;
+    if (imaging && (imaging.is3DCamera === true || String(imaging.is3DCamera) === 'true')) return true;
+  }
+  return false;
+}
+
+const PLACEHOLDER = '待维护';
+const v = (s: string | null): string => s && s.trim() ? s : PLACEHOLDER;
+
+/**
+ * 3D 相机光学方案 Slide
+ * 左：光学方案（3D 相机示意 + 关键参数标注）
+ * 右：测量方法（编号参数 + 测量步骤）
+ */
+export async function generateModule3DOpticalSlide(
+  ctx: SlideContext,
+  data: WorkstationSlideData,
+  moduleIndex: number,
+  info: ThreeDDisplayInfo
+): Promise<void> {
+  const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+  const mod = data.modules[moduleIndex];
+  if (!mod) return;
+
+  const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
+  addSlideTitle(slide, ctx, `${typeLabel} - ${mod.name}`);
+
+  // ===== Two column header bars =====
+  const leftX = 0.4, leftW = 4.6;
+  const rightX = 5.2, rightW = 4.4;
+  const headerY = 1.05;
+
+  const drawHeader = (x: number, w: number, text: string) => {
+    slide.addShape('rect', {
+      x, y: headerY, w, h: 0.32,
+      fill: { color: COLORS.primary }, line: { color: COLORS.primary, width: 0 },
+    });
+    slide.addText(text, {
+      x, y: headerY, w, h: 0.32,
+      fontSize: 12, bold: true, fontFace: FONTS.body, color: COLORS.white,
+      align: 'center', valign: 'middle',
+    });
+  };
+  drawHeader(leftX, leftW, ctx.isZh ? '光学方案' : 'Optical Solution');
+  drawHeader(rightX, rightW, ctx.isZh ? '测量方法' : 'Measurement Method');
+
+  // ===== LEFT: 3D camera diagram =====
+  const diagBaseY = headerY + 0.55;
+  const cameraX = leftX + 0.6;
+  const cameraY = diagBaseY;
+  const cameraW = 1.4;
+  const cameraH = 0.6;
+
+  // Camera box (laser scanner)
+  slide.addShape('rect', {
+    x: cameraX, y: cameraY, w: cameraW, h: cameraH,
+    fill: { color: '8B95A1' }, line: { color: COLORS.dark, width: 0.5 },
+  });
+  slide.addText(ctx.isZh ? '激光飞扫' : 'Laser Scan', {
+    x: cameraX, y: cameraY, w: cameraW, h: cameraH,
+    fontSize: 10, fontFace: FONTS.body, color: COLORS.white, align: 'center', valign: 'middle',
+  });
+
+  // Scan cone (triangle) - product is below
+  const coneTopX = cameraX + cameraW / 2;
+  const coneTopY = cameraY + cameraH;
+  const productY = diagBaseY + 2.4;
+  const productW = 1.6;
+  const productX = coneTopX - productW / 2;
+  const productH = 0.25;
+
+  // Use a filled isoceles triangle approximated by a custom shape (use 'triangle' pointing down)
+  slide.addShape('triangle', {
+    x: productX, y: coneTopY, w: productW, h: productY - coneTopY,
+    fill: { color: 'C8B8DC', transparency: 30 },
+    line: { color: '9B7CB9', width: 0.5 },
+    flipV: true,
+  });
+
+  // Product
+  slide.addShape('rect', {
+    x: productX - 0.2, y: productY, w: productW + 0.4, h: productH,
+    fill: { color: '8B95A1' }, line: { color: COLORS.dark, width: 0.5 },
+  });
+  slide.addText(ctx.isZh ? '产品' : 'Product', {
+    x: productX - 0.2, y: productY, w: productW + 0.4, h: productH,
+    fontSize: 9, fontFace: FONTS.body, color: COLORS.white, align: 'center', valign: 'middle',
+  });
+
+  // Z range label on the left (basenum ± range)
+  const refTxt = info.referenceDistance || PLACEHOLDER;
+  const zTxt = info.zRange || PLACEHOLDER;
+  slide.addText(`${refTxt}\n${zTxt}`, {
+    x: leftX + 0.05, y: coneTopY + 0.2, w: 0.55, h: 0.6,
+    fontSize: 9, fontFace: FONTS.body, color: COLORS.primary, align: 'center', valign: 'middle',
+    fill: { color: COLORS.white }, line: { color: COLORS.primary, width: 0.5 },
+  });
+
+  // Right-side labels (model / scanLineWidth / dataPoints)
+  const labelsX = cameraX + cameraW + 0.35;
+  const labelsW = leftX + leftW - labelsX - 0.1;
+  slide.addText(
+    [
+      `${ctx.isZh ? '型号' : 'Model'}：${v(info.model)}`,
+      `${ctx.isZh ? '线宽' : 'Scan Width'}：${v(info.scanLineWidth)}`,
+      `${ctx.isZh ? 'XY 数据点' : 'XY Data Points'}：${v(info.dataPoints)}`,
+    ].join('\n'),
+    {
+      x: labelsX, y: cameraY - 0.1, w: labelsW, h: 1.1,
+      fontSize: 10, fontFace: FONTS.body, color: COLORS.dark, lineSpacingMultiple: 1.6,
+    }
+  );
+
+  // Optional: 产品大面 label
+  slide.addText(ctx.isZh ? '产品大面' : 'Product Face', {
+    x: labelsX, y: productY - 0.15, w: labelsW, h: 0.25,
+    fontSize: 9, fontFace: FONTS.body, color: COLORS.secondary,
+  });
+
+  // ===== RIGHT: Measurement method =====
+  const rY = headerY + 0.5;
+  const methodLines: string[] = [];
+  methodLines.push(`1. ${ctx.isZh ? '检测方式' : 'Detection'}：${v(info.detectionMethod)}`);
+
+  const rangeParts: string[] = [];
+  if (info.referenceDistance) rangeParts.push(`${ctx.isZh ? '基准距离' : 'Ref'}：${info.referenceDistance}${info.mountType ? `（${info.mountType}）` : ''}`);
+  if (info.zRange) rangeParts.push(`FS=${info.zRange}`);
+  if (info.xRange) rangeParts.push(`${ctx.isZh ? 'X 范围' : 'X'}：${info.xRange}`);
+  if (info.yRange) rangeParts.push(`${ctx.isZh ? 'Y 范围' : 'Y'}：${info.yRange}`);
+  methodLines.push(`2. ${rangeParts.length ? rangeParts.join('，') : PLACEHOLDER}`);
+
+  const precisionParts: string[] = [];
+  if (info.xyPrecision) precisionParts.push(`${ctx.isZh ? 'XY 像素精度' : 'XY'}：${info.xyPrecision}`);
+  if (info.zPrecision) precisionParts.push(`${ctx.isZh ? 'Z 线性精度' : 'Z'}：${info.zPrecision}`);
+  methodLines.push(`3. ${precisionParts.length ? precisionParts.join('，') : PLACEHOLDER}`);
+
+  methodLines.push(`4. ${ctx.isZh ? '拍照时间' : 'Scan Time'}：${v(info.scanTime)}`);
+
+  const shotsTxt = info.shotsPerSide && info.shotsPerProduct
+    ? `${info.shotsPerSide} ${ctx.isZh ? '次/面' : 'shots/side'}，${ctx.isZh ? '即' : '='} ${info.shotsPerProduct} ${ctx.isZh ? '次/产品' : 'shots/product'}`
+    : (info.shotsPerSide ? `${info.shotsPerSide} ${ctx.isZh ? '次/面' : 'shots/side'}` : (info.shotsPerProduct ? `${info.shotsPerProduct} ${ctx.isZh ? '次/产品' : 'shots/product'}` : PLACEHOLDER));
+  methodLines.push(`5. ${ctx.isZh ? '拍照次数' : 'Shots'}：${shotsTxt}`);
+
+  slide.addText(methodLines.join('\n'), {
+    x: rightX, y: rY, w: rightW, h: 2.2,
+    fontSize: 10, fontFace: FONTS.body, color: COLORS.dark, lineSpacingMultiple: 1.55,
+  });
+
+  // Steps
+  const stepsY = rY + 2.3;
+  slide.addText(ctx.isZh ? '测量步骤：' : 'Steps:', {
+    x: rightX, y: stepsY, w: rightW, h: 0.25,
+    fontSize: 10, bold: true, fontFace: FONTS.body, color: COLORS.primary,
+  });
+  const steps = info.detectionSteps.length
+    ? info.detectionSteps
+    : [ctx.isZh ? '待维护检测步骤' : 'Steps not configured'];
+  const stepsText = steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
+  slide.addText(stepsText, {
+    x: rightX, y: stepsY + 0.3, w: rightW, h: 2.0,
+    fontSize: 9, fontFace: FONTS.body, color: COLORS.dark, lineSpacingMultiple: 1.4,
+  });
+}
