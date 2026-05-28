@@ -1,73 +1,43 @@
-# 3D 相机检测流程改造（不改数据库）
+## 背景
+光学方案图（`VisionSystemDiagram.tsx`）中：
+- SVG `viewBox="0 0 800 540"`，产品默认 Y=420、最大 Y=430，产品下方仅剩 ~110px 空间且光源高度本身约 32px，导致无法在产品下方有效摆放背光光源（看上去"拖不动"）。
+- 多光源的 `pointermove` / `pointerup` 监听挂在每个光源 `<g>` 上（`src/components/canvas/VisionSystemDiagram.tsx:1147-1152`），快速拖动或脱离光源命中区时事件丢失，加剧"拖不到产品下方"的体感。
+- 现有 `handleDiagramLightPointerMove` 不做任何 Y 轴 clamp（750-767 行），所以问题不在限制，而在**可用画布空间不足 + 事件绑定位置**。
 
-项目里已有 `is3DCamera` 标志（目前只是用来"隐藏 2D 光学字段"），本次升级为独立 3D 检测流程：新增 3D 专属字段、独立卡片、独立方案图、独立导出文本，2D / 3D 内容彻底分离。**所有 3D 参数复用 `function_modules` 现有的 jsonb 配置列存储，不新增数据库字段、不做迁移。**
+## 目标
+让用户可以把光源拖动到产品下方，从而呈现背光（透射）方案；同时不破坏已有的 2D 方案布局、距离标注、PPT 导出。
 
-## 存储策略（关键）
+## 修改范围（仅前端 / 表现层）
+全部改动集中在 `src/components/canvas/VisionSystemDiagram.tsx`：
 
-3D 参数全部塞进现有的 `measurement_config jsonb` 列下的子对象 `three_d`（该列目前仅 measurement 模块使用，对其他模块为空，可作为通用 3D 配置载体）：
+1. **扩大画布纵向空间，给产品下方留出"背光区"**
+   - `viewBox` 由 `0 0 800 540` 改为 `0 0 800 640`（加 100px 高度）。
+   - 右侧标注 `<foreignObject>`（x=500, y=20, width=290, height=500）同步调整为 height=600，避免右侧面板与新区域错位。
+   - `min-h-[500px]` 提升到 `min-h-[560px]`，保持宽高比。
 
-```json
-{
-  "three_d": {
-    "model": "LJ-S080",
-    "detectionMethod": "3D 相机垂直固定",
-    ...
-    "detectionSteps": ["...", "..."]
-  }
-}
-```
+2. **新增"背光区"提示（仅当 interactive 时）**
+   - 在产品下方绘制一条虚线矩形 + 文字「背光区（可放置光源）」，宽度与画布主区一致（x≈40–490），y 从 `productY + 产品高度 + 10` 到 `viewBox` 底部 `-20`。
+   - 颜色用 systematic cartography 现有 amber/cyan token 风格（`hsl(...)`），透明度低，不抢戏。
 
-- 旧数据 `measurement_config` 为 null → 读取时返回空对象，UI 显示"待维护"
-- 不污染 cameras / lenses / lights 表
-- 无 schema 迁移，无类型文件重生成
+3. **修复多光源拖动事件绑定**
+   - 把 `onPointerMove` / `onPointerUp` 从每个光源 `<g>` 上移到根 `<svg>` 元素上（与 `useSvgDrag` 的做法一致）。
+   - `<g>` 上只保留 `onPointerDown`。
+   - 这样即使拖到产品下方或快速移动，事件也不会丢失。
 
-## 改造范围
+4. **取消对光源 Y 的隐性限制**
+   - 当前没有显式 clamp，但确认 `handleDiagramLightPointerMove` 不要加范围限制；只在写回时做软边界（`y` 范围 `[10, viewBoxHeight-20]`、`x` 范围 `[10, 490]`），防止拖出画布或跑到右侧面板下面。
 
-### 1. 类型与表单状态
-- `ModuleFormState` (`src/components/forms/module/types.ts`) 新增字段（全部字符串/布尔，便于表单兼容）：
-  - 型号 / 检测方式 / 安装方式
-  - 基准距离 / Z 量程 / X 范围 / Y 范围
-  - XY 像素精度 / Z 线性精度 / 扫描线宽 / 数据点数量
-  - 拍照时间 / 单面次数 / 单产品次数
-  - 是否翻面 / 是否需要机械手 / 是否需要治具
-  - `threeDDetectionSteps: string[]`
-- 加载模块时：从 `measurement_config.three_d` 反序列化到 form
-- 保存模块时：将上述字段打包到 `measurement_config.three_d`
-
-### 2. 检测模式开关
-- `ModuleStep1Basic.tsx`：已有 `is3DCamera`，UI 改为更明显的"检测模式：2D 视觉检测 / 3D 视觉检测"二选一开关
-- 切到 3D 时调用 `strip3DOpticsFromForm` 清空 2D 光学字段；切回 2D 时清空 3D 字段
-
-### 3. 模块表单 UI
-- 新增 `src/components/forms/module/ThreeDCameraForm.tsx` 统一管理上述字段，提供默认 9 步检测步骤模板（可增删改）
-- `ModuleStep3Imaging.tsx`：`is3DCamera === true` 时不渲染 2D 光学计算区，改为渲染 ThreeDCameraForm + 3D 卡片预览
-- `ModuleHardwareSelection.tsx`：3D 模式下隐藏镜头/光源选择
-
-### 4. 光学方案图与卡片（`src/components/canvas/VisionSystemDiagram.tsx`）
-新增 `is3DCamera` 分支：
-- **工业 3D 相机** 卡片：型号 · 线宽 / XY 数据点 / 基准距离 · Z 量程 / X 范围 · Y 范围 / XY 精度 · Z 精度
-- **3D 测量参数** 卡片：替代原视场参数卡片，按需求格式输出
-- 左侧 SVG 示意图改绘 3D 场景：3D 相机外形、激光扫描扇形/锥形、产品检测面、基准距离/Z 范围/X/Y 范围标注、机械手翻转示意；不再显示 2D 镜头视锥、焦距、靶面、视角
-- 缺失字段统一显示"待维护"或隐藏，绝不输出 NaN/undefined/null
-
-### 5. 导出与预览
-- `src/services/reportDataBuilder.ts`：按 `is3DCamera` 输出不同 module 段（imaging vs threeD）
-- `src/services/pptxGenerator.ts` + `src/services/pptx/slideLabels.ts`：3D 模式生成"3D 检测方案"幻灯片，2D 字段不出现
-- `src/services/docxGenerator.ts` / `pdfGenerator.ts`：同步分两套段落
-- 复制卡片文案 / `BatchImageSaveButton`：分别走 2D / 3D 文本生成器
-
-### 6. 校验
-- `moduleVisionChecklist.ts` / `pptReadiness.ts`：3D 模式不再校验镜头/视场，改为校验 3D 必填项（型号、基准距离、Z 量程、X/Y 范围）
-
-## 技术细节
-
-- 收敛在 helper `getThreeDInfo(form|module)` 里：负责"读取 + 兜底文本 + 隐藏判断"，UI / 导出共用
-- 默认 9 步检测步骤以常量数组提供，用户首次切到 3D 时预填
-- SVG 3D 场景作为 `renderThreeDScene()` 独立函数，与现有 2D 渲染互斥
+5. **距离标注兼容**
+   - `legacyDiagramLightDistanceMM` 使用 `Math.abs(productY - lightPos.y)`，本身已支持光源在产品上方或下方，无需改动。
+   - 仅校验：当 `light.y > productY` 时，标签位置（文字 / 引线）应仍可读，必要时把光源标签 `text` 的 Y 偏移由 `position.y - 10` 改成根据相对产品位置动态切换（在产品上方 → 标签在光源上方；在产品下方 → 标签在光源下方）。
 
 ## 不在范围内
+- 数据库 schema、表单字段、PPT 测量方法页文案 —— 都不动。
+- 2D 计算公式（视场角、工作距离、像素精度）—— 不动。
+- 3D 相机分支（`is3DCamera`）—— 不动。
 
-- 真实 3D 点云/高度图渲染（仍是示意图）
-- 3D 相机硬件库 CRUD
-- 多 3D 相机协同检测编排
-- 任何数据库迁移
+## 验收
+- 多光源模式下可以把任意 LIGHT 拖到产品下方，距离标注随之刷新（显示正数 mm）。
+- 单光源模式不变（仍使用 `useSvgDrag` + `RotationHandle`）。
+- 右侧硬件信息面板布局不错位。
+- PPT 导出/卡片预览（同一组件 `interactive=false` 分支）渲染正常，新增的"背光区"提示仅在 `interactive=true` 时显示。
