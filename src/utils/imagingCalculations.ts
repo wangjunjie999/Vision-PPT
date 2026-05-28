@@ -758,6 +758,12 @@ export interface ImagingCalculationInput {
   fovReconciliationMode?: FOVReconciliationMode;
   targetAccuracy?: number;
   sensorSize?: string;
+  /** 像元尺寸 μm（优先于 sensor_size 映射估算） */
+  pixelSizeUm?: number;
+  /** 手填靶面宽度 mm（最高优先级） */
+  sensorWidthMm?: number;
+  /** 手填靶面高度 mm（最高优先级） */
+  sensorHeightMm?: number;
   focalLength?: number;
   workingDistanceInput?: number;
   fNumber?: number;
@@ -786,16 +792,37 @@ export interface ImagingCalculationResult {
   lensCameraMatch: LensCameraMatchResult | null;
   sensorCheck: SensorCompatibilityResult | null;
   precisionAnalysis: PrecisionAnalysisResult | null;
+  /** 实际用于 FOV/WD 计算的靶面尺寸及来源 */
+  resolvedSensor: ResolvedSensorDimensions | null;
+  /** 同 resolvedSensor.source，便于 UI 简单分支 */
+  sensorSource: SensorDimensionSource | null;
+  /** 同 resolvedSensor.sourceLabel */
+  sensorSourceLabel: string | null;
 }
 
 export function calculateImagingParams(input: ImagingCalculationInput): ImagingCalculationResult {
   const cameraParsed = parseResolution(input.cameraResolution || '');
   const fovParsed = parseFOV(input.fov || '');
 
+  const sensorOverride: SensorOverride = {
+    pixelSizeUm: input.pixelSizeUm,
+    sensorWidthMm: input.sensorWidthMm,
+    sensorHeightMm: input.sensorHeightMm,
+    resolution: cameraParsed,
+  };
+  const resolvedSensor = input.sensorSize || input.pixelSizeUm || input.sensorWidthMm || input.sensorHeightMm
+    ? resolveSensorDimensions(input.sensorSize, sensorOverride)
+    : null;
+
   // 靶面反推 FOV（需要在 reconcile 之前计算）
   let fovFromSensor: { width: number; height: number } | null = null;
-  if (input.sensorSize && input.focalLength && input.workingDistanceInput) {
-    fovFromSensor = calculateFOVFromSensor(input.sensorSize, input.focalLength, input.workingDistanceInput, cameraParsed);
+  if (resolvedSensor && input.focalLength && input.workingDistanceInput) {
+    const fovCalc = calculateFOVFromSensor(input.sensorSize || '', input.focalLength, input.workingDistanceInput, cameraParsed, {
+      pixelSizeUm: input.pixelSizeUm,
+      sensorWidthMm: input.sensorWidthMm,
+      sensorHeightMm: input.sensorHeightMm,
+    });
+    fovFromSensor = fovCalc ? { width: fovCalc.width, height: fovCalc.height } : null;
   }
 
   // FOV 靶面联动修正：用户输入 < 靶面推算 → 向上修正
@@ -834,20 +861,20 @@ export function calculateImagingParams(input: ImagingCalculationInput): ImagingC
   
   // 用修正后的 FOV 计算工作距离
   let workingDistance: number | null = null;
-  if (input.sensorSize && input.focalLength && fovEffective) {
-    workingDistance = calculateWorkingDistance(input.sensorSize, input.focalLength, fovEffective.width);
+  if (resolvedSensor && input.focalLength && fovEffective) {
+    workingDistance = calculateWorkingDistance(input.sensorSize || '', input.focalLength, fovEffective.width, sensorOverride);
   }
   
   // 用修正后的 FOV 计算倍率
   let magnification: number | null = null;
-  if (input.sensorSize && fovEffective) {
-    magnification = calculateMagnification(input.sensorSize, fovEffective.width);
+  if (resolvedSensor && fovEffective) {
+    magnification = calculateMagnification(input.sensorSize || '', fovEffective.width, sensorOverride);
   }
   
   // 推荐焦距
   let recommendedFocalLength: number | null = null;
-  if (input.sensorSize && input.workingDistanceInput && fovEffective) {
-    recommendedFocalLength = recommendFocalLength(input.sensorSize, input.workingDistanceInput, fovEffective.width);
+  if (resolvedSensor && input.workingDistanceInput && fovEffective) {
+    recommendedFocalLength = recommendFocalLength(input.sensorSize || '', input.workingDistanceInput, fovEffective.width, sensorOverride);
   }
   
   // 景深
@@ -866,25 +893,32 @@ export function calculateImagingParams(input: ImagingCalculationInput): ImagingC
 
   // 镜头-相机匹配判断
   let lensCameraMatch: LensCameraMatchResult | null = null;
-  if (input.sensorSize && cameraParsed && input.fNumber) {
+  if (resolvedSensor && cameraParsed && input.fNumber) {
     lensCameraMatch = checkLensCameraMatch({
-      sensorSize: input.sensorSize,
+      sensorSize: input.sensorSize || '',
       cameraResolutionWidth: cameraParsed.width,
       fNumber: input.fNumber,
       lensResolvingPower: input.lensResolvingPower,
+      pixelSizeUm: input.pixelSizeUm,
+      sensorWidthMm: input.sensorWidthMm,
+      sensorHeightMm: input.sensorHeightMm,
     });
   }
 
   // 靶面兼容性与隧道效应校验
   let sensorCheck: SensorCompatibilityResult | null = null;
-  if (input.sensorSize && (input.lensMount || input.lensMaxSensorSize)) {
+  if (resolvedSensor && (input.lensMount || input.lensMaxSensorSize)) {
     sensorCheck = checkSensorCompatibility({
-      sensorSize: input.sensorSize,
+      sensorSize: input.sensorSize || '',
       lensMount: input.lensMount,
       lensMaxSensorSize: input.lensMaxSensorSize,
       fovParsed: fovEffective,
       fovFromSensor,
       magnification,
+      pixelSizeUm: input.pixelSizeUm,
+      sensorWidthMm: input.sensorWidthMm,
+      sensorHeightMm: input.sensorHeightMm,
+      resolution: cameraParsed,
     });
   }
   
@@ -905,5 +939,8 @@ export function calculateImagingParams(input: ImagingCalculationInput): ImagingC
     lensCameraMatch,
     sensorCheck,
     precisionAnalysis,
+    resolvedSensor,
+    sensorSource: resolvedSensor?.source ?? null,
+    sensorSourceLabel: resolvedSensor?.sourceLabel ?? null,
   };
 }
