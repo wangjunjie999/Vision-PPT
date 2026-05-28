@@ -384,7 +384,39 @@ export interface ModuleFormState {
   customParameters: { name: string; value: string; unit: string }[];
   risksAndLimitations: string;
   customAcceptanceCriteria: string;
+
+  // ============ 3D 相机检测专属字段（is3DCamera === true 时启用） ============
+  threeDModel: string;                   // 3D 相机型号，如 "LJ-S080"
+  threeDDetectionMethod: string;         // 检测方式，如 "3D 相机垂直固定"
+  threeDMountType: string;               // 安装方式
+  threeDReferenceDistance: string;       // 基准距离 (mm)
+  threeDZRange: string;                  // Z 量程，如 "FS±23mm"
+  threeDXRange: string;                  // X 测量范围，如 "66–78mm"
+  threeDYRange: string;                  // Y 扫描范围，如 "160mm"
+  threeDXYPrecision: string;             // XY 像素精度 (mm)
+  threeDZPrecision: string;              // Z 线性精度 (mm)
+  threeDScanLineWidth: string;           // 扫描线宽 (mm)
+  threeDDataPoints: string;              // 数据点数量，如 "3200×6400"
+  threeDScanTime: string;                // 拍照/扫描时间，如 "2-3s/次"
+  threeDShotsPerSide: string;            // 单面检测次数
+  threeDShotsPerProduct: string;         // 单产品检测次数
+  threeDNeedFlip: boolean;               // 是否需要翻面
+  threeDNeedRobot: boolean;              // 是否需要机械手
+  threeDNeedFixture: boolean;            // 是否需要治具定位
+  threeDDetectionSteps: string[];        // 检测步骤（可编辑）
 }
+
+export const DEFAULT_THREE_D_DETECTION_STEPS: string[] = [
+  '3D 相机垂直固定在支架上，从下往上或由上往下对产品进行扫描',
+  '机械手抓取产品移动到相机检测区域',
+  '相机完成产品正面检测',
+  '机械手翻转产品',
+  '相机继续完成反面检测',
+  '每个产品正面检测 2 次、反面检测 2 次，共 4 次',
+  '系统生成高度图或点云数据',
+  '系统分析尺寸、轮廓、高度差、凹陷、缺料、多料等特征',
+  '输出 OK/NG 结果，并保存检测图像、点云数据、测量结果和检测报告',
+];
 
 export const getDefaultFormState = (): ModuleFormState => ({
   name: '',
