@@ -1234,7 +1234,14 @@ export function VisionSystemDiagram({
                 </div>
                 {hasCamera ? (
                   <>
-                    <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>{camera.resolution} · 靶面{camera.sensor_size}</p>
+                    <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>
+                      {joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}
+                    </p>
+                    {(cameraSensorInfo.effectiveSensorText || cameraSensorInfo.pixelText) && (
+                      <p style={{ fontSize: '10px', color: '#444444', margin: 0 }}>
+                        {joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText])}
+                      </p>
+                    )}
                     <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</p>
                   </>
                 ) : (
@@ -1251,7 +1258,12 @@ export function VisionSystemDiagram({
                   </div>
                   {hasLens ? (
                     <>
-                      <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>焦距 {lens.focal_length} · 靶面 {lens.max_sensor_size || '-'}</p>
+                      <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>
+                        {joinDotParts([
+                          lens.focal_length ? `焦距 ${lens.focal_length}` : null,
+                          lensSupportedText ?? '支持靶面：待维护',
+                        ])}
+                      </p>
                       <p style={{ fontSize: '10px', color: '#666666', margin: 0 }}>{lens.brand} {lens.model}</p>
                     </>
                   ) : (
