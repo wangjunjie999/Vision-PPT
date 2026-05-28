@@ -760,9 +760,13 @@ export function VisionSystemDiagram({
     const dragging = multiLightDragRef.current;
     if (!dragging || !onDiagramLightItemPositionChange) return;
     const svgPt = toSvgCoords(e.clientX, e.clientY);
+    // Soft bounds: keep light within the drawable area (left panel),
+    // allowing positions both above and below the product.
+    const nextX = Math.max(20, Math.min(485, svgPt.x - dragging.offset.x));
+    const nextY = Math.max(20, Math.min(620, svgPt.y - dragging.offset.y));
     onDiagramLightItemPositionChange(dragging.id, {
-      x: svgPt.x - dragging.offset.x,
-      y: svgPt.y - dragging.offset.y,
+      x: nextX,
+      y: nextY,
     });
   }, [onDiagramLightItemPositionChange, toSvgCoords]);
 
@@ -923,14 +927,16 @@ export function VisionSystemDiagram({
   });
 
   return (
-    <div className={cn("relative w-full h-full min-h-[500px]", className)} style={{ backgroundColor: '#ffffff', contain: 'layout style paint' }}>
+    <div className={cn("relative w-full h-full min-h-[560px]", className)} style={{ backgroundColor: '#ffffff', contain: 'layout style paint' }}>
       <svg 
         ref={svgRef}
-        viewBox="0 0 800 540"
+        viewBox="0 0 800 640"
         className="w-full h-full"
         preserveAspectRatio="xMidYMid meet"
         shapeRendering="geometricPrecision"
         style={{ maxHeight: '100%' }}
+        onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
+        onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
       >
         <defs>
           <linearGradient id="fovGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -970,15 +976,15 @@ export function VisionSystemDiagram({
         </defs>
 
         {/* Border */}
-        <rect x="60" y="20" width="430" height="490" rx="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" strokeDasharray="8,4" opacity="0.5" />
+        <rect x="60" y="20" width="430" height="600" rx="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" strokeDasharray="8,4" opacity="0.5" />
 
         {/* Background grid */}
         <g opacity="0.06">
-          {Array.from({ length: 13 }).map((_, i) => (
+          {Array.from({ length: 16 }).map((_, i) => (
             <line key={`h${i}`} x1="60" y1={20 + i * 40} x2="490" y2={20 + i * 40} stroke="#000000" strokeWidth="0.5" />
           ))}
           {Array.from({ length: 12 }).map((_, i) => (
-            <line key={`v${i}`} x1={60 + i * 40} y1="20" x2={60 + i * 40} y2="510" stroke="#000000" strokeWidth="0.5" />
+            <line key={`v${i}`} x1={60 + i * 40} y1="20" x2={60 + i * 40} y2="620" stroke="#000000" strokeWidth="0.5" />
           ))}
         </g>
 
@@ -1028,6 +1034,34 @@ export function VisionSystemDiagram({
           <circle cx={productCenterX} cy={productY + 15} r="5" fill="hsl(220, 80%, 55%)" />
           <circle cx={productCenterX} cy={productY + 15} r="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1" opacity="0.5" />
         </g>
+
+        {/* ===== Backlight zone hint (below product) ===== */}
+        {interactive && !is3DCamera && (
+          <g pointerEvents="none">
+            <rect
+              x={70}
+              y={productY + 80}
+              width={410}
+              height={Math.max(40, 615 - (productY + 80))}
+              rx="6"
+              fill="hsl(45, 90%, 60%)"
+              fillOpacity="0.05"
+              stroke="hsl(45, 70%, 50%)"
+              strokeWidth="1"
+              strokeDasharray="6,4"
+              opacity="0.55"
+            />
+            <text
+              x={275}
+              y={productY + 100}
+              textAnchor="middle"
+              fill="hsl(35, 60%, 35%)"
+              style={{ fontSize: '10px', fontWeight: 500 }}
+            >
+              背光区（可将光源拖至此处实现背光方案）
+            </text>
+          </g>
+        )}
 
         {/* ===== Working distance dimension line (dynamic, rotation-aware) ===== */}
         <g>
@@ -1142,19 +1176,19 @@ export function VisionSystemDiagram({
               {diagramLightItems.map((item) => {
                 const itemLight = item.light;
                 const rotation = item.rotation ?? 0;
+                const labelAbove = item.position.y <= productY;
+                const labelY = labelAbove ? item.position.y - 10 : item.position.y + 22;
                 return (
                   <g key={item.id}>
                     <g
                       transform={`translate(${item.position.x}, ${item.position.y}) rotate(${rotation}) scale(0.65) translate(-80, -16)`}
                       style={{ cursor: interactive ? 'grab' : 'default' }}
                       onPointerDown={interactive ? (e) => handleDiagramLightPointerDown(item.id, item.position, e) : undefined}
-                      onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
-                      onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
                     >
                       <LightSVGShape hasImage={!!itemLight?.front_view_url} imageUrl={itemLight?.front_view_url} brand={itemLight?.brand} lightType={itemLight?.type} />
                     </g>
                     <circle cx={item.position.x} cy={item.position.y} r="4" fill="hsl(220, 80%, 55%)" opacity="0.9" />
-                    <text x={item.position.x + 10} y={item.position.y - 10} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
+                    <text x={item.position.x + 10} y={labelY} fill="#333333" style={{ fontSize: '9px', fontWeight: 600 }}>
                       {item.label || 'LIGHT'}
                     </text>
                   </g>
@@ -1213,7 +1247,7 @@ export function VisionSystemDiagram({
 
         {/* ===== Right annotation panel ===== */}
         {interactive ? (
-          <foreignObject x="500" y="20" width="290" height="500">
+          <foreignObject x="500" y="20" width="290" height="600">
             <div
               style={{
                 height: '100%',
