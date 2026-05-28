@@ -976,15 +976,15 @@ export function VisionSystemDiagram({
         </defs>
 
         {/* Border */}
-        <rect x="60" y="20" width="430" height="490" rx="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" strokeDasharray="8,4" opacity="0.5" />
+        <rect x="60" y="20" width="430" height="600" rx="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1.5" strokeDasharray="8,4" opacity="0.5" />
 
         {/* Background grid */}
         <g opacity="0.06">
-          {Array.from({ length: 13 }).map((_, i) => (
+          {Array.from({ length: 16 }).map((_, i) => (
             <line key={`h${i}`} x1="60" y1={20 + i * 40} x2="490" y2={20 + i * 40} stroke="#000000" strokeWidth="0.5" />
           ))}
           {Array.from({ length: 12 }).map((_, i) => (
-            <line key={`v${i}`} x1={60 + i * 40} y1="20" x2={60 + i * 40} y2="510" stroke="#000000" strokeWidth="0.5" />
+            <line key={`v${i}`} x1={60 + i * 40} y1="20" x2={60 + i * 40} y2="620" stroke="#000000" strokeWidth="0.5" />
           ))}
         </g>
 
