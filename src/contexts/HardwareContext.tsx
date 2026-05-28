@@ -11,6 +11,9 @@ export interface Camera {
   frame_rate: number;
   interface: string;
   sensor_size: string;
+  pixel_size_um?: number | null;
+  sensor_width_mm?: number | null;
+  sensor_height_mm?: number | null;
   shutter_type?: string | null;
   tags: string[];
   image_url: string | null;
