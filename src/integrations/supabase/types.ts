@@ -143,8 +143,11 @@ export type Database = {
           interface: string
           model: string
           model_3d_url: string | null
+          pixel_size_um: number | null
           resolution: string
+          sensor_height_mm: number | null
           sensor_size: string
+          sensor_width_mm: number | null
           shutter_type: string | null
           tags: string[] | null
           updated_at: string
@@ -160,8 +163,11 @@ export type Database = {
           interface: string
           model: string
           model_3d_url?: string | null
+          pixel_size_um?: number | null
           resolution: string
+          sensor_height_mm?: number | null
           sensor_size: string
+          sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
           updated_at?: string
@@ -177,8 +183,11 @@ export type Database = {
           interface?: string
           model?: string
           model_3d_url?: string | null
+          pixel_size_um?: number | null
           resolution?: string
+          sensor_height_mm?: number | null
           sensor_size?: string
+          sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
           updated_at?: string

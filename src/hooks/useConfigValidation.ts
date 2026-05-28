@@ -99,6 +99,9 @@ export function useConfigValidation(projectId: string | null) {
                 cameraResolutionWidth: parseInt(resParsed[1]),
                 fNumber: fNum,
                 lensResolvingPower: lens.resolving_power ?? undefined,
+                pixelSizeUm: (camera as { pixel_size_um?: number | null }).pixel_size_um ?? undefined,
+                sensorWidthMm: (camera as { sensor_width_mm?: number | null }).sensor_width_mm ?? undefined,
+                sensorHeightMm: (camera as { sensor_height_mm?: number | null }).sensor_height_mm ?? undefined,
               });
               if (match && match.status === 'lens_insufficient') {
                 result.push({
@@ -123,6 +126,9 @@ export function useConfigValidation(projectId: string | null) {
               sensorSize: camera.sensor_size,
               lensMount: lens.mount,
               lensMaxSensorSize: lens.max_sensor_size ?? undefined,
+              pixelSizeUm: (camera as { pixel_size_um?: number | null }).pixel_size_um ?? undefined,
+              sensorWidthMm: (camera as { sensor_width_mm?: number | null }).sensor_width_mm ?? undefined,
+              sensorHeightMm: (camera as { sensor_height_mm?: number | null }).sensor_height_mm ?? undefined,
             });
             for (const item of sensorResult.items) {
               if (item.severity === 'error') {

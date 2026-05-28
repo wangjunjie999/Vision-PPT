@@ -72,6 +72,9 @@ export interface VisionCalcRawInput {
   // —— 光学 ——
   cameraResolution?: string;
   sensorSize?: string;
+  pixelSizeUm?: string | number;
+  sensorWidthMm?: string | number;
+  sensorHeightMm?: string | number;
   focalLengthStr?: string;
   fNumberStr?: string;
   fov?: string;
@@ -136,6 +139,15 @@ export function computeVisionParams(input: VisionCalcRawInput): VisionCalcFullRe
 
   const lensResolvingPower = safeFloat(input.lensResolvingPower);
 
+  const toNum = (v: string | number | undefined): number | undefined => {
+    if (v === undefined || v === null || v === '') return undefined;
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    return isNaN(n) || n <= 0 ? undefined : n;
+  };
+  const pixelSizeUm = toNum(input.pixelSizeUm);
+  const sensorWidthMm = toNum(input.sensorWidthMm);
+  const sensorHeightMm = toNum(input.sensorHeightMm);
+
   const targetFeatureSizeMm = safeFloat(input.targetFeatureSizeMm);
   const customRequiredPixels = safeFloat(input.customRequiredPixels);
   const redundancyStrategy = (['conservative', 'standard', 'high', 'custom'].includes(input.redundancyStrategy || '')
@@ -147,6 +159,9 @@ export function computeVisionParams(input: VisionCalcRawInput): VisionCalcFullRe
     cameraResolution: input.cameraResolution,
     fov: input.fov,
     sensorSize: input.sensorSize,
+    pixelSizeUm,
+    sensorWidthMm,
+    sensorHeightMm,
     focalLength: focalLength ?? undefined,
     workingDistanceInput: workingDistanceMm ?? undefined,
     targetAccuracy: targetAccuracy ?? undefined,
