@@ -398,6 +398,11 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                   <code className="px-1 bg-muted rounded font-mono">
                     {calculationResult.fovFromSensor.width}×{calculationResult.fovFromSensor.height}
                   </code>
+                  {calculationResult.sensorSourceLabel && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary">
+                      {calculationResult.sensorSourceLabel}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
