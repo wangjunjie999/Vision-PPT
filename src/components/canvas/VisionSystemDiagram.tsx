@@ -1035,6 +1035,34 @@ export function VisionSystemDiagram({
           <circle cx={productCenterX} cy={productY + 15} r="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1" opacity="0.5" />
         </g>
 
+        {/* ===== Backlight zone hint (below product) ===== */}
+        {interactive && !is3DCamera && (
+          <g pointerEvents="none">
+            <rect
+              x={70}
+              y={productY + 80}
+              width={410}
+              height={Math.max(40, 615 - (productY + 80))}
+              rx="6"
+              fill="hsl(45, 90%, 60%)"
+              fillOpacity="0.05"
+              stroke="hsl(45, 70%, 50%)"
+              strokeWidth="1"
+              strokeDasharray="6,4"
+              opacity="0.55"
+            />
+            <text
+              x={275}
+              y={productY + 100}
+              textAnchor="middle"
+              fill="hsl(35, 60%, 35%)"
+              style={{ fontSize: '10px', fontWeight: 500 }}
+            >
+              背光区（可将光源拖至此处实现背光方案）
+            </text>
+          </g>
+        )}
+
         {/* ===== Working distance dimension line (dynamic, rotation-aware) ===== */}
         <g>
           <line x1="100" y1={lensExitY} x2="130" y2={lensExitY} stroke="hsl(220, 80%, 55%)" strokeWidth="1" strokeDasharray="3,2" />
