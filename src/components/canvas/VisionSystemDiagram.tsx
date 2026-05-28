@@ -760,9 +760,13 @@ export function VisionSystemDiagram({
     const dragging = multiLightDragRef.current;
     if (!dragging || !onDiagramLightItemPositionChange) return;
     const svgPt = toSvgCoords(e.clientX, e.clientY);
+    // Soft bounds: keep light within the drawable area (left panel),
+    // allowing positions both above and below the product.
+    const nextX = Math.max(20, Math.min(485, svgPt.x - dragging.offset.x));
+    const nextY = Math.max(20, Math.min(620, svgPt.y - dragging.offset.y));
     onDiagramLightItemPositionChange(dragging.id, {
-      x: svgPt.x - dragging.offset.x,
-      y: svgPt.y - dragging.offset.y,
+      x: nextX,
+      y: nextY,
     });
   }, [onDiagramLightItemPositionChange, toSvgCoords]);
 
