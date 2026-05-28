@@ -1,6 +1,11 @@
 /**
  * Imaging Parameter Auto-Calculation Utilities
- * 根据相机分辨率和视野自动计算成像参数
+ * 根据相机分辨率和视野自动计算成像参数。
+ *
+ * 靶面真实尺寸（width/height, mm）的解析优先级（resolveSensorDimensions）：
+ *   1. 用户手填的 sensor_width_mm / sensor_height_mm   → source = 'manual'
+ *   2. 分辨率 × 像元尺寸 (px × μm / 1000)              → source = 'pixel_size'
+ *   3. 传感器规格映射表（旧数据兜底）                  → source = 'sensor_map'
  */
 
 // 常见传感器尺寸对应的实际宽度 (mm)
@@ -36,7 +41,8 @@ const SENSOR_ASPECT: Record<string, number> = {
 };
 
 /**
- * 解析传感器尺寸字符串，返回宽x高 (mm)
+ * 解析传感器规格字符串（如 "1/1.8"、"2/3"），返回宽x高 (mm)。
+ * 仅作为旧数据兜底，不再是 FOV 计算的唯一依据。
  */
 export function parseSensorSize(sensorSize: string): { width: number; height: number } | null {
   if (!sensorSize) return null;
@@ -44,6 +50,85 @@ export function parseSensorSize(sensorSize: string): { width: number; height: nu
   if (!w) return null;
   const ratio = SENSOR_ASPECT[sensorSize] ?? 3 / 4;
   return { width: w, height: w * ratio };
+}
+
+// ===================== 靶面真实尺寸解析（新） =====================
+
+export type SensorDimensionSource = 'manual' | 'pixel_size' | 'sensor_map';
+
+export interface SensorOverride {
+  /** 像元尺寸 μm */
+  pixelSizeUm?: number | null;
+  /** 手填靶面宽度 mm */
+  sensorWidthMm?: number | null;
+  /** 手填靶面高度 mm */
+  sensorHeightMm?: number | null;
+  /** 解析后的相机分辨率（用于像元×分辨率推算 或 修正映射表的宽高比） */
+  resolution?: { width: number; height: number } | null;
+}
+
+export interface ResolvedSensorDimensions {
+  width: number;
+  height: number;
+  source: SensorDimensionSource;
+  /** 中文标签，可直接展示给用户 */
+  sourceLabel: string;
+}
+
+const SOURCE_LABELS: Record<SensorDimensionSource, string> = {
+  manual: '由真实靶面尺寸计算',
+  pixel_size: '由分辨率×像元尺寸计算',
+  sensor_map: '由传感器尺寸映射表估算',
+};
+
+/**
+ * 统一解析靶面真实尺寸。返回 null 表示无任何可用信息。
+ */
+export function resolveSensorDimensions(
+  sensorSize: string | undefined | null,
+  override?: SensorOverride,
+): ResolvedSensorDimensions | null {
+  const wManual = override?.sensorWidthMm;
+  const hManual = override?.sensorHeightMm;
+  const pix = override?.pixelSizeUm;
+  const res = override?.resolution;
+
+  // 1. 完整手填
+  if (wManual && wManual > 0 && hManual && hManual > 0) {
+    return { width: wManual, height: hManual, source: 'manual', sourceLabel: SOURCE_LABELS.manual };
+  }
+
+  // 2. 像元尺寸 × 分辨率
+  if (pix && pix > 0 && res && res.width > 0 && res.height > 0) {
+    return {
+      width: res.width * pix / 1000,
+      height: res.height * pix / 1000,
+      source: 'pixel_size',
+      sourceLabel: SOURCE_LABELS.pixel_size,
+    };
+  }
+
+  // 2b. 仅填了宽（或仅填了高），用分辨率比例补全 —— 仍视为 manual
+  if (wManual && wManual > 0 && res && res.width > 0 && res.height > 0) {
+    return { width: wManual, height: wManual * (res.height / res.width), source: 'manual', sourceLabel: SOURCE_LABELS.manual };
+  }
+  if (hManual && hManual > 0 && res && res.width > 0 && res.height > 0) {
+    return { width: hManual * (res.width / res.height), height: hManual, source: 'manual', sourceLabel: SOURCE_LABELS.manual };
+  }
+
+  // 3. 传感器规格映射表兜底
+  if (sensorSize) {
+    const mapped = parseSensorSize(sensorSize);
+    if (mapped) {
+      if (res && res.width > 0 && res.height > 0) {
+        // 修正高度按真实分辨率比例（避免强制 4:3）
+        return { width: mapped.width, height: mapped.width * (res.height / res.width), source: 'sensor_map', sourceLabel: SOURCE_LABELS.sensor_map };
+      }
+      return { width: mapped.width, height: mapped.height, source: 'sensor_map', sourceLabel: SOURCE_LABELS.sensor_map };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -175,10 +260,12 @@ export function calculateRequiredResolution(
 export function calculateWorkingDistance(
   sensorSize: string,
   focalLength: number,
-  fovWidth: number
+  fovWidth: number,
+  override?: SensorOverride,
 ): number | null {
-  const sensorWidth = SENSOR_WIDTH_MAP[sensorSize];
-  if (!sensorWidth || focalLength <= 0) return null;
+  const dims = resolveSensorDimensions(sensorSize, override);
+  if (!dims || focalLength <= 0) return null;
+  const sensorWidth = dims.width;
   const wd = focalLength * (fovWidth / sensorWidth);
   return Math.round(wd);
 }
@@ -188,11 +275,12 @@ export function calculateWorkingDistance(
  */
 export function calculateMagnification(
   sensorSize: string,
-  fovWidth: number
+  fovWidth: number,
+  override?: SensorOverride,
 ): number | null {
-  const sensor = parseSensorSize(sensorSize);
-  if (!sensor || fovWidth <= 0) return null;
-  return sensor.width / fovWidth;
+  const dims = resolveSensorDimensions(sensorSize, override);
+  if (!dims || fovWidth <= 0) return null;
+  return dims.width / fovWidth;
 }
 
 /**
@@ -202,11 +290,12 @@ export function calculateMagnification(
 export function recommendFocalLength(
   sensorSize: string,
   workingDistance: number,
-  fovWidth: number
+  fovWidth: number,
+  override?: SensorOverride,
 ): number | null {
-  const sensorWidth = SENSOR_WIDTH_MAP[sensorSize];
-  if (!sensorWidth || workingDistance <= 0 || fovWidth <= 0) return null;
-  return Math.round(sensorWidth * workingDistance / fovWidth);
+  const dims = resolveSensorDimensions(sensorSize, override);
+  if (!dims || workingDistance <= 0 || fovWidth <= 0) return null;
+  return Math.round(dims.width * workingDistance / fovWidth);
 }
 
 /**
@@ -217,19 +306,23 @@ export function calculateFOVFromSensor(
   sensorSize: string,
   focalLength: number,
   workingDistance: number,
-  cameraResolution?: string | { width: number; height: number } | null
-): { width: number; height: number } | null {
-  const sensor = parseSensorSize(sensorSize);
-  if (!sensor || focalLength <= 0 || workingDistance <= 0) return null;
+  cameraResolution?: string | { width: number; height: number } | null,
+  override?: Omit<SensorOverride, 'resolution'>,
+): { width: number; height: number; source: SensorDimensionSource; sourceLabel: string } | null {
+  if (focalLength <= 0 || workingDistance <= 0) return null;
   const parsedResolution = typeof cameraResolution === 'string'
     ? parseResolution(cameraResolution)
-    : cameraResolution;
-  const sensorHeight = parsedResolution?.width && parsedResolution?.height
-    ? sensor.width * (parsedResolution.height / parsedResolution.width)
-    : sensor.height;
-  const w = sensor.width * workingDistance / focalLength;
-  const h = sensorHeight * workingDistance / focalLength;
-  return { width: Math.round(w * 100) / 100, height: Math.round(h * 100) / 100 };
+    : cameraResolution ?? null;
+  const dims = resolveSensorDimensions(sensorSize, { ...override, resolution: parsedResolution });
+  if (!dims) return null;
+  const w = dims.width * workingDistance / focalLength;
+  const h = dims.height * workingDistance / focalLength;
+  return {
+    width: Math.round(w * 100) / 100,
+    height: Math.round(h * 100) / 100,
+    source: dims.source,
+    sourceLabel: dims.sourceLabel,
+  };
 }
 
 /**
@@ -278,11 +371,22 @@ export function checkLensCameraMatch(params: {
   cameraResolutionWidth: number;
   fNumber: number;
   lensResolvingPower?: number;
+  pixelSizeUm?: number | null;
+  sensorWidthMm?: number | null;
+  sensorHeightMm?: number | null;
 }): LensCameraMatchResult | null {
-  const sensorWidth = SENSOR_WIDTH_MAP[params.sensorSize];
-  if (!sensorWidth || params.cameraResolutionWidth <= 0 || params.fNumber <= 0) return null;
-
-  const pixelPitch = sensorWidth / params.cameraResolutionWidth;
+  if (params.cameraResolutionWidth <= 0 || params.fNumber <= 0) return null;
+  const dims = resolveSensorDimensions(params.sensorSize, {
+    pixelSizeUm: params.pixelSizeUm,
+    sensorWidthMm: params.sensorWidthMm,
+    sensorHeightMm: params.sensorHeightMm,
+    resolution: { width: params.cameraResolutionWidth, height: params.cameraResolutionWidth }, // height irrelevant here
+  });
+  if (!dims) return null;
+  // 优先使用真实像元尺寸；否则用 sensorWidth/resWidth 推算
+  const pixelPitch = (params.pixelSizeUm && params.pixelSizeUm > 0)
+    ? params.pixelSizeUm / 1000
+    : dims.width / params.cameraResolutionWidth;
   const cameraNyquist = 1 / (2 * pixelPitch);
 
   let lensLpMm: number;
@@ -360,8 +464,8 @@ export const MOUNT_MAX_SENSOR_MAP: Record<string, string> = {
   'S':        '1/3',
 };
 
-function sensorDiagonal(sensorSize: string): number | null {
-  const s = parseSensorSize(sensorSize);
+function sensorDiagonal(sensorSize: string, override?: SensorOverride): number | null {
+  const s = resolveSensorDimensions(sensorSize, override);
   if (!s) return null;
   return Math.sqrt(s.width * s.width + s.height * s.height);
 }
@@ -381,9 +485,18 @@ export function checkSensorCompatibility(params: {
   fovParsed?: { width: number; height: number } | null;
   fovFromSensor?: { width: number; height: number } | null;
   magnification?: number | null;
+  pixelSizeUm?: number | null;
+  sensorWidthMm?: number | null;
+  sensorHeightMm?: number | null;
+  resolution?: { width: number; height: number } | null;
 }): SensorCompatibilityResult {
   const items: SensorCheckItem[] = [];
-  const sensorDiag = sensorDiagonal(params.sensorSize);
+  const sensorDiag = sensorDiagonal(params.sensorSize, {
+    pixelSizeUm: params.pixelSizeUm,
+    sensorWidthMm: params.sensorWidthMm,
+    sensorHeightMm: params.sensorHeightMm,
+    resolution: params.resolution,
+  });
   let lensMaxDiag: number | null = null;
   let estimated = true;
 
