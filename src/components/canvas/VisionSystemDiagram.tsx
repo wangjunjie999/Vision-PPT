@@ -1407,17 +1407,29 @@ export function VisionSystemDiagram({
 
               cards.push(
                 <g key="cam" transform={`translate(${cardX}, ${y})`}>
-                  <rect width={cardW} height={cardH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                  <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📷 工业相机</text>
-                  {hasCamera ? (
-                    <>
-                      <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{camera.resolution} · 靶面{camera.sensor_size}</text>
-                      <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{camera.brand} {camera.model}</text>
-                    </>
-                  ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择相机</text>}
+                  {(() => {
+                    const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
+                    const camH = hasCamera ? (line2 ? 66 : 52) : cardH;
+                    return (
+                      <>
+                        <rect width={cardW} height={camH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                        <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📷 工业相机</text>
+                        {hasCamera ? (
+                          <>
+                            <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}</text>
+                            {line2 && <text x="12" y="45" fill={tc} style={{ fontSize: '10px' }}>{line2}</text>}
+                            <text x="12" y={line2 ? 58 : 45} fill={ts} style={{ fontSize: '10px' }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</text>
+                          </>
+                        ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择相机</text>}
+                      </>
+                    );
+                  })()}
                 </g>
               );
-              y += cardH + cardGap;
+              {
+                const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
+                y += (hasCamera ? (line2 ? 66 : 52) : cardH) + cardGap;
+              }
 
               if (!is3DCamera) {
                 cards.push(
@@ -1426,7 +1438,7 @@ export function VisionSystemDiagram({
                     <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🔭 工业镜头</text>
                     {hasLens ? (
                       <>
-                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>焦距 {lens.focal_length} · 靶面 {lens.max_sensor_size || '-'}</text>
+                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])}</text>
                         <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{lens.brand} {lens.model}</text>
                       </>
                     ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择镜头</text>}
