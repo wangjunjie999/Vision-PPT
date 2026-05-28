@@ -859,6 +859,10 @@ export function VisionSystemDiagram({
       : Math.round(2 * Math.tan(fovRadians) * workingDistanceMM);
   const fovWidthDisplay = formatDistanceLabel(fovWidthMM, distanceUnit);
 
+  // Camera/Lens display info (memo-cheap; computed each render)
+  const cameraSensorInfo = getCameraSensorInfo(camera ?? null);
+  const lensSupportedText = getLensSupportedSensorText(lens ?? null);
+
   const legacyDiagramLightDistanceMM = Math.round(Math.abs(productY - lightDrag.pos.y) * (lightDistance / (productY - 175)));
   const controlledLightDistanceMM =
     typeof lightDistanceMm === 'number' && Number.isFinite(lightDistanceMm) && lightDistanceMm > 0
