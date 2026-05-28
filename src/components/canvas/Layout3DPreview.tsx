@@ -1499,13 +1499,15 @@ function Mechanism3DModel({ obj, selected, dimmed, hasIllegalMount, objects, xra
   let model: React.ReactNode;
   // Prioritize custom GLB model if available
   const modelLoadKey = getIsometricModelLoadKey(obj);
-  if ((obj as any).model3dUrl && modelLoadKey) {
+  const effectiveModelUrl = (obj as any).model3dUrl
+    || (mechType === 'robot_arm' ? '/models/default-robot-arm.glb' : null);
+  if (effectiveModelUrl && modelLoadKey) {
     const fallback = <DefaultMechanismModel w={w} h={h} d={d} selected={selected} xray={xrayMode} />;
     model = (
       <ModelLoadErrorBoundary loadKey={modelLoadKey} fallback={fallback} onError={onModelFailed}>
         <Suspense fallback={fallback}>
           <GLBModelRenderer
-            url={(obj as any).model3dUrl}
+            url={effectiveModelUrl}
             w={w}
             h={h}
             d={d}
@@ -1741,7 +1743,7 @@ function CameraObject({ obj, selected, dimmed }: { obj: LayoutObject; selected: 
     <group>
       {obj.model3dUrl ? (
         <Suspense fallback={<CameraProceduralModel obj={obj} selected={selected} dimmed={dimmed} />}>
-          <GLBModelRenderer url={obj.model3dUrl} w={w} h={h} d={d} />
+          <GLBModelRenderer url={obj.model3dUrl} w={w} h={h} d={d} loadKey={`camera-${obj.id}`} />
         </Suspense>
       ) : (
         <CameraProceduralModel obj={obj} selected={selected} dimmed={dimmed} />
