@@ -1474,17 +1474,22 @@ export function VisionSystemDiagram({
                 y += lh + cardGap;
               }
 
-              cards.push(
-                <g key="fov" transform={`translate(${cardX}, ${y})`}>
-                  <rect width={cardW} height={62} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                  <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
-                  <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
-                  <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}</text>
-                  <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthDisplay}</text>
-                </g>
-              );
-
-              y += 62 + cardGap;
+              {
+                const fovH = cameraSensorInfo.sourceLabel ? 76 : 62;
+                cards.push(
+                  <g key="fov" transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={fovH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
+                    <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
+                    <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}</text>
+                    <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthDisplay}</text>
+                    {cameraSensorInfo.sourceLabel && (
+                      <text x="12" y="70" fill={ts} style={{ fontSize: '10px' }}>计算依据：{cameraSensorInfo.sourceLabel}</text>
+                    )}
+                  </g>
+                );
+                y += fovH + cardGap;
+              }
 
               if (hasController) {
                 cards.push(
