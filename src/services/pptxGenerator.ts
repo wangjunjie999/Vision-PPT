@@ -1075,7 +1075,6 @@ export async function generatePPTX(
     projectNotesOverflowLines,
     PROJECT_NOTES_CONTINUATION_LINES_PER_PAGE,
   );
-  const hasNotesContinuation = projectNotesContinuationChunks.length > 0;
   const projectNotesRowIndex = projectNotes ? projectInfoRows.length : -1;
   if (projectNotes) {
     const inlineNotes = projectNotesInlineLines.join('\n');
@@ -1179,11 +1178,6 @@ export async function generatePPTX(
     return rows.length > 0 ? startIndex + pageRows.length : 0;
   };
 
-  let wsRowIndex = 0;
-  if (!hasNotesContinuation) {
-    wsRowIndex = addWorkstationOverviewTable(descSlide, nextSectionY, wsTableRows, 0);
-  }
-
   projectNotesContinuationChunks.forEach((chunk, pageIndex) => {
     const notesSlide = createProjectContinuationSlide(
       isZh ? '项目说明（续）' : 'Project Description (cont.)',
@@ -1214,12 +1208,14 @@ export async function generatePPTX(
     });
   });
 
-  if (hasNotesContinuation && wsTableRows.length === 0) {
+  let wsRowIndex = 0;
+  const workstationListStartY = SLIDE_LAYOUT.contentTop + 0.18;
+  if (wsTableRows.length === 0) {
     const wsSlide = createProjectContinuationSlide(
       isZh ? '项目说明（续）' : 'Project Description (cont.)',
       isZh ? '工位清单' : 'Workstation List',
     );
-    addWorkstationOverviewTable(wsSlide, SLIDE_LAYOUT.contentTop + 0.45, wsTableRows, 0);
+    addWorkstationOverviewTable(wsSlide, workstationListStartY, wsTableRows, 0);
   }
 
   while (wsRowIndex < wsTableRows.length) {
@@ -1229,7 +1225,7 @@ export async function generatePPTX(
     );
     const nextWsRowIndex = addWorkstationOverviewTable(
       wsSlide,
-      SLIDE_LAYOUT.contentTop + 0.45,
+      workstationListStartY,
       wsTableRows,
       wsRowIndex,
       wsRowIndex > 0 ? (isZh ? '（续）' : ' (cont.)') : '',
@@ -1296,7 +1292,7 @@ export async function generatePPTX(
   const revisionTableHeight = revisionHeaderRowH + revisionRows.length * revisionDataRowH;
   const revisionTableWidth = SLIDE_LAYOUT.contentWidth;
   const revisionTableX = (SLIDE_LAYOUT.width - revisionTableWidth) / 2;
-  const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 2);
+  const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 3);
 
   revisionSlide.addTable([revisionHeader, ...revisionRows], {
     x: revisionTableX,
