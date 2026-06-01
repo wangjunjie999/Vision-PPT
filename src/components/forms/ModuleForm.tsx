@@ -1,4 +1,4 @@
-import { useData } from '@/contexts/DataContext';
+﻿﻿﻿﻿import { useData } from '@/contexts/DataContext';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,9 @@ import { normalizeModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getMinimumDefectSize, normalizeDefectItems } from '@/utils/defectItems';
 import { normalizeDistanceUnit } from '@/utils/distanceUnits';
 import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/moduleLightItems';
-import { needs3DOpticsStrip, strip3DOpticsFromForm } from './module/threeDCamera';
+import { deserializeThreeDConfig, serializeThreeDConfig, strip3DOpticsFromForm } from './module/threeDCamera';
+import { isModule3DCamera, shouldRestoreDraftAs3DCamera } from '@/utils/module3DCamera';
+import { stripCameraTaktTimeUnit } from '@/utils/cameraTaktTime';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -57,7 +59,7 @@ export function ModuleForm() {
   const module = modules.find(m => m.id === selectedModuleId);
   const workstation = module ? workstations.find(w => w.id === module.workstation_id) : null;
   const project = workstation ? projects.find(p => p.id === workstation.project_id) : null;
-  const isProject3D = Boolean(project?.use_3d);
+  const legacyProjectUses3D = Boolean(project?.use_3d);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ModuleFormState>(getDefaultFormState());
   const [currentStep, setCurrentStep] = useState(0);
@@ -151,7 +153,8 @@ export function ModuleForm() {
     const draft = readDraft();
     if (draft) {
       const draftForm = draft.payload.form;
-      const normalizedDraftLightItems = normalizeModuleLightItems((draftForm as any).lightItems, {
+      const draftShouldUse3D = shouldRestoreDraftAs3DCamera(module, draftForm, legacyProjectUses3D);
+      const normalizedDraftLightItems = draftShouldUse3D ? [] : normalizeModuleLightItems((draftForm as any).lightItems, {
         selectedLight: draftForm.selectedLight,
         lightMode: draftForm.lightMode,
         lightAngle: draftForm.lightAngle,
@@ -167,13 +170,14 @@ export function ModuleForm() {
       const restoredForm = {
         ...getDefaultFormState(),
         ...draftForm,
+        is3DCamera: draftShouldUse3D,
         selectedCamera: normalizeModuleHardwareSelection(draftForm.selectedCamera, workstationLayout, 'camera'),
-        selectedLens: draftForm.is3DCamera ? '' : normalizeModuleHardwareSelection(draftForm.selectedLens, workstationLayout, 'lens'),
+        selectedLens: draftShouldUse3D ? '' : normalizeModuleHardwareSelection(draftForm.selectedLens, workstationLayout, 'lens'),
         selectedLight: firstDraftLightItem?.selectedLight || '',
         selectedController: normalizeModuleHardwareSelection(draftForm.selectedController, workstationLayout, 'controller'),
         lightItems: normalizedDraftLightItems,
       };
-      const nextForm = isProject3D ? strip3DOpticsFromForm(restoredForm) : restoredForm;
+      const nextForm = draftShouldUse3D ? strip3DOpticsFromForm(restoredForm) : restoredForm;
       setForm(nextForm);
       setCurrentStep(draft.payload.currentStep || 0);
       baselineSnapshotRef.current = stringifyFormDraft(createModuleDraftPayload(nextForm, draft.payload.currentStep || 0));
@@ -193,14 +197,14 @@ export function ModuleForm() {
       // Get common params and imaging params from any config (they should be the same across types)
       const cfg = defectCfg || posCfg || ocrCfg || dlCfg || measureCfg;
       const commonParams = cfg ? {
-        detectionObject: cfg.detectionObject || '',
         judgmentStrategy: cfg.judgmentStrategy || 'balanced',
         outputAction: cfg.outputAction || [],
         communicationMethod: cfg.communicationMethod || '',
         signalDefinition: cfg.signalDefinition || '',
         dataRetentionDays: cfg.dataRetentionDays?.toString() || '',
+        cameraTaktTime: stripCameraTaktTimeUnit(cfg.cameraTaktTime),
       } : {};
-      const isLoaded3DCamera = isProject3D || Boolean(cfg?.imaging?.is3DCamera);
+      const isLoaded3DCamera = isModule3DCamera(module, legacyProjectUses3D);
       const loadedLightItems = isLoaded3DCamera ? [] : normalizeModuleLightItems(cfg?.imaging?.lightItems, {
         selectedLight: module.selected_light || module.light_id || '',
         lightMode: cfg?.imaging?.lightMode || '',
@@ -244,11 +248,20 @@ export function ModuleForm() {
         cameraInstallNote: cfg.imaging.cameraInstallNote || '',
         lightNote: cfg.imaging.lightNote || '',
       } : {};
+      const legacyThreeD = cfg?.three_d && typeof cfg.three_d === 'object'
+        ? cfg.three_d as Record<string, unknown>
+        : null;
+      const legacyThreeDSteps = Array.isArray(legacyThreeD?.detectionSteps)
+        ? legacyThreeD.detectionSteps.map(step => String(step).trim()).filter(Boolean)
+        : [];
+      const legacyThreeDDescription = legacyThreeDSteps.length > 0
+        ? legacyThreeDSteps.join('\n')
+        : (typeof legacyThreeD?.detectionMethod === 'string' ? legacyThreeD.detectionMethod.trim() : '');
       
       const loadedForm: ModuleFormState = {
         ...getDefaultFormState(),
         name: module.name,
-        description: module.description || '',
+        description: module.description || legacyThreeDDescription || '',
         type: module.type as ModuleFormState['type'],
         triggerType: (module.trigger_type || 'io') as ModuleFormState['triggerType'],
         selectedCamera,
@@ -258,6 +271,7 @@ export function ModuleForm() {
         processingTimeLimit: module.processing_time_limit?.toString() || '200',
         ...commonParams,
         ...imagingParams,
+        ...deserializeThreeDConfig(cfg?.three_d),
         lightItems: loadedLightItems,
         // Load defect config
         ...(defectCfg && {
@@ -346,12 +360,7 @@ export function ModuleForm() {
       setDraftDirty(false);
       setDraftReady(true);
       initializedModuleIdRef.current = module.id;
-  }, [module, readDraft, resetVersion, isProject3D]);
-
-  useEffect(() => {
-    if (!draftReady || !module || !isProject3D) return;
-    setForm(prev => needs3DOpticsStrip(prev) ? strip3DOpticsFromForm(prev) : prev);
-  }, [draftReady, isProject3D, module?.id]);
+  }, [module, readDraft, resetVersion, legacyProjectUses3D]);
 
   useEffect(() => {
     if (!draftReady || !module) return;
@@ -386,10 +395,31 @@ export function ModuleForm() {
     }
   }, [form]);
   
-  const isStep3Complete = useMemo(() => 
-    Boolean(form.workingDistance || form.fieldOfView || form.fieldOfViewCommon),
-    [form.workingDistance, form.fieldOfView, form.fieldOfViewCommon]
-  );
+  const isStep3Complete = useMemo(() => {
+    if (form.is3DCamera) {
+      return Boolean(
+        form.workingDistance
+        || form.workingDistanceTolerance
+        || form.threeDModel
+        || form.threeDReferenceDistance
+        || form.threeDStandardRange
+        || form.threeDScanLineWidth
+        || form.threeDDataPoints,
+      );
+    }
+    return Boolean(form.workingDistance || form.fieldOfView || form.fieldOfViewCommon);
+  }, [
+    form.fieldOfView,
+    form.fieldOfViewCommon,
+    form.is3DCamera,
+    form.workingDistance,
+    form.workingDistanceTolerance,
+    form.threeDDataPoints,
+    form.threeDModel,
+    form.threeDReferenceDistance,
+    form.threeDScanLineWidth,
+    form.threeDStandardRange,
+  ]);
   
   const isStep4Complete = useMemo(() => 
     form.outputAction.length > 0,
@@ -411,7 +441,6 @@ export function ModuleForm() {
           lights={lights}
           controllers={controllers}
           workstationLayout={workstationLayout}
-          isProject3D={isProject3D}
         />
       ),
       isComplete: isStep1Complete,
@@ -445,7 +474,7 @@ export function ModuleForm() {
       id: 'output',
       title: '输出配置',
       shortTitle: '输出',
-      description: '配置输出动作和通讯方式',
+      description: '配置检测步骤、输出动作和通讯方式',
       content: (
         <ModuleStep4Output 
           form={form} 
@@ -457,14 +486,14 @@ export function ModuleForm() {
         ? '配置完成！点击"保存完成"保存所有设置' 
         : '请至少选择一个输出动作',
     },
-  ], [form, setForm, cameras, lenses, lights, controllers, workstationLayout, isProject3D, isStep1Complete, isStep2Complete, isStep3Complete, isStep4Complete]);
+  ], [form, setForm, cameras, lenses, lights, controllers, workstationLayout, isStep1Complete, isStep2Complete, isStep3Complete, isStep4Complete]);
 
   if (!module) return null;
 
   const handleSave = async () => {
     try {
       setSaving(true);
-      const formForSave = (isProject3D || form.is3DCamera)
+      const formForSave = form.is3DCamera
         ? strip3DOpticsFromForm(form)
         : form;
       
@@ -472,12 +501,12 @@ export function ModuleForm() {
       
       // Common parameters (stored in all configs)
       const commonParams = {
-        detectionObject: formForSave.detectionObject || null,
         judgmentStrategy: formForSave.judgmentStrategy,
         outputAction: formForSave.outputAction,
         communicationMethod: formForSave.communicationMethod || null,
         signalDefinition: formForSave.signalDefinition || null,
         dataRetentionDays: formForSave.dataRetentionDays ? parseInt(formForSave.dataRetentionDays) : null,
+        cameraTaktTime: stripCameraTaktTimeUnit(formForSave.cameraTaktTime) || null,
       };
 
       const normalizedLightItems = normalizeModuleLightItems(formForSave.lightItems, {
@@ -519,6 +548,7 @@ export function ModuleForm() {
         cameraInstallNote: formForSave.cameraInstallNote || null,
         lightNote: firstLightItem?.lightNote || null,
       };
+      const threeDConfig = serializeThreeDConfig(formForSave);
       
       if (form.type === 'defect') {
         const defectItems = (form.defectItems.length > 0
@@ -540,6 +570,7 @@ export function ModuleForm() {
         configs.defect_config = {
           ...commonParams,
           imaging: imagingParams,
+          three_d: threeDConfig,
           defectItems,
           defectClasses: defectItems.map(item => item.name),
           minDefectSize,
@@ -560,6 +591,7 @@ export function ModuleForm() {
         configs.positioning_config = {
           ...commonParams,
           imaging: imagingParams,
+          three_d: threeDConfig,
           guidingMode: form.guidingMode,
           guidingMechanism: form.guidingMechanism,
           fieldOfView: form.fieldOfView,
@@ -582,6 +614,7 @@ export function ModuleForm() {
         configs.ocr_config = {
           ...commonParams,
           imaging: imagingParams,
+          three_d: threeDConfig,
           charType: form.charType,
           contentRule: form.contentRule,
           minCharHeight: parseFloat(form.minCharHeight) || 2,
@@ -601,6 +634,7 @@ export function ModuleForm() {
         configs.deep_learning_config = {
           ...commonParams,
           imaging: imagingParams,
+          three_d: threeDConfig,
           taskType: form.dlTaskType,
           targetClasses: form.targetClasses,
           dlRoiWidth: parseFloat(form.dlRoiWidth) || null,
@@ -614,6 +648,7 @@ export function ModuleForm() {
         configs.measurement_config = {
           ...commonParams,
           imaging: imagingParams,
+          three_d: threeDConfig,
           measurementItems: form.measurementItems,
           measurementFieldOfView: form.measurementFieldOfView,
           measurementResolution: form.measurementResolution,

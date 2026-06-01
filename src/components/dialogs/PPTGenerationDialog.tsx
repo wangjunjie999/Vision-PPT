@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useAppStore } from '@/store/useAppStore';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
@@ -350,7 +350,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId) || null;
   const templateHasFile = selectedTemplate?.file_url ? true : false;
 
-  // 图片可访问性预检查
+  // 图片可访问性预检
   const handleImagePreCheck = async () => {
     if (!project) return;
     
@@ -396,7 +396,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       if (result.failed > 0) {
         toast.warning(formatAccessibilityReport(result));
       } else {
-        toast.success(`✅ 所有 ${result.totalChecked} 张图片均可访问`);
+        toast.success(`所有 ${result.totalChecked} 张图片均可访问`);
       }
     } catch (error) {
       console.error('Image pre-check failed:', error);
@@ -491,7 +491,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     const result = await downloadAllToCache(missingItems);
     
     if (result.failed === 0) {
-      toast.success(`✅ 成功缓存 ${result.success} 张图片`);
+      toast.success(`已成功缓存 ${result.success} 张图片`);
     } else {
       toast.warning(`缓存完成: ${result.success} 成功, ${result.failed} 失败`);
     }
@@ -598,7 +598,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         wsToProcess.some(ws => ws.id === l.workstation_id)
       );
 
-      // ===================== 使用统一数据构建器 =====================
+      // ===================== 使用统一数据构建 =====================
       // Build hardware library
       const hardwareLibrary: HardwareLibrary = {
         cameras: cameras.map(c => ({
@@ -691,6 +691,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         sales_responsible: reportData.project.sales_responsible,
         vision_responsible: reportData.project.vision_responsible,
         product_process: reportData.project.product_process,
+        description: reportData.project.description,
         quality_strategy: reportData.project.quality_strategy,
         environment: reportData.project.environment,
         notes: reportData.project.notes,
@@ -720,6 +721,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         observation_target: ws.observation_target,
         motion_description: ws.motion_description,
         risk_notes: ws.risk_notes,
+        notes: ws.notes,
         shot_count: ws.shot_count,
         acceptance_criteria: ws.acceptance_criteria,
         action_script: ws.action_script,
@@ -1059,9 +1061,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       }
       
       // ================================================================
-      // 【上传模板通道】独立路径：仅调用 templateBasedGenerator，
-      // 不与默认企业模板共用 pptxGenerator。任何失败都被本块内部
-      // 的逻辑捕获并以 [上传模板] 前缀记录，避免污染企业模板流程。
+      // 【上传模板通道】独立路径：仅调用 templateBasedGenerator
+      // 不与默认企业模板共用 pptxGenerator。任何失败都被本块内
+      // 的逻辑捕获并以 [上传模板] 前缀记录，避免污染企业模板流程
       // ================================================================
       if (generationMethod === 'template') {
         if (!selectedTemplateId || !selectedTemplate) {
@@ -1139,7 +1141,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           fileUrl: result.fileUrl,
         });
 
-        addLog('success', `[上传模板] 成功生成：${result.fileName || '方案.pptx'}`);
+        addLog('success', `[上传模板] 成功生成 ${result.fileName || '方案.pptx'}`);
         setProgress(100);
         setCurrentStep('[上传模板] 生成完成');
         setStage('complete');
@@ -1156,8 +1158,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       }
 
       // ================================================================
-      // 【默认企业模板通道】独立路径：仅调用 pptxGenerator。
-      // 与上传模板路线完全隔离，互不影响。
+      // 【默认企业模板通道】独立路径：仅调用 pptxGenerator
+      // 与上传模板路线完全隔离，互不影响
       // ================================================================
       {
         addLog('info', '[企业模板] 使用企业 VI 风格生成 PPT...');
@@ -1180,7 +1182,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             setCurrentStep(step);
             
             // 解析详细日志以提取工位和页面信息
-            // 格式: [WORKSTATION:名称:当前/总数] 或 [SLIDE:工位名:页码/总页]
+            // 格式: [WORKSTATION:名称:当前/总数] -> [SLIDE:工位名:页码/总页]
             if (log.includes('[WORKSTATION:')) {
               const match = log.match(/\[WORKSTATION:(.+?):(\d+)\/(\d+)\]/);
               if (match) {
@@ -1265,7 +1267,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       return;
     }
     
-    // 否则使用blob下载（从零生成 或 Word/PDF文档）
+    // 否则使用 blob 下载（从零生成的 PPT/Word/PDF 文档）
     if (!generatedBlobRef.current) return;
     
     const url = URL.createObjectURL(generatedBlobRef.current);
@@ -1325,7 +1327,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                       📄 Word
                       <Badge variant="secondary" className="text-xs">快速</Badge>
                     </div>
-                    <div className="text-xs text-muted-foreground">纯文本+表格</div>
+                    <div className="text-xs text-muted-foreground">纯文档表格</div>
                   </div>
                 </Label>
                 <Label className={cn(
@@ -1477,7 +1479,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         mode === 'final' && !finalReady ? "text-destructive" : "text-warning"
                       )} />
                       <span className="text-sm font-medium">
-                        交付检查 ({missing.length} 项缺失, {warnings.length} 项警告)
+                        交付检查 ({missing.length} 项缺失 / {warnings.length} 项警告)
                       </span>
                     </div>
                     {checkPanelOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1492,7 +1494,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         <div className="flex-1">
                           <p className="text-sm font-medium text-destructive">缺失项（必须补齐）</p>
                           <p className="text-xs text-destructive/70 mt-0.5">
-                            {mode === 'final' ? '交付版需要补齐所有缺失项' : '草案版将使用占位图'}
+                            {mode === 'final' ? '交付版需要补齐所有缺失项' : '草案版将使用占位提示'}
                           </p>
                         </div>
                       </div>
@@ -1508,7 +1510,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                               </div>
                               <ul className="text-xs text-destructive/80 space-y-0.5 ml-6">
                                 {item.missing.map((m, i) => (
-                                  <li key={i}>• {m}</li>
+                                  <li key={i}>- {m}</li>
                                 ))}
                               </ul>
                             </div>
@@ -1631,28 +1633,28 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   <div className="font-medium mb-1">
                     {imageCheckResult.failed > 0 
                       ? `⚠️ ${imageCheckResult.failed}/${imageCheckResult.totalChecked} 张图片无法访问`
-                      : `✅ 所有 ${imageCheckResult.totalChecked} 张图片均可访问`
+                      : `所有 ${imageCheckResult.totalChecked} 张图片均可访问`
                     }
                   </div>
                   {imageCheckResult.failed > 0 && (
                     <div className="text-xs space-y-1 mt-2">
                       {imageCheckResult.failedByType.three_view && (
-                        <div>• 三视图: {imageCheckResult.failedByType.three_view} 张</div>
+                        <div>- 三视图: {imageCheckResult.failedByType.three_view} 张</div>
                       )}
                       {imageCheckResult.failedByType.schematic && (
-                        <div>• 视觉系统示意图: {imageCheckResult.failedByType.schematic} 张</div>
+                        <div>- 视觉系统示意图: {imageCheckResult.failedByType.schematic} 张</div>
                       )}
                       {imageCheckResult.failedByType.hardware && (
-                        <div>• 硬件图片: {imageCheckResult.failedByType.hardware} 张</div>
+                        <div>- 硬件图片: {imageCheckResult.failedByType.hardware} 张</div>
                       )}
                       {imageCheckResult.failedByType.product && (
-                        <div>• 产品图片: {imageCheckResult.failedByType.product} 张</div>
+                        <div>- 产品图片: {imageCheckResult.failedByType.product} 张</div>
                       )}
                       {imageCheckResult.failedByType.annotation && (
-                        <div>• 标注截图: {imageCheckResult.failedByType.annotation} 张</div>
+                        <div>- 标注截图: {imageCheckResult.failedByType.annotation} 张</div>
                       )}
                       <p className="mt-2 text-muted-foreground">
-                        提示: 点击"下载到本地"可将图片缓存到浏览器，确保离线/本地部署时可用。
+                        提示: 点击“下载到本地”可将图片缓存到浏览器，确保离线或本地部署时可用。
                       </p>
                     </div>
                   )}
@@ -1857,7 +1859,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   </div>
                 )}
                 
-                {/* 工位内部进度条 */}
+                {/* 工位内部进度 */}
                 {workstationProgress.total > 0 && (
                   <div className="pl-6">
                     <Progress 
@@ -1937,12 +1939,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                 <div className="flex items-center gap-2 text-sm">
                   <Table className="h-4 w-4 text-chart-3" />
                   <span>参数表:</span>
-                  <span className="font-medium">{generationResult.parameterTables} 个</span>
+                  <span className="font-medium">{generationResult.parameterTables} 张</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <Camera className="h-4 w-4 text-chart-4" />
                   <span>硬件清单:</span>
-                  <span className="font-medium">{generationResult.hardwareList} 份</span>
+                  <span className="font-medium">{generationResult.hardwareList} 张</span>
                 </div>
               </div>
             </div>
@@ -1980,3 +1982,4 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     </>
   );
 }
+

@@ -16,6 +16,7 @@ import {
 } from 'docx';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
+import { formatWorkstationCycleTime, formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
 
 // ==================== DATA INTERFACES ====================
 
@@ -475,7 +476,7 @@ export async function generateDOCX(
       ws.code || '-',
       ws.name,
       WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type,
-      ws.cycle_time?.toString() || '-',
+      formatWorkstationCycleTimePlain(ws),
       dims,
     ];
   });
@@ -492,7 +493,7 @@ export async function generateDOCX(
       new Paragraph({ text: '', spacing: { before: 200 } }),
       createHeading(`2.${idx + 1} ${ws.code || ''} - ${ws.name}`, HeadingLevel.HEADING_2),
       createLabelValue(isZh ? '工作站类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type),
-      createLabelValue(isZh ? '工位节拍' : 'Station Cycle Time', ws.cycle_time ? `${ws.cycle_time}s/pcs` : '-'),
+      createLabelValue(isZh ? '工位节拍' : 'Station Cycle Time', formatWorkstationCycleTime(ws, 's/pcs')),
       createLabelValue(isZh ? '工艺阶段' : 'Process Stage', ws.process_stage || '-'),
       createLabelValue(isZh ? '观测目标' : 'Observation Target', ws.observation_target || '-'),
       createLabelValue(isZh ? '运动描述' : 'Motion Description', ws.motion_description || '-'),
@@ -685,7 +686,7 @@ export async function generateDOCX(
     }
 
     if (mod.description) {
-      sections.push(createLabelValue(isZh ? '描述' : 'Description', mod.description));
+      sections.push(createLabelValue(isZh ? '检测步骤' : 'Detection Steps', mod.description));
     }
 
     // Module schematic image

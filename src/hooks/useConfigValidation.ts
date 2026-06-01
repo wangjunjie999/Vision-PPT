@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useHardware } from '@/contexts/HardwareContext';
 import { quickCycleTimeCheck, checkLensCameraMatch, checkSensorCompatibility, parseFNumber } from '@/utils/visionCalcEngine';
+import { getWorkstationCycleTimeValue, parseWorkstationCycleTimeSeconds } from '@/utils/cycleTimeDisplay';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning' | 'info';
@@ -48,14 +49,16 @@ export function useConfigValidation(projectId: string | null) {
       }
 
       // Check: cycle time (delegates to shared utility)
-      if (ws.cycle_time) {
+      const cycleTimeValue = getWorkstationCycleTimeValue(ws);
+      const cycleTimeSeconds = parseWorkstationCycleTimeSeconds(cycleTimeValue);
+      if (cycleTimeSeconds !== null) {
         const processingTimes = wsModules.map(m => m.processing_time_limit || 0);
-        const ctCheck = quickCycleTimeCheck(Number(ws.cycle_time), processingTimes);
+        const ctCheck = quickCycleTimeCheck(cycleTimeSeconds, processingTimes);
         if (ctCheck.totalMs > 0 && !ctCheck.ok) {
           result.push({
             severity: 'error',
             category: 'timing',
-            message: `工位「${ws.name}」模块处理时间 (${ctCheck.totalMs}ms) 超过工位节拍 (${ws.cycle_time}s/pcs)`,
+            message: `工位「${ws.name}」模块处理时间(${ctCheck.totalMs}ms) 超过工位节拍 (${cycleTimeValue}s/pcs)`,
             workstationId: ws.id,
             fix: '优化模块处理时间或增大工位节拍',
           });
@@ -107,7 +110,7 @@ export function useConfigValidation(projectId: string | null) {
                 result.push({
                   severity: 'warning',
                   category: 'hardware',
-                  message: `模块「${mod.name}」的镜头 ${lens.model} 分辨力不足(${match.lensResolvingLpMm} lp/mm)，低于相机奈奎斯特频率(${match.cameraNyquistLpMm} lp/mm)`,
+                  message: `模块「${mod.name}」的镜头 ${lens.model} 分辨力不足 (${match.lensResolvingLpMm} lp/mm)，低于相机奈奎斯特频率 (${match.cameraNyquistLpMm} lp/mm)`,
                   workstationId: ws.id,
                   moduleId: mod.id,
                   fix: match.suggestion || '建议更换更高分辨力的镜头',
@@ -181,3 +184,4 @@ export function useConfigValidation(projectId: string | null) {
 
   return { issues, healthScore };
 }
+

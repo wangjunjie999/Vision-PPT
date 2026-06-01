@@ -21,6 +21,7 @@ import { uploadStorageFile } from './storageUpload';
 
 describe('uploadStorageFile', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.stubEnv('DEV', true);
     mocks.getSession.mockResolvedValue({
       data: { session: { access_token: 'user-token' } },
@@ -87,6 +88,40 @@ describe('uploadStorageFile', () => {
       cacheControl: undefined,
       upsert: true,
     });
+  });
+
+  it('uses Supabase SDK upload in dev mode when remote persistence is required', async () => {
+    const file = new Blob(['glb'], { type: 'model/gltf-binary' });
+
+    const result = await uploadStorageFile('3d-models', 'user/model.glb', file, {
+      contentType: 'model/gltf-binary',
+      upsert: true,
+      requireRemote: true,
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.upload).toHaveBeenCalledWith('user/model.glb', file, {
+      contentType: 'model/gltf-binary',
+      cacheControl: undefined,
+      upsert: true,
+    });
+    expect(result.publicUrl).toBe(
+      'https://demo.supabase.co/storage/v1/object/public/3d-models/user/model.glb'
+    );
+  });
+
+  it('throws when a required remote upload fails', async () => {
+    mocks.upload.mockResolvedValueOnce({ error: { message: 'new row violates row-level security policy' } });
+
+    await expect(
+      uploadStorageFile('3d-models', 'user/model.glb', new Blob(['glb']), {
+        contentType: 'model/gltf-binary',
+        requireRemote: true,
+      }),
+    ).rejects.toThrow('new row violates row-level security policy');
+
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('rejects dev uploads without a logged-in session', async () => {

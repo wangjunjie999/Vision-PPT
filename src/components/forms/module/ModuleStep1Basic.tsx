@@ -2,10 +2,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { ModuleFormState } from './types';
 import { ModuleHardwareSelection } from './ModuleHardwareSelection';
 import { strip3DOpticsFromForm } from './threeDCamera';
+import { stripCameraTaktTimeUnit } from '@/utils/cameraTaktTime';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -18,7 +18,6 @@ interface ModuleStep1BasicProps {
   lights?: any[];
   controllers?: any[];
   workstationLayout?: any;
-  isProject3D?: boolean;
 }
 
 export function ModuleStep1Basic({
@@ -29,7 +28,6 @@ export function ModuleStep1Basic({
   lights = [],
   controllers = [],
   workstationLayout,
-  isProject3D = false,
 }: ModuleStep1BasicProps) {
   return (
     <div className="space-y-4">
@@ -60,16 +58,6 @@ export function ModuleStep1Basic({
         </div>
       </div>
       
-      <div className="space-y-1.5">
-        <Label className="text-xs font-medium">功能说明</Label>
-        <Textarea 
-          value={form.description} 
-          onChange={e => setForm(p => ({ ...p, description: e.target.value }))} 
-          placeholder="描述该模块的检测目的、关键要求等..."
-          className="min-h-[80px] text-sm resize-none" 
-        />
-      </div>
-      
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">触发方式</Label>
@@ -92,6 +80,23 @@ export function ModuleStep1Basic({
             placeholder="200"
             className="h-9" 
           />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">相机节拍</Label>
+          <div className="relative">
+            <Input
+              value={form.cameraTaktTime}
+              onChange={e => setForm(p => ({ ...p, cameraTaktTime: stripCameraTaktTimeUnit(e.target.value) }))}
+              placeholder="例如 1~1.5"
+              className="h-9 pr-10"
+            />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+              S/次
+            </span>
+          </div>
         </div>
       </div>
 
@@ -121,14 +126,13 @@ export function ModuleStep1Basic({
           type="button"
           variant={form.is3DCamera ? 'default' : 'outline'}
           className="h-9 justify-center"
-          disabled={isProject3D}
           onClick={() => setForm(p => (
             p.is3DCamera
               ? { ...p, is3DCamera: false }
               : strip3DOpticsFromForm(p)
           ))}
         >
-          {isProject3D ? '项目已强制3D相机' : form.is3DCamera ? '已启用3D相机' : '是否为3D相机'}
+          {form.is3DCamera ? '已启用3D相机' : '是否使用3D相机'}
         </Button>
       </div>
 
@@ -140,7 +144,6 @@ export function ModuleStep1Basic({
         lights={lights}
         controllers={controllers}
         workstationLayout={workstationLayout}
-        isProject3D={isProject3D}
       />
     </div>
   );

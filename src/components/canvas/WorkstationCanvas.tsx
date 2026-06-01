@@ -1,4 +1,4 @@
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { DraggableLayoutCanvas } from './DraggableLayoutCanvas';
 
 export function WorkstationCanvas() {
@@ -13,3 +13,4 @@ export function WorkstationCanvas() {
     </div>
   );
 }
+

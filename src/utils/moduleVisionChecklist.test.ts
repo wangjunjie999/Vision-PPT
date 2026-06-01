@@ -111,4 +111,42 @@ describe('moduleVisionChecklist', () => {
       mod_takt_time: '1.5S/次',
     });
   });
+
+  it('prefers workstation acceptance cycle time ranges for module takt display', () => {
+    const checklist = buildModuleVisionChecklist({
+      module: {
+        selected_camera: 'cam_1',
+        processing_time_limit: 120,
+      },
+      workstation: {
+        cycle_time: 3,
+        acceptance_criteria: {
+          cycle_time: '3~3.5',
+        },
+      },
+      language: 'zh',
+    });
+
+    expect(checklist.taktTime).toBe('3~3.5S/次');
+  });
+
+  it('prefers module camera takt time over workstation cycle time', () => {
+    const checklist = buildModuleVisionChecklist({
+      module: {
+        selected_camera: 'cam_1',
+        defect_config: {
+          cameraTaktTime: '1~1.5S/次',
+        },
+      },
+      workstation: {
+        cycle_time: 3,
+        acceptance_criteria: {
+          cycle_time: '3~3.5',
+        },
+      },
+      language: 'zh',
+    });
+
+    expect(checklist.taktTime).toBe('1~1.5S/次');
+  });
 });

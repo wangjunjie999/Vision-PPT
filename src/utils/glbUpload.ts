@@ -53,12 +53,13 @@ export async function uploadGLBFile(
     const { publicUrl } = await uploadStorageFile(BUCKET, fileName, file, {
       contentType: 'model/gltf-binary',
       upsert: true,
+      requireRemote: true,
     });
 
     return publicUrl;
   } catch (error) {
     console.error('GLB upload error:', error);
-    toast.error('3D模型上传失败');
+    toast.error('远端存储上传失败，请检查 bucket/policy/登录状态');
     return null;
   }
 }

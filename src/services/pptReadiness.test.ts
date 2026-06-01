@@ -29,6 +29,13 @@ const baseLayout = {
   selected_lights: [{ id: 'light-1' }],
 };
 
+const completeThreeDConfig = {
+  model: 'LJ-S080',
+  detectionMethod: '3D相机垂直固定',
+  referenceDistance: '160',
+  xyPrecision: '0.025',
+};
+
 function readinessForModule(module: Record<string, unknown>) {
   return checkPPTReadiness({
     projects: [baseProject] as any,
@@ -70,6 +77,7 @@ function currentSaved3DSignature() {
     workingDistanceMm: 300,
     fovWidthMm: 100,
     is3DCamera: true,
+    threeDConfig: completeThreeDConfig,
     distanceUnit: 'mm',
   });
 }
@@ -143,6 +151,7 @@ describe('pptReadiness imaging parameters', () => {
             resolutionPerPixel: '0.0500',
             lightItems: [],
           },
+          three_d: completeThreeDConfig,
         },
       }] as any,
       selectedProjectId: 'project-1',
@@ -152,5 +161,42 @@ describe('pptReadiness imaging parameters', () => {
     expect(result.missing).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
     expect(result.finalReady).toBe(true);
+  });
+
+  it('treats an explicit module 2D flag as higher priority than project use_3d', () => {
+    const result = checkPPTReadiness({
+      projects: [{ ...baseProject, use_3d: true }] as any,
+      workstations: [baseWorkstation] as any,
+      layouts: [{
+        ...baseLayout,
+        selected_lenses: [],
+        selected_lights: [],
+      }] as any,
+      modules: [{
+        id: 'module-1',
+        workstation_id: 'workstation-1',
+        name: 'module',
+        type: 'defect',
+        selected_camera: 'camera-1',
+        selected_lens: null,
+        selected_light: null,
+        processing_time_limit: 200,
+        schematic_image_url: 'schematic.png',
+        schematic_layout: { savedImageSignature: currentSaved3DSignature() },
+        defect_config: {
+          imaging: {
+            is3DCamera: false,
+            fieldOfView: '200x150',
+            workingDistance: '430',
+            resolutionPerPixel: '0.0500',
+          },
+        },
+      }] as any,
+      selectedProjectId: 'project-1',
+      mode: 'final',
+    });
+
+    expect(result.finalReady).toBe(false);
+    expect(result.missing.length + result.warnings.length).toBeGreaterThan(0);
   });
 });

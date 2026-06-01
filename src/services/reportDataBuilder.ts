@@ -30,6 +30,7 @@ import {
 } from './labelMaps';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
+import { isModule3DCamera } from '@/utils/module3DCamera';
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -170,9 +171,11 @@ export interface ReportWorkstationData {
   observation_target: string | null;
   motion_description: string | null;
   risk_notes: string | null;
+  notes: string | null;
   shot_count: number | null;
   acceptance_criteria: {
     accuracy?: string;
+    detection_content?: string;
     cycle_time?: string;
     compatible_sizes?: string;
   } | null;
@@ -324,7 +327,7 @@ const PROJECT_DISPLAYED_FIELDS = new Set([
 const WORKSTATION_DISPLAYED_FIELDS = new Set([
   'id', 'code', 'name', 'type', 'cycle_time', 'product_dimensions',
   'enclosed', 'process_stage', 'observation_target', 'motion_description',
-  'risk_notes', 'shot_count', 'acceptance_criteria', 'action_script',
+  'risk_notes', 'notes', 'shot_count', 'acceptance_criteria', 'action_script',
   'description', 'install_space', 'status',
 ]);
 
@@ -603,6 +606,7 @@ export function buildReportData(input: BuilderInput): ReportData {
       observation_target: ws.observation_target,
       motion_description: ws.motion_description,
       risk_notes: ws.risk_notes,
+      notes: ws.notes,
       shot_count: ws.shot_count,
       acceptance_criteria: acceptanceCriteria,
       action_script: ws.action_script,
@@ -633,8 +637,8 @@ export function buildReportData(input: BuilderInput): ReportData {
       : null;
     
     const selectedCameras = safeHardwareArray(layout.selected_cameras);
-    const selectedLenses = projectUses3D ? [] : safeHardwareArray(layout.selected_lenses);
-    const selectedLights = projectUses3D ? [] : safeHardwareArray(layout.selected_lights);
+    const selectedLenses = safeHardwareArray(layout.selected_lenses);
+    const selectedLights = safeHardwareArray(layout.selected_lights);
     const selectedController = safeController(layout.selected_controller);
     
     return {
@@ -643,8 +647,8 @@ export function buildReportData(input: BuilderInput): ReportData {
       conveyor_type: layout.conveyor_type,
       conveyor_type_label: getLabel(layout.conveyor_type, CONVEYOR_LABELS, lang),
       camera_count: layout.camera_count,
-      lens_count: projectUses3D ? 0 : (layout as any).lens_count ?? layout.camera_count ?? 1,
-      light_count: projectUses3D ? 0 : (layout as any).light_count ?? 1,
+      lens_count: (layout as any).lens_count ?? layout.camera_count ?? 1,
+      light_count: (layout as any).light_count ?? 1,
       camera_mounts: cameraMounts,
       camera_mounts_labels: getArrayLabels(cameraMounts, CAMERA_MOUNT_LABELS, lang),
       mechanisms: mechanisms,
@@ -676,16 +680,7 @@ export function buildReportData(input: BuilderInput): ReportData {
   const reportModules: ReportModuleData[] = modules.map(mod => {
     const outputTypes = mod.output_types as string[] | null;
     const moduleLayout = layouts.find(layout => layout.workstation_id === mod.workstation_id) || null;
-    const moduleConfig = (
-      mod.defect_config
-      || mod.positioning_config
-      || mod.measurement_config
-      || mod.ocr_config
-      || mod.deep_learning_config
-    ) as any;
-    const moduleUses3D = projectUses3D
-      || moduleConfig?.imaging?.is3DCamera === true
-      || String(moduleConfig?.imaging?.is3DCamera || '') === 'true';
+    const moduleUses3D = isModule3DCamera(mod, projectUses3D);
     const selectedLensId = moduleUses3D ? null : mod.selected_lens;
     const selectedLightId = moduleUses3D ? null : mod.selected_light;
     

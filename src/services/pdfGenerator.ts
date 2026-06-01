@@ -7,6 +7,7 @@
 import type { jsPDF } from 'jspdf';
 import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
+import { formatWorkstationCycleTime, formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
 
 // ==================== DATA INTERFACES ====================
 
@@ -880,7 +881,7 @@ export async function generatePDF(
       ws.code || '—',
       ws.name,
       WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type || '—',
-      ws.cycle_time?.toString() || '—',
+      formatWorkstationCycleTimePlain(ws, '—'),
       String(modCount),
     ];
   });
@@ -911,7 +912,7 @@ export async function generatePDF(
     helper.addLabelValue(isZh ? '工作站编号' : 'Workstation Code', ws.code || '');
     helper.addLabelValue(isZh ? '工作站名称' : 'Workstation Name', ws.name);
     helper.addLabelValue(isZh ? '工作站类型' : 'Type', WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type || '');
-    helper.addLabelValue(isZh ? '工位节拍' : 'Station Cycle Time', ws.cycle_time ? `${ws.cycle_time}s/pcs` : '');
+    helper.addLabelValue(isZh ? '工位节拍' : 'Station Cycle Time', formatWorkstationCycleTime(ws, 's/pcs', ''));
     helper.addLabelValue(isZh ? '工艺阶段' : 'Process Stage', ws.process_stage || '');
     helper.addLabelValue(isZh ? '封闭环境' : 'Enclosed', ws.enclosed ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No'));
     
@@ -1161,7 +1162,7 @@ export async function generatePDF(
         helper.addLabelValue(isZh ? '处理时限' : 'Time Limit', mod.processing_time_limit ? `${mod.processing_time_limit}ms` : '', 5);
         
         if (mod.description) {
-          helper.addLabelValue(isZh ? '描述' : 'Description', mod.description, 5);
+          helper.addLabelValue(isZh ? '检测步骤' : 'Detection Steps', mod.description, 5);
         }
         
         if (mod.output_types && mod.output_types.length > 0) {
@@ -1397,7 +1398,7 @@ export async function generatePDF(
         }
 
         // ========== 5. 输出配置 ==========
-        const hasOutputConfig = config.detectionObject || config.judgmentStrategy || config.outputAction || 
+        const hasOutputConfig = config.judgmentStrategy || config.outputAction || 
                                 config.communicationMethod || config.signalDefinition || config.dataRetentionDays;
         
         if (hasOutputConfig) {
@@ -1406,9 +1407,6 @@ export async function generatePDF(
           helper.addTextImage(isZh ? '【输出配置】' : '【Output Config】', margin + 5, 12, 'bold', '#2d3748');
           helper.y += 12;
           
-          if (config.detectionObject) {
-            helper.addLabelValue(isZh ? '检测对象' : 'Detection Object', String(config.detectionObject), 5);
-          }
           if (config.judgmentStrategy) {
             const strategyLabel = JUDGMENT_STRATEGY_LABELS[config.judgmentStrategy as string]?.[isZh ? 'zh' : 'en'] || String(config.judgmentStrategy);
             helper.addLabelValue(isZh ? '判定策略' : 'Judgment Strategy', strategyLabel, 5);

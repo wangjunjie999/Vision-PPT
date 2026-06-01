@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useState, useMemo, useEffect } from 'react';
 import { CheckCircle2, XCircle, Eye, ImageIcon, Layers, Camera, Box, Sun } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -97,14 +97,14 @@ export function PPTImagePreviewDialog({ open, onOpenChange }: PPTImagePreviewDia
       const wsAnnotations = annotations.get(ws.id) || [];
       const wsProductImages = productImages.get(ws.id) || [];
 
-      const VIEW_LABELS: Record<string, string> = { front: '正视图', side: '侧视图', top: '俯视图', isometric: '等轴测' };
+      const VIEW_LABELS: Record<string, string> = { front: '正视图', side: '侧视图', top: '俯视图', isometric: '等轴图' };
       const pv: string = (layout as any)?.primary_view || 'front';
       const av: string = (layout as any)?.auxiliary_view || 'side';
       const isoUrl = (layout as any)?.isometric_view_image_url || null;
       const layoutImages = [
         { label: `主视图 - ${VIEW_LABELS[pv] || pv}`, url: layout?.[`${pv}_view_image_url` as keyof typeof layout] as string || null },
         { label: `辅视图 - ${VIEW_LABELS[av] || av}`, url: layout?.[`${av}_view_image_url` as keyof typeof layout] as string || null },
-        ...(isoUrl ? [{ label: '等轴测 3D 视图', url: isoUrl as string }] : []),
+        ...(isoUrl ? [{ label: '等轴图 3D 视图', url: isoUrl as string }] : []),
       ];
 
       const moduleImages = modules.map(mod => ({
@@ -355,3 +355,4 @@ function ImageThumbnail({
     </div>
   );
 }
+

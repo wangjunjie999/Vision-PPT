@@ -3,16 +3,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { parseWorkstationCycleTimeSeconds } from '@/utils/cycleTimeDisplay';
 
 type WorkstationType = 'line' | 'turntable' | 'robot' | 'platform';
 
 export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: boolean; onOpenChange: (open: boolean) => void; projectId: string | null }) {
   const { addWorkstation, selectWorkstation, addLayout, projects, getProjectWorkstations } = useData();
-  const [form, setForm] = useState({ code: '', name: '', type: 'line' as WorkstationType, cycleTime: '3' });
+  const [form, setForm] = useState({ code: '', name: '', type: 'line' as WorkstationType, cycleTime: '' });
   const [loading, setLoading] = useState(false);
   
   // Generate workstation code based on project code and existing workstations
@@ -67,7 +68,10 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
         code: form.code.trim(), 
         name: form.name.trim(), 
         type: form.type, 
-        cycle_time: parseFloat(form.cycleTime) || 3, 
+        cycle_time: parseWorkstationCycleTimeSeconds(form.cycleTime), 
+        acceptance_criteria: {
+          cycle_time: form.cycleTime.trim() || null,
+        },
         product_dimensions: { length: 100, width: 100, height: 50 }, 
         status: 'draft' 
       });
@@ -93,7 +97,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
       
       selectWorkstation(ws.id);
       handleOpenChange(false);
-      setForm({ code: generateWorkstationCode(), name: '', type: 'line', cycleTime: '3' });
+      setForm({ code: generateWorkstationCode(), name: '', type: 'line', cycleTime: '' });
     } catch (error) {
       console.error('Failed to create workstation:', error);
       toast.error('创建工位失败');
@@ -118,13 +122,11 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">工位节拍 (s/pcs)</Label>
+              <Label className="text-xs font-medium">工位节拍范围/要求 (s/pcs)</Label>
               <Input 
-                type="number" 
                 value={form.cycleTime} 
                 onChange={e => setForm(p => ({ ...p, cycleTime: e.target.value }))} 
-                min="0.1"
-                step="0.1"
+                placeholder="例如: 3~3.5 或 100"
                 className="h-9"
               />
             </div>
@@ -134,7 +136,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
             <Input 
               value={form.name} 
               onChange={e => setForm(p => ({ ...p, name: e.target.value }))} 
-              placeholder="请输入工位名称" 
+              placeholder="请输入工位名称"
               className="h-9"
             />
           </div>
@@ -162,3 +164,4 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
     </Dialog>
   );
 }
+

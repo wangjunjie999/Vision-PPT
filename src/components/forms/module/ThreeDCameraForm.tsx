@@ -1,6 +1,5 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ScanLine } from 'lucide-react';
 import { ModuleFormState } from './types';
 
 interface ThreeDCameraFormProps {
@@ -31,26 +30,40 @@ function field<K extends keyof ModuleFormState>(
 export function ThreeDCameraForm({ form, setForm }: ThreeDCameraFormProps) {
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-start gap-2">
-        <ScanLine className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-        <div className="text-xs text-muted-foreground">
-          已切换到 <span className="font-medium text-foreground">3D 视觉检测</span> 流程。
-          光学方案仅需填写以下三项核心信息，将直接用于 PPT 光学方案图。
+      <div className="space-y-3">
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">核心参数</h4>
+        <div className="grid grid-cols-2 gap-3">
+          {field(form, setForm, 'workingDistance', '工作距离 WD (mm)', '160')}
+          {field(form, setForm, 'workingDistanceTolerance', '工作距离公差 (±mm)', '15')}
+          {field(form, setForm, 'threeDReferenceDistance', '基准距离 (mm)', '160')}
+          {field(form, setForm, 'threeDZRange', 'FS/Z 量程', 'FS±23mm')}
+          {field(form, setForm, 'threeDXRange', 'X 范围', '66-78mm')}
+          {field(form, setForm, 'threeDYRange', 'Y 范围', '160mm')}
         </div>
       </div>
 
       <div className="space-y-3">
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">光学方案核心参数</h4>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">3D 光学方案图信息</h4>
         <div className="grid grid-cols-2 gap-3">
           {field(form, setForm, 'threeDModel', '3D 相机型号', 'LJ-S080')}
+          {field(form, setForm, 'threeDOrderModel', '下单型号', '3D-APS-280-N')}
           {field(form, setForm, 'threeDScanLineWidth', '扫描线宽 (mm)', '35')}
-        </div>
-        <div className="grid grid-cols-1 gap-3">
           {field(form, setForm, 'threeDDataPoints', 'XY 数据点', '3200×6400')}
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          说明：以上三项将作为光学方案图右上角标注（型号 / 线宽 / XY数据点）展示。
-        </p>
+      </div>
+
+      <div className="space-y-3">
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">测量范围与精度</h4>
+        <div className="grid grid-cols-2 gap-3">
+          {field(form, setForm, 'threeDStandardRange', '标准范围', '280×233.8mm')}
+          {field(form, setForm, 'threeDNearRange', '近端范围', '226×189mm')}
+          {field(form, setForm, 'threeDFarRange', '远端范围', '333×278mm')}
+          {field(form, setForm, 'threeDXYPrecision', 'XY 像素精度', '0.025mm')}
+          {field(form, setForm, 'threeDZPrecision', 'Z 线性精度/重复精度', '±0.025mm')}
+          {field(form, setForm, 'threeDScanTime', '拍照时间/节拍', '2-3S/次')}
+          {field(form, setForm, 'threeDShotsPerSide', '拍照次数/面', '2次/面')}
+          {field(form, setForm, 'threeDShotsPerProduct', '拍照次数/产品', '4次/产品')}
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { toast } from 'sonner';
 
 export interface ProjectTemplate {
@@ -145,3 +145,4 @@ export function useProjectTemplates() {
 
   return { templates, loading, saveAsTemplate, deleteTemplate, refetch: fetchTemplates };
 }
+

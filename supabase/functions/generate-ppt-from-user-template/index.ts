@@ -290,6 +290,7 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
   const layout = context.layout || {};
   const loopItem = context.loopItem || null;
   const generatedAt = context.generatedAt || new Date();
+  const workstationCycleTime = getWorkstationCycleTimeValue(workstation);
 
   const fields: Record<string, string> = {
     project_name: project.name,
@@ -322,7 +323,7 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     ws_index: String((context.workstationIndex ?? 0) + 1),
     ws_type: workstation.type,
     ws_type_label: workstation.type_label,
-    ws_cycle_time: stringify(workstation.cycle_time),
+    ws_cycle_time: stringify(workstationCycleTime),
     ws_shot_count: stringify(workstation.shot_count),
     ws_observation_target: workstation.observation_target,
     ws_motion_description: workstation.motion_description,
@@ -359,7 +360,7 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
       type: workstation.type,
       type_label: workstation.type_label,
       index: String((context.workstationIndex ?? 0) + 1),
-      cycle_time: stringify(workstation.cycle_time),
+      cycle_time: stringify(workstationCycleTime),
       shot_count: stringify(workstation.shot_count),
       observation_target: workstation.observation_target,
       motion_description: workstation.motion_description,
@@ -404,11 +405,14 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     }
 
     if (context.loopName === "workstations") {
+      const loopCycleTime = getWorkstationCycleTimeValue(loopItem);
       Object.assign(fields, {
         ws_name: loopItem.name,
         ws_code: loopItem.code,
         ws_index: String(loopIndex),
         ws_type_label: loopItem.type_label,
+        ws_cycle_time: stringify(loopCycleTime),
+        cycle_time: stringify(loopCycleTime),
         ws_module_count: String(loopItem.modules?.length || 0),
       });
     }
@@ -475,8 +479,8 @@ function buildModuleVisionChecklist(input: any) {
     cameraCount,
   );
   const taktValue = firstPresent(
-    workstation.cycle_time,
     workstation.acceptance_criteria?.cycle_time,
+    workstation.cycle_time,
     config?.taktTime,
     config?.cycleTime,
     module.processing_time_limit ? module.processing_time_limit / 1000 : undefined,
@@ -612,11 +616,17 @@ function formatShotCount(value: any, language: string) {
 }
 
 function formatTaktTime(value: any, language: string) {
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  if (text && /\d+(?:\.\d+)?\s*(?:~|～|至|–|—|-)\s*\d+(?:\.\d+)?/.test(text)) {
+    return /(s\s*\/\s*pcs|s\s*\/\s*pc|秒\s*\/\s*件|秒|s\s*\/\s*次)$/i.test(text)
+      ? text
+      : language === "en" ? `${text}s/shot` : `${text}S/次`;
+  }
+
   const seconds = parsePositiveNumber(value);
   if (seconds) {
     return language === "en" ? `${formatNumber(seconds, 3)}s/shot` : `${formatNumber(seconds, 3)}S/次`;
   }
-  const text = value === null || value === undefined ? "" : String(value).trim();
   return text || (language === "en" ? "TBD" : "待定");
 }
 
@@ -959,6 +969,12 @@ function stringify(value: unknown): string {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+function getWorkstationCycleTimeValue(workstation: any): unknown {
+  const acceptanceCycle = workstation?.acceptance_criteria?.cycle_time;
+  if (typeof acceptanceCycle === "string" && acceptanceCycle.trim()) return acceptanceCycle.trim();
+  return workstation?.cycle_time;
 }
 
 function formatDate(value: unknown): string {

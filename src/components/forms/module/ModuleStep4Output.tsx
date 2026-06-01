@@ -21,14 +21,14 @@ export function ModuleStep4Output({
       <div className="space-y-4">
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">判定与输出</h4>
         
-        {/* Detection object */}
+        {/* Detection steps */}
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">检测对象/检测内容描述</Label>
+          <Label className="text-xs font-medium">检测步骤</Label>
           <Textarea 
-            value={form.detectionObject} 
-            onChange={e => setForm(p => ({ ...p, detectionObject: e.target.value }))} 
-            placeholder="描述该模块的检测对象、关键要求等..."
-            className="min-h-[60px] text-sm resize-none" 
+            value={form.description} 
+            onChange={e => setForm(p => ({ ...p, description: e.target.value }))} 
+            placeholder="描述该模块的检测流程、处理步骤和结果输出..."
+            className="min-h-[80px] text-sm resize-none" 
           />
         </div>
         

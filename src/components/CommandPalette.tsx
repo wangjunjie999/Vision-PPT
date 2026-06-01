@@ -12,7 +12,7 @@ import {
   FolderOpen, Cpu, Box, Search, Plus, FileText, Moon, Sun,
   Settings, Palette, Command as CommandIcon, Zap
 } from 'lucide-react';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useHardware } from '@/contexts/HardwareContext';
 import { useAppStore } from '@/store/useAppStore';
 import { useTheme } from 'next-themes';
@@ -189,7 +189,7 @@ export function CommandPalette() {
 
         {/* Hardware */}
         {hardwareItems.length > 0 && (
-          <CommandGroup heading="硬件库">
+          <CommandGroup heading="硬件">
             {hardwareItems.slice(0, 20).map(item => (
               <CommandItem key={`hw-${item.id}`} onSelect={() => {
                 setOpen(false);
@@ -208,3 +208,4 @@ export function CommandPalette() {
     </CommandDialog>
   );
 }
+

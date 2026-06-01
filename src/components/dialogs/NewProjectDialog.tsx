@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,7 +20,7 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
     code: generateDefaultCode(), 
     name: '', 
     customer: '', 
-    product_process: '总装检测', 
+    product_process: '总装检测',
     date: new Date().toISOString().split('T')[0], 
     responsible: '' 
   });
@@ -66,7 +66,7 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
         code: generateDefaultCode(), 
         name: '', 
         customer: '', 
-        product_process: '总装检测', 
+        product_process: '总装检测',
         date: new Date().toISOString().split('T')[0], 
         responsible: '' 
       });
@@ -108,7 +108,7 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
             <Input 
               value={form.name} 
               onChange={e => setForm(p => ({ ...p, name: e.target.value }))} 
-              placeholder="请输入项目名称" 
+              placeholder="请输入项目名称"
               className="h-9"
             />
           </div>
@@ -117,7 +117,7 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
             <Input 
               value={form.customer} 
               onChange={e => setForm(p => ({ ...p, customer: e.target.value }))} 
-              placeholder="请输入客户名称" 
+              placeholder="请输入客户名称"
               className="h-9"
             />
           </div>

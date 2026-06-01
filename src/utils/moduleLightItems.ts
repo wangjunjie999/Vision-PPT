@@ -97,7 +97,7 @@ export function getModuleLightGeometryPatch(
   const nextVertical = patch.lightDistanceVertical ?? current.lightDistanceVertical ?? '';
   const distance = parsePlainNumber(nextDistance);
   const horizontal = parsePlainNumber(nextHorizontal, true);
-  const vertical = parsePlainNumber(nextVertical);
+  const vertical = parsePlainNumber(nextVertical, true);
   const nextPatch = { ...patch };
 
   const componentChanged = 'lightDistanceHorizontal' in patch || 'lightDistanceVertical' in patch;
@@ -112,8 +112,11 @@ export function getModuleLightGeometryPatch(
 
   if ('lightDistance' in patch && distance !== null) {
     const h = horizontal ?? 0;
+    const verticalSign = vertical !== null && vertical < 0 ? -1 : 1;
     if (distance >= Math.abs(h)) {
-      nextPatch.lightDistanceVertical = formatPlainNumber(Math.sqrt(distance * distance - h * h));
+      nextPatch.lightDistanceVertical = formatPlainNumber(
+        Math.sqrt(distance * distance - h * h) * verticalSign,
+      );
     }
   }
 

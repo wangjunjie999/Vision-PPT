@@ -1,5 +1,5 @@
 import { useEffect, useRef, lazy, Suspense } from 'react';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useAppStore } from '@/store/useAppStore';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { EmptyState } from '../canvas/EmptyState';
@@ -112,3 +112,4 @@ export function CanvasArea() {
   
   return <EmptyState />;
 }
+

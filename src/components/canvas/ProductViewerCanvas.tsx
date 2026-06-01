@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import {
   Product3DViewer,
   type Product3DViewerHandle,
@@ -71,7 +71,7 @@ export function ProductViewerCanvas() {
       const snapshotOk = await validateAnnotationSnapshot(snapshot);
       if (!snapshotOk) {
         toast.error(
-          '截图未生效或图片无法解码，请重试；若模型使用外链贴图，请确认存储服务已正确配置跨域(CORS)。'
+          '截图未生效或图片无法解码，请重试；若模型使用外链贴图，请确认存储服务已正确配置跨域 (CORS)'
         );
         return;
       }
@@ -96,7 +96,7 @@ export function ProductViewerCanvas() {
       <div className="flex items-center justify-between px-4 py-2 border-b bg-background/80 backdrop-blur-sm shrink-0">
         <Button variant="ghost" size="sm" onClick={exitViewerMode} className="gap-1">
           <ArrowLeft className="h-4 w-4" />
-          返回布局图
+          返回布局
         </Button>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={handleScreenshot} className="gap-1" disabled={capturing}>
@@ -120,3 +120,4 @@ export function ProductViewerCanvas() {
     </div>
   );
 }
+

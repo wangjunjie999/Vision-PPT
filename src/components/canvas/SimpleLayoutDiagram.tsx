@@ -148,12 +148,21 @@ interface SimpleLayoutDiagramProps {
   cameraMounts: string[];
   cameraCount: number;
   workstationName: string;
-  cycleTime?: number | null;
+  cycleTime?: number | string | null;
   shotCount?: number | null;
   modules: ModuleInfo[];
   hardware: HardwareSummary;
   width?: number;
   height?: number;
+}
+
+const CYCLE_UNIT_RE = /(s\s*\/\s*pcs|s\s*\/\s*pc|秒\s*\/\s*件|秒|s\s*\/\s*次)$/i;
+
+function formatCycleTimeLabel(cycleTime: number | string | null | undefined): string {
+  if (cycleTime === null || cycleTime === undefined || cycleTime === '') return '待定';
+  const text = String(cycleTime).trim();
+  if (!text) return '待定';
+  return CYCLE_UNIT_RE.test(text) ? text : `${text} s/pcs`;
 }
 
 const MODULE_TYPE_LABELS_ZH: Record<string, string> = {
@@ -487,7 +496,7 @@ export function SimpleLayoutDiagram({
 
       {/* Cycle info */}
       {renderInfoSection(infoX, height - 110, infoContentW, '工位节拍信息', [
-        `目标工位节拍: ${cycleTime ? `${cycleTime} s/pcs` : '待定'}`,
+        `目标工位节拍: ${formatCycleTimeLabel(cycleTime)}`,
         `拍照次数: ${shotCount || camNodes.length} 次`,
         `相机数量: ${camNodes.length} 台`,
       ])}

@@ -9,7 +9,15 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Check } from 'lucide-react';
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { type DistanceUnit, formatDistanceInput, formatDistanceLabel, normalizeDistanceUnit } from '@/utils/distanceUnits';
+import {
+  type DistanceUnit,
+  formatDistanceDisplay,
+  formatDistanceInput,
+  formatDistanceInputText,
+  formatDistanceLabel,
+  normalizeDistanceUnit,
+} from '@/utils/distanceUnits';
+import type { ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 import { resolveSensorDimensions, parseResolution } from '@/utils/imagingCalculations';
 
 // ─── Display helpers for camera / lens / FOV cards ───
@@ -68,6 +76,7 @@ function joinDotParts(parts: Array<string | null | undefined>): string {
 const DEFAULT_PRODUCT_POS = { x: 275, y: 420 };
 const PRODUCT_MIN_Y = 300;
 const PRODUCT_MAX_Y = 430;
+const PRODUCT_HEIGHT = 40;
 
 function clampProductPosition(pos: { x: number; y: number }) {
   return {
@@ -201,7 +210,7 @@ function useSvgDrag(
     dragging.current = true;
     const svgPt = toSvgCoords(e.clientX, e.clientY);
     offset.current = { x: svgPt.x - pos.x, y: svgPt.y - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
   }, [enabled, pos, toSvgCoords]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
@@ -237,11 +246,13 @@ interface VisionSystemDiagramProps {
   onLightDistanceChange?: (distance: number) => void;
   workingDistanceInput?: string;
   workingDistanceMm?: number | null;
+  workingDistanceToleranceInput?: string;
   fovWidthMm?: number | null;
   distanceUnit?: DistanceUnit;
   onWorkingDistanceChange?: (value: string) => void;
   lightDistanceInput?: string;
   lightDistanceMm?: number | null;
+  threeDInfo?: ThreeDDisplayInfo | null;
   onDiagramLightDistanceChange?: (value: string) => void;
   diagramLightItems?: Array<{
     id: string;
@@ -721,8 +732,9 @@ export function VisionSystemDiagram({
   onCameraSelect, onLensSelect, onLightSelect, onControllerSelect,
   lightDistance = 335, lightCount = 1, fovAngle = 45,
   onFovAngleChange, onLightDistanceChange,
-  workingDistanceInput, workingDistanceMm, fovWidthMm, distanceUnit: distanceUnitProp, onWorkingDistanceChange,
+  workingDistanceInput, workingDistanceMm, workingDistanceToleranceInput, fovWidthMm, distanceUnit: distanceUnitProp, onWorkingDistanceChange,
   lightDistanceInput, lightDistanceMm, onDiagramLightDistanceChange,
+  threeDInfo,
   diagramLightItems = [], onDiagramLightItemPositionChange, onDiagramLightItemDistanceChange, onDiagramLightItemRotationChange,
   roiStrategy = 'full', moduleType = 'defect',
   interactive = true, className,
@@ -753,7 +765,7 @@ export function VisionSystemDiagram({
     e.preventDefault();
     const svgPt = toSvgCoords(e.clientX, e.clientY);
     multiLightDragRef.current = { id, offset: { x: svgPt.x - pos.x, y: svgPt.y - pos.y } };
-    (e.target as Element).setPointerCapture(e.pointerId);
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
   }, [interactive, onDiagramLightItemPositionChange, toSvgCoords]);
 
   const handleDiagramLightPointerMove = useCallback((e: React.PointerEvent) => {
@@ -795,6 +807,7 @@ export function VisionSystemDiagram({
     clampProductPosition
   );
   const productY = productDrag.pos.y;
+  const productBottomY = productY + PRODUCT_HEIGHT;
   const productCenterX = productDrag.pos.x;
   const productX = productCenterX - 75;
   const roiWidth = roiStrategy === 'full' ? 140 : 100;
@@ -844,15 +857,18 @@ export function VisionSystemDiagram({
   const workingDistanceValue = hasControlledWorkingDistance
     ? (workingDistanceInput ?? (controlledWorkingDistanceMM !== null ? String(controlledWorkingDistanceMM) : ''))
     : String(workingDistanceMM);
-  const workingDistanceDisplay = hasControlledWorkingDistance && !controlledWorkingDistanceMM
+  const hasWorkingDistanceText = typeof workingDistanceInput === 'string' && workingDistanceInput.trim().length > 0;
+  const isWorkingDistanceMissing = hasControlledWorkingDistance && !controlledWorkingDistanceMM && !hasWorkingDistanceText;
+  const workingDistanceDisplay = isWorkingDistanceMissing
     ? '待填写'
-    : formatDistanceLabel(workingDistanceMM, distanceUnit);
-  const workingDistanceNumberDisplay = hasControlledWorkingDistance && !controlledWorkingDistanceMM
+    : formatDistanceDisplay(workingDistanceInput, distanceUnit, workingDistanceMM);
+  const workingDistanceNumberDisplay = isWorkingDistanceMissing
     ? '待填写'
-    : formatDistanceInput(workingDistanceMM, distanceUnit);
-  const workingDistanceDimensionLabel = hasControlledWorkingDistance && !controlledWorkingDistanceMM
+    : formatDistanceInputText(workingDistanceInput, distanceUnit, workingDistanceMM);
+  const workingDistanceToleranceText = formatDistanceInputText(workingDistanceToleranceInput, distanceUnit);
+  const workingDistanceDimensionLabel = isWorkingDistanceMissing
     ? '待填写'
-    : `${formatDistanceInput(workingDistanceMM, distanceUnit)}±20${distanceUnit}`;
+    : `${workingDistanceNumberDisplay}${workingDistanceToleranceText ? `±${workingDistanceToleranceText}` : ''}${distanceUnit}`;
 
   const fovRadians = (fovAngle / 2) * (Math.PI / 180);
   const fovPixelHeight = Math.max(productY - lensExitY, 50);
@@ -867,7 +883,10 @@ export function VisionSystemDiagram({
   const cameraSensorInfo = getCameraSensorInfo(camera ?? null);
   const lensSupportedText = getLensSupportedSensorText(lens ?? null);
 
-  const legacyDiagramLightDistanceMM = Math.round(Math.abs(productY - lightDrag.pos.y) * (lightDistance / (productY - 175)));
+  const legacyDiagramLightDistancePx = lightDrag.pos.y <= productY
+    ? productY - lightDrag.pos.y
+    : Math.max(0, lightDrag.pos.y - productBottomY);
+  const legacyDiagramLightDistanceMM = Math.round(legacyDiagramLightDistancePx * (lightDistance / (productY - 175)));
   const controlledLightDistanceMM =
     typeof lightDistanceMm === 'number' && Number.isFinite(lightDistanceMm) && lightDistanceMm > 0
       ? Math.round(lightDistanceMm)
@@ -878,12 +897,14 @@ export function VisionSystemDiagram({
   const diagramLightDistanceValue = hasControlledLightDistance
     ? (lightDistanceInput ?? (controlledLightDistanceMM !== null ? String(controlledLightDistanceMM) : ''))
     : String(diagramLightDistanceMM);
-  const diagramLightDistanceDisplay = hasControlledLightDistance && !controlledLightDistanceMM
+  const hasDiagramLightDistanceText = typeof lightDistanceInput === 'string' && lightDistanceInput.trim().length > 0;
+  const isDiagramLightDistanceMissing = hasControlledLightDistance && !controlledLightDistanceMM && !hasDiagramLightDistanceText;
+  const diagramLightDistanceDisplay = isDiagramLightDistanceMissing
     ? '待填写'
-    : formatDistanceInput(diagramLightDistanceMM, distanceUnit);
-  const diagramLightDistanceWithUnit = hasControlledLightDistance && !controlledLightDistanceMM
-    ? diagramLightDistanceDisplay
-    : `${diagramLightDistanceDisplay}${distanceUnit}`;
+    : formatDistanceInputText(lightDistanceInput, distanceUnit, diagramLightDistanceMM);
+  const diagramLightDistanceWithUnit = isDiagramLightDistanceMissing
+    ? '待填写'
+    : formatDistanceDisplay(lightDistanceInput, distanceUnit, diagramLightDistanceMM);
 
   // FOV direction vector (rotation of downward (0,1) by camRotation)
   const fovDirX = -Math.sin(rotRad);
@@ -904,6 +925,14 @@ export function VisionSystemDiagram({
   const hasMultiLights = !is3DCamera && diagramLightItems.length > 0;
   const hasLight = !is3DCamera && (hasMultiLights ? diagramLightItems.some(item => !!item.light) : !!light);
   const hasController = !!controller;
+  const threeDOpticalLines = threeDInfo ? [
+    threeDInfo.model ? `型号: ${threeDInfo.model}` : null,
+    threeDInfo.orderModel ? `下单型号: ${threeDInfo.orderModel}` : null,
+    workingDistanceDisplay !== '待填写' ? `工作距离: ${workingDistanceDisplay}` : null,
+    workingDistanceToleranceText ? `工作距离公差: ±${workingDistanceToleranceText}${distanceUnit}` : null,
+    threeDInfo.scanLineWidth ? `线宽: ${threeDInfo.scanLineWidth}` : null,
+    threeDInfo.dataPoints ? `XY数据点: ${threeDInfo.dataPoints}` : null,
+  ].filter((line): line is string => Boolean(line)) : [];
 
   // Camera+lens group center for drawing connections
   const camCenterX = camLensDrag.pos.x;
@@ -1022,8 +1051,8 @@ export function VisionSystemDiagram({
           style={{ cursor: interactive ? 'ns-resize' : 'default' }}
           {...(interactive ? productDrag.handlers : {})}
         >
-          <rect data-testid="diagram-product-body" x={productX} y={productY} width="150" height="40" rx="3" fill="hsl(220, 10%, 85%)" />
-          <rect x={productX} y={productY} width="150" height="40" rx="3" fill="none" stroke="hsl(220, 10%, 70%)" strokeWidth="1" />
+          <rect data-testid="diagram-product-body" x={productX} y={productY} width="150" height={PRODUCT_HEIGHT} rx="3" fill="hsl(220, 10%, 85%)" />
+          <rect x={productX} y={productY} width="150" height={PRODUCT_HEIGHT} rx="3" fill="none" stroke="hsl(220, 10%, 70%)" strokeWidth="1" />
           <rect 
             x={roiX} y={productY + 4} 
             width={roiWidth} height="32" rx="2"
@@ -1034,34 +1063,6 @@ export function VisionSystemDiagram({
           <circle cx={productCenterX} cy={productY + 15} r="5" fill="hsl(220, 80%, 55%)" />
           <circle cx={productCenterX} cy={productY + 15} r="8" fill="none" stroke="hsl(220, 80%, 55%)" strokeWidth="1" opacity="0.5" />
         </g>
-
-        {/* ===== Backlight zone hint (below product) ===== */}
-        {interactive && !is3DCamera && (
-          <g pointerEvents="none">
-            <rect
-              x={70}
-              y={productY + 80}
-              width={410}
-              height={Math.max(40, 615 - (productY + 80))}
-              rx="6"
-              fill="hsl(45, 90%, 60%)"
-              fillOpacity="0.05"
-              stroke="hsl(45, 70%, 50%)"
-              strokeWidth="1"
-              strokeDasharray="6,4"
-              opacity="0.55"
-            />
-            <text
-              x={275}
-              y={productY + 100}
-              textAnchor="middle"
-              fill="hsl(35, 60%, 35%)"
-              style={{ fontSize: '10px', fontWeight: 500 }}
-            >
-              背光区（可将光源拖至此处实现背光方案）
-            </text>
-          </g>
-        )}
 
         {/* ===== Working distance dimension line (dynamic, rotation-aware) ===== */}
         <g>
@@ -1181,9 +1182,13 @@ export function VisionSystemDiagram({
                 return (
                   <g key={item.id}>
                     <g
+                      data-testid={`diagram-light-${item.id}`}
                       transform={`translate(${item.position.x}, ${item.position.y}) rotate(${rotation}) scale(0.65) translate(-80, -16)`}
-                      style={{ cursor: interactive ? 'grab' : 'default' }}
+                      style={{ cursor: interactive ? 'grab' : 'default', touchAction: 'none' }}
                       onPointerDown={interactive ? (e) => handleDiagramLightPointerDown(item.id, item.position, e) : undefined}
+                      onPointerMove={interactive ? handleDiagramLightPointerMove : undefined}
+                      onPointerUp={interactive ? handleDiagramLightPointerUp : undefined}
+                      onPointerCancel={interactive ? handleDiagramLightPointerUp : undefined}
                     >
                       <LightSVGShape hasImage={!!itemLight?.front_view_url} imageUrl={itemLight?.front_view_url} brand={itemLight?.brand} lightType={itemLight?.type} />
                     </g>
@@ -1317,9 +1322,7 @@ export function VisionSystemDiagram({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '210px', overflowY: 'auto', paddingRight: '2px' }}>
                       {diagramLightItems.map((item, index) => {
                         const itemLight = item.light;
-                        const distanceDisplay = item.distanceMm
-                          ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}`
-                          : '待填写';
+                        const distanceDisplay = formatDistanceDisplay(item.distanceInput, distanceUnit, item.distanceMm);
                         return (
                           <div key={item.id} style={{ borderTop: index === 0 ? 'none' : '1px solid hsl(220, 15%, 86%)', paddingTop: index === 0 ? 0 : 4 }}>
                             <p style={{ fontSize: '10px', color: '#333333', margin: 0, fontWeight: 600 }}>{item.label || `LIGHT${index + 1}`}</p>
@@ -1328,11 +1331,10 @@ export function VisionSystemDiagram({
                               <span style={{ fontSize: '10px', color: '#666666' }}>距离:</span>
                               {onDiagramLightItemDistanceChange ? (
                                 <input
-                                  type="number"
+                                  type="text"
                                   value={item.distanceInput || ''}
                                   onChange={(e) => onDiagramLightItemDistanceChange(item.id, e.target.value)}
-                                  style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
-                                  min="0"
+                                  style={{ width: '72px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
                                 />
                               ) : (
                                 <span style={{ fontSize: '10px', color: '#666666' }}>{distanceDisplay}</span>
@@ -1351,11 +1353,10 @@ export function VisionSystemDiagram({
                         <span style={{ fontSize: '10px', color: '#666666' }}>光源距产品:</span>
                         {onDiagramLightDistanceChange ? (
                           <input
-                            type="number"
+                            type="text"
                             value={diagramLightDistanceValue}
                             onChange={(e) => onDiagramLightDistanceChange(e.target.value)}
-                            style={{ width: '56px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
-                            min="0"
+                            style={{ width: '72px', height: '22px', fontSize: '10px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
                           />
                         ) : (
                           <span style={{ fontSize: '10px', color: '#666666' }}>{diagramLightDistanceDisplay}</span>
@@ -1369,7 +1370,20 @@ export function VisionSystemDiagram({
                 </div>
               )}
 
+              {is3DCamera && (
+                <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '14px' }}>▣</span>
+                    <span style={{ fontWeight: 600, fontSize: '12px', color: '#333333' }}>3D光学方案</span>
+                  </div>
+                  {(threeDOpticalLines.length ? threeDOpticalLines : ['待维护3D光学参数']).map(line => (
+                    <p key={line} style={{ fontSize: '10px', color: '#333333', margin: 0 }}>{line}</p>
+                  ))}
+                </div>
+              )}
+
               {/* FOV info */}
+              {!is3DCamera && (
               <div style={{ backgroundColor: 'hsl(220, 10%, 96%)', borderRadius: '8px', padding: '6px 8px', border: '1px solid hsl(220, 15%, 82%)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                   <span style={{ fontSize: '14px' }}>📐</span>
@@ -1391,7 +1405,7 @@ export function VisionSystemDiagram({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '10px', color: '#333333', width: '56px' }}>工作距离:</span>
                     {onWorkingDistanceChange || onLightDistanceChange ? (
-                      <input type="number" value={workingDistanceValue}
+                      <input type="text" value={workingDistanceValue}
                         onChange={(e) => {
                           if (onWorkingDistanceChange) {
                             onWorkingDistanceChange(e.target.value);
@@ -1400,8 +1414,8 @@ export function VisionSystemDiagram({
                           const next = parseFloat(e.target.value);
                           if (Number.isFinite(next)) onLightDistanceChange?.(next);
                         }}
-                        style={{ width: '56px', height: '24px', fontSize: '11px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
-                        min="50" max="1000" />
+                        style={{ width: '72px', height: '24px', fontSize: '11px', padding: '0 6px', borderRadius: '4px', border: '1px solid hsl(220, 15%, 78%)', backgroundColor: 'hsl(220, 10%, 98%)', color: '#333' }}
+                      />
                     ) : (
                       <span style={{ fontSize: '11px', color: '#333333' }}>{workingDistanceNumberDisplay}</span>
                     )}
@@ -1413,6 +1427,7 @@ export function VisionSystemDiagram({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Controller */}
               {hasController && (
@@ -1492,7 +1507,7 @@ export function VisionSystemDiagram({
                       <>
                         {diagramLightItems.map((item, index) => (
                           <text key={item.id} x="12" y={34 + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: '9px' }}>
-                            {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {item.distanceMm ? `${formatDistanceInput(item.distanceMm, distanceUnit)}${distanceUnit}` : '待填写'}
+                            {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {formatDistanceDisplay(item.distanceInput, distanceUnit, item.distanceMm)}
                           </text>
                         ))}
                       </>
@@ -1508,6 +1523,22 @@ export function VisionSystemDiagram({
                 y += lh + cardGap;
               }
 
+              if (is3DCamera) {
+                const opticalLines = threeDOpticalLines.length ? threeDOpticalLines : ['待维护3D光学参数'];
+                const opticalH = Math.max(52, 24 + opticalLines.length * 12);
+                cards.push(
+                  <g key="three-d-optical" transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={opticalH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>▣ 3D光学方案</text>
+                    {opticalLines.map((line, index) => (
+                      <text key={line} x="12" y={34 + index * 12} fill={index === 0 ? tc : ts} style={{ fontSize: '10px' }}>{line}</text>
+                    ))}
+                  </g>
+                );
+                y += opticalH + cardGap;
+              }
+
+              if (!is3DCamera) {
               {
                 const fovH = cameraSensorInfo.sourceLabel ? 76 : 62;
                 cards.push(
@@ -1523,6 +1554,7 @@ export function VisionSystemDiagram({
                   </g>
                 );
                 y += fovH + cardGap;
+              }
               }
 
               if (hasController) {

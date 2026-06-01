@@ -304,6 +304,14 @@ function isSameDragScope(source: DragTreeNode | null, target: DragTreeNode) {
   return source.parentId === target.parentId;
 }
 
+function canDropOnTarget(source: DragTreeNode | null, target: DragTreeNode) {
+  if (!source || source.id === target.id) return false;
+  if (source.type === 'project') return target.type === 'project';
+  if (source.type === 'workstation') return target.type === 'project' || target.type === 'workstation';
+  if (source.type === 'module') return target.type === 'workstation' || target.type === 'module';
+  return false;
+}
+
 function getDropPosition(event: DragEvent<HTMLElement>): 'before' | 'after' {
   const rect = event.currentTarget.getBoundingClientRect();
   return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
@@ -323,6 +331,21 @@ function reorderIds(
   next.splice(currentIndex, 1);
   let insertIndex = targetIndex + (position === 'after' ? 1 : 0);
   if (currentIndex < insertIndex) insertIndex -= 1;
+  next.splice(insertIndex, 0, draggedId);
+  return next;
+}
+
+function insertDraggedId(
+  ids: string[],
+  draggedId: string,
+  targetId: string,
+  position: 'before' | 'after',
+) {
+  const next = ids.filter(id => id !== draggedId);
+  const targetIndex = next.indexOf(targetId);
+  if (targetIndex < 0) return [...next, draggedId];
+
+  const insertIndex = targetIndex + (position === 'after' ? 1 : 0);
   next.splice(insertIndex, 0, draggedId);
   return next;
 }
@@ -359,6 +382,8 @@ export function ProjectTree() {
     reorderProjects,
     reorderWorkstations,
     reorderModules,
+    moveWorkstation,
+    moveModule,
     updateProject,
     updateWorkstation,
     updateModule,
@@ -469,35 +494,96 @@ export function ProjectTree() {
   };
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>, target: DragTreeNode) => {
-    if (isSearchActive || !isSameDragScope(draggingNodeRef.current, target)) return;
+    if (isSearchActive || !canDropOnTarget(draggingNodeRef.current, target)) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
-    setDragOverNode({ ...target, position: getDropPosition(event) });
+    setDragOverNode({
+      ...target,
+      position: draggingNodeRef.current?.type === target.type ? getDropPosition(event) : 'after',
+    });
   };
 
   const handleDrop = async (
     event: DragEvent<HTMLDivElement>,
     target: DragTreeNode,
-    siblingIds: string[],
   ) => {
     const source = draggingNodeRef.current || parseDragNode(event.dataTransfer.getData('text/plain'));
-    if (isSearchActive || !isSameDragScope(source, target)) return;
+    if (isSearchActive || !canDropOnTarget(source, target)) return;
     event.preventDefault();
     event.stopPropagation();
-    const position = getDropPosition(event);
-    const orderedIds = reorderIds(siblingIds, source!.id, target.id, position);
+    const position = source?.type === target.type ? getDropPosition(event) : 'after';
     setDragOverNode(null);
     draggingNodeRef.current = null;
-    if (orderedIds.join('|') === siblingIds.join('|')) return;
 
     try {
-      if (target.type === 'project') {
+      if (!source) return;
+
+      if (source.type === 'project' && target.type === 'project') {
+        const siblingIds = filteredData.projects.map(p => p.id);
+        const orderedIds = reorderIds(siblingIds, source.id, target.id, position);
+        if (orderedIds.join('|') === siblingIds.join('|')) return;
         await reorderProjects(orderedIds);
-      } else if (target.type === 'workstation' && target.parentId) {
-        await reorderWorkstations(target.parentId, orderedIds);
-      } else if (target.type === 'module' && target.parentId) {
-        await reorderModules(target.parentId, orderedIds);
+        return;
+      }
+
+      if (source.type === 'workstation') {
+        if (target.type === 'project') {
+          const siblingIds = getProjectWorkstations(target.id).map(item => item.id);
+          const orderedIds = [...siblingIds.filter(item => item !== source.id), source.id];
+          if (source.parentId === target.id && orderedIds.join('|') === siblingIds.join('|')) return;
+          if (source.parentId === target.id) {
+            await reorderWorkstations(target.id, orderedIds);
+          } else {
+            await moveWorkstation(source.id, target.id, orderedIds);
+          }
+          setExpandedProjects(prev => new Set([...prev, target.id]));
+          return;
+        }
+
+        if (target.type === 'workstation' && target.parentId) {
+          const siblingIds = getProjectWorkstations(target.parentId).map(item => item.id);
+          const orderedIds = source.parentId === target.parentId
+            ? reorderIds(siblingIds, source.id, target.id, position)
+            : insertDraggedId(siblingIds, source.id, target.id, position);
+          if (source.parentId === target.parentId && orderedIds.join('|') === siblingIds.join('|')) return;
+          if (source.parentId === target.parentId) {
+            await reorderWorkstations(target.parentId, orderedIds);
+          } else {
+            await moveWorkstation(source.id, target.parentId, orderedIds);
+          }
+          setExpandedProjects(prev => new Set([...prev, target.parentId!]));
+          return;
+        }
+      }
+
+      if (source.type === 'module') {
+        if (target.type === 'workstation') {
+          const siblingIds = getWorkstationModules(target.id).map(item => item.id);
+          const orderedIds = [...siblingIds.filter(item => item !== source.id), source.id];
+          if (source.parentId === target.id && orderedIds.join('|') === siblingIds.join('|')) return;
+          if (source.parentId === target.id) {
+            await reorderModules(target.id, orderedIds);
+          } else {
+            await moveModule(source.id, target.id, orderedIds);
+          }
+          setExpandedWorkstations(prev => new Set([...prev, target.id]));
+          return;
+        }
+
+        if (target.type === 'module' && target.parentId) {
+          const siblingIds = getWorkstationModules(target.parentId).map(item => item.id);
+          const orderedIds = source.parentId === target.parentId
+            ? reorderIds(siblingIds, source.id, target.id, position)
+            : insertDraggedId(siblingIds, source.id, target.id, position);
+          if (source.parentId === target.parentId && orderedIds.join('|') === siblingIds.join('|')) return;
+          if (source.parentId === target.parentId) {
+            await reorderModules(target.parentId, orderedIds);
+          } else {
+            await moveModule(source.id, target.parentId, orderedIds);
+          }
+          setExpandedWorkstations(prev => new Set([...prev, target.parentId!]));
+        }
       }
     } catch {
       // DataContext owns rollback and toast.
@@ -867,7 +953,7 @@ export function ProjectTree() {
                     dragOverPosition={dragOverNode?.type === 'project' && dragOverNode.id === project.id ? dragOverNode.position : null}
                     onDragStart={(event) => handleDragStart(event, { type: 'project', id: project.id })}
                     onDragOver={(event) => handleDragOver(event, { type: 'project', id: project.id })}
-                    onDrop={(event) => handleDrop(event, { type: 'project', id: project.id }, filteredData.projects.map(p => p.id))}
+                    onDrop={(event) => handleDrop(event, { type: 'project', id: project.id })}
                     onDragEnd={handleDragEnd}
                   />
                     );
@@ -958,7 +1044,6 @@ export function ProjectTree() {
                               onDrop={(event) => handleDrop(
                                 event,
                                 { type: 'workstation', id: ws.id, parentId: project.id },
-                                displayWorkstations.map(item => item.id),
                               )}
                               onDragEnd={handleDragEnd}
                             />
@@ -1021,7 +1106,6 @@ export function ProjectTree() {
                                         onDrop={(event) => handleDrop(
                                           event,
                                           { type: 'module', id: mod.id, parentId: ws.id },
-                                          displayModules.map(item => item.id),
                                         )}
                                         onDragEnd={handleDragEnd}
                                       />

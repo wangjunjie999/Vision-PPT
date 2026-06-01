@@ -174,7 +174,7 @@ export const SYSTEM_FIELDS = {
     { field: 'mod_trigger_label', label: '触发方式', example: 'IO触发' },
     { field: 'mod_roi_strategy', label: '模块 ROI 策略', example: '固定 ROI' },
     { field: 'mod_processing_time', label: '处理时限(ms)', example: '100' },
-    { field: 'mod_description', label: '模块描述', example: '定位孔检测' },
+    { field: 'mod_description', label: '检测步骤', example: '1. 产品到位触发拍照\n2. 图像处理并输出结果' },
     { field: 'mod_detection_method', label: '检测方式', example: '2D*1' },
     { field: 'mod_field_of_view', label: '视野范围', example: '380*253mm' },
     { field: 'mod_pixel_accuracy', label: '像素精度', example: '0.07mm/pixel' },

@@ -30,6 +30,8 @@ import {
 } from './pptx/slideLabels';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
+import { isModule3DCamera as isModule3DCameraWithLegacy } from '@/utils/module3DCamera';
+import { formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
 
 // Type definitions for pptxgenjs
 type TableCell = { text: string; options?: Record<string, unknown> };
@@ -46,6 +48,7 @@ interface RevisionHistoryItem {
 
 interface AcceptanceCriteria {
   accuracy?: string;
+  detection_content?: string;
   cycle_time?: string;
   compatible_sizes?: string;
 }
@@ -58,6 +61,8 @@ interface ProjectData {
   date: string | null;
   responsible: string | null;
   product_process: string | null;
+  production_line?: string | null;
+  description?: string | null;
   quality_strategy: string | null;
   environment: string[] | null;
   notes: string | null;
@@ -79,6 +84,7 @@ interface WorkstationData {
   shot_count?: number | null;
   risk_notes?: string | null;
   action_script?: string | null;
+  notes?: string | null;
 }
 
 interface LayoutData {
@@ -127,15 +133,7 @@ interface ModuleData {
 }
 
 function isModule3DCameraForOutput(module: ModuleData, projectUses3D: boolean): boolean {
-  if (projectUses3D) return true;
-  const config = module.defect_config
-    || module.positioning_config
-    || module.measurement_config
-    || module.ocr_config
-    || module.deep_learning_config;
-  const imaging = config?.imaging as Record<string, unknown> | undefined;
-  const value = imaging?.is3DCamera;
-  return value === true || String(value || '').toLowerCase() === 'true';
+  return isModule3DCameraWithLegacy(module, projectUses3D);
 }
 
 interface HardwareData {
@@ -398,21 +396,35 @@ function generateModuleTocSlides(
         margin: 0.03,
       } as any);
 
-      slide.addText(title, {
+      const moduleLink = {
+        slide: entry.targetSlideNumber,
+        tooltip: isZh ? `跳转到 ${entry.moduleName}` : `Jump to ${entry.moduleName}`,
+      };
+
+      slide.addText([{
+        text: title,
+        options: {
+          color: COLORS.primary,
+          bold: true,
+          underline: { style: 'sng', color: COLORS.primary },
+          hyperlink: moduleLink,
+        },
+      }], {
         x: x + 0.48, y: y - 0.02, w: w - 0.95, h: 0.22,
         fontSize: 9.5, fontFace: FONTS.body, color: COLORS.primary, bold: true,
-        underline: { style: 'sng', color: COLORS.primary },
-        hyperlink: {
-          slide: entry.targetSlideNumber,
-          tooltip: isZh ? `跳转到 ${entry.moduleName}` : `Jump to ${entry.moduleName}`,
-        },
         fit: 'shrink',
       } as any);
 
-      slide.addText(`p.${entry.targetSlideNumber}`, {
+      slide.addText([{
+        text: `p.${entry.targetSlideNumber}`,
+        options: {
+          color: COLORS.secondary,
+          hyperlink: moduleLink,
+        },
+      }], {
         x: x + w - 0.38, y: y - 0.02, w: 0.45, h: 0.22,
         fontSize: 8, fontFace: FONTS.body, color: COLORS.secondary, align: 'right',
-      });
+      } as any);
 
       slide.addText(`${entry.workstationName} · ${typeLabel}`, {
         x: x + 0.48, y: y + 0.22, w: w - 0.55, h: 0.2,
@@ -441,6 +453,70 @@ const cell = (text: string, opts?: Partial<TableCell>): TableCell => ({ text, op
 
 // Helper to create table row from strings
 const row = (cells: string[]): TableRow => cells.map(t => cell(t));
+
+const PROJECT_INFO_ROW_H = 0.25;
+const PROJECT_NOTES_TABLE_LINE_WEIGHT = 92;
+const PROJECT_NOTES_ROW_MIN_H = 0.42;
+const PROJECT_NOTES_ROW_LINE_H = 0.18;
+const PROJECT_NOTES_ROW_PADDING_H = 0.14;
+const PROJECT_NOTES_CONTINUATION_LINES_PER_PAGE = 22;
+const PROJECT_WS_HEADER_ROW_H = 0.26;
+const PROJECT_WS_DATA_ROW_H = 0.26;
+
+function normalizePptBodyText(text?: string | null): string {
+  return (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+}
+
+function getPptCharWeight(char: string): number {
+  if (/\s/.test(char)) return 0.35;
+  if (/[\u3400-\u9fff\uff00-\uffef]/.test(char)) return 1;
+  return 0.56;
+}
+
+function wrapTextToLines(text: string, maxWeight: number): string[] {
+  const lines: string[] = [];
+
+  for (const rawParagraph of text.split('\n')) {
+    const paragraph = rawParagraph.trim();
+    if (!paragraph) {
+      if (lines.length > 0) lines.push('');
+      continue;
+    }
+
+    let currentLine = '';
+    let currentWeight = 0;
+
+    for (const char of Array.from(paragraph)) {
+      const charWeight = getPptCharWeight(char);
+      if (currentLine && currentWeight + charWeight > maxWeight) {
+        lines.push(currentLine.trimEnd());
+        currentLine = char.trimStart();
+        currentWeight = currentLine ? charWeight : 0;
+      } else {
+        currentLine += char;
+        currentWeight += charWeight;
+      }
+    }
+
+    if (currentLine) lines.push(currentLine.trimEnd());
+  }
+
+  while (lines[0] === '') lines.shift();
+  while (lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+function splitLinesIntoChunks(lines: string[], maxLines: number): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < lines.length; index += maxLines) {
+    chunks.push(lines.slice(index, index + maxLines));
+  }
+  return chunks;
+}
+
+function getProjectNotesRowHeight(lineCount: number): number {
+  return Math.max(PROJECT_NOTES_ROW_MIN_H, lineCount * PROJECT_NOTES_ROW_LINE_H + PROJECT_NOTES_ROW_PADDING_H);
+}
 
 // Helper to create auto-page table options
 /** @deprecated autoPage 与 colspan/显式 h 组合会触发 pptxgenjs 报错；新代码请手动分页。 */
@@ -559,12 +635,6 @@ function getMeasurementParams(config: Record<string, unknown>, isZh: boolean): T
   }
   if (config.measurementResolution) {
     rows.push(row([isZh ? '分辨率' : 'Resolution', `${config.measurementResolution} mm/pixel`]));
-  }
-  if (config.targetAccuracy) {
-    rows.push(row([isZh ? '目标精度' : 'Target Accuracy', `±${config.targetAccuracy} mm`]));
-  }
-  if (config.systemAccuracy) {
-    rows.push(row([isZh ? '系统精度' : 'System Accuracy', `±${config.systemAccuracy} mm`]));
   }
   if (config.calibrationMethod) {
     const calibrationLabels: Record<string, Record<string, string>> = {
@@ -947,67 +1017,114 @@ export async function generatePPTX(
   progress = 8;
   onProgress(progress, isZh ? '生成项目说明页...' : 'Generating project description...', isZh ? '项目说明页' : 'Project description');
 
-  const descSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  
-  // Title overlaid on navy header bar
-  descSlide.addText(isZh ? '项目说明' : 'Project Description', {
-    ...MASTER_SLIDE_TITLE,
-  });
-  descSlide.addText(isZh ? '项目基本信息' : 'Project Information', {
-    x: 0, y: st.y, w: '100%', h: st.h,
-    fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
-    bold: st.bold, italic: st.italic,
-  });
+  const addProjectSlideHeader = (
+    slide: ReturnType<PptxGenJS['addSlide']>,
+    title: string,
+    subtitle: string,
+  ) => {
+    slide.addText(title, {
+      ...MASTER_SLIDE_TITLE,
+    });
+    slide.addText(subtitle, {
+      x: 0, y: st.y, w: '100%', h: st.h,
+      fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
+      bold: st.bold, italic: st.italic,
+    });
+  };
+
+  const createProjectContinuationSlide = (title: string, subtitle: string) => {
+    const slide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    addProjectSlideHeader(slide, title, subtitle);
+    return slide;
+  };
+
+  const descSlide = createProjectContinuationSlide(
+    isZh ? '项目说明' : 'Project Description',
+    isZh ? '项目基本信息' : 'Project Information',
+  );
 
   // Project basic info table
-  const projectExt = project as ProjectData & { production_line?: string; description?: string };
+  const projectExt = project as ProjectData & { production_line?: string | null; description?: string | null };
+  const projectDesc = normalizePptBodyText(projectExt.description);
+  const projectNotes = normalizePptBodyText(project.notes);
+  const projectNotesLines = projectNotes
+    ? wrapTextToLines(projectNotes, PROJECT_NOTES_TABLE_LINE_WEIGHT)
+    : [];
+  const projectInfoTableY = SLIDE_LAYOUT.contentTop + 0.45;
   
   const projectInfoRows: TableRow[] = [
     row([isZh ? '项目编号' : 'Project Code', project.code]),
     row([isZh ? '项目名称' : 'Project Name', project.name]),
     row([isZh ? '客户名称' : 'Customer', project.customer]),
-    row([isZh ? '产线名称' : 'Production Line', projectExt.production_line || '-']),
     row([isZh ? '负责人' : 'Responsible', project.responsible || '-']),
     row([isZh ? '项目日期' : 'Date', project.date || '-']),
   ];
+  const baseProjectInfoHeight = projectInfoRows.length * PROJECT_INFO_ROW_H;
+  const reservedProjectDescHeight = projectDesc ? 1.5 : 0;
+  const firstPageNotesMaxHeight = Math.max(
+    PROJECT_NOTES_ROW_MIN_H,
+    SLIDE_LAYOUT.contentBottom - projectInfoTableY - baseProjectInfoHeight - reservedProjectDescHeight - 0.08,
+  );
+  const firstPageNotesMaxLines = Math.max(
+    1,
+    Math.floor((firstPageNotesMaxHeight - PROJECT_NOTES_ROW_PADDING_H) / PROJECT_NOTES_ROW_LINE_H),
+  );
+  const projectNotesInlineLines = projectNotesLines.slice(0, firstPageNotesMaxLines);
+  const projectNotesOverflowLines = projectNotesLines.slice(firstPageNotesMaxLines);
+  const projectNotesContinuationChunks = splitLinesIntoChunks(
+    projectNotesOverflowLines,
+    PROJECT_NOTES_CONTINUATION_LINES_PER_PAGE,
+  );
+  const hasNotesContinuation = projectNotesContinuationChunks.length > 0;
+  const projectNotesRowIndex = projectNotes ? projectInfoRows.length : -1;
+  if (projectNotes) {
+    const inlineNotes = projectNotesInlineLines.join('\n');
+    projectInfoRows.push([
+      cell(isZh ? '项目备注' : 'Project Notes'),
+      cell(inlineNotes, {
+        fontSize: 8.5,
+        valign: 'top',
+      } as any),
+    ]);
+  }
+  const projectInfoRowHeights = projectInfoRows.map((_, index) => (
+    index === projectNotesRowIndex ? getProjectNotesRowHeight(projectNotesInlineLines.length) : PROJECT_INFO_ROW_H
+  ));
 
   descSlide.addTable(projectInfoRows, {
-    x: SLIDE_LAYOUT.contentLeft, y: SLIDE_LAYOUT.contentTop + 0.45, w: SLIDE_LAYOUT.contentWidth,
+    x: SLIDE_LAYOUT.contentLeft, y: projectInfoTableY, w: SLIDE_LAYOUT.contentWidth,
     fontFace: FONTS.body,
     fontSize: 9,
     colW: [1.5, 7.7],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
+    rowH: projectInfoRowHeights,
   });
 
   // Project description
-  const projectDesc = projectExt.description || '';
+  let nextSectionY = projectInfoTableY + projectInfoRowHeights.reduce((sum, height) => sum + height, 0) + 0.05;
   if (projectDesc) {
     descSlide.addText(isZh ? '【项目简介】' : '[Project Overview]', {
-      x: SLIDE_LAYOUT.contentLeft, y: 2.55, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
+      x: SLIDE_LAYOUT.contentLeft, y: nextSectionY, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
       fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
     });
     descSlide.addShape('rect', {
-      x: SLIDE_LAYOUT.contentLeft, y: 2.88, w: SLIDE_LAYOUT.contentWidth, h: 0.9,
+      x: SLIDE_LAYOUT.contentLeft, y: nextSectionY + 0.33, w: SLIDE_LAYOUT.contentWidth, h: 0.9,
       fill: { color: 'F5F5F5' },
       line: { color: COLORS.border, width: 0.5 },
     });
     descSlide.addText(projectDesc, {
-      x: SLIDE_LAYOUT.contentLeft + 0.1, y: 2.95, w: SLIDE_LAYOUT.contentWidth - 0.2, h: 0.75,
+      x: SLIDE_LAYOUT.contentLeft + 0.1, y: nextSectionY + 0.4, w: SLIDE_LAYOUT.contentWidth - 0.2, h: 0.75,
       fontSize: 9, fontFace: FONTS.body, color: COLORS.dark,
     });
+    nextSectionY += 1.45;
   }
 
   // Workstation overview table (merged from former Project Overview slide)
-  const wsOverviewY = projectDesc ? 4.0 : 2.55;
-  descSlide.addText(isZh ? '工位清单' : 'Workstation List', {
-    x: SLIDE_LAYOUT.contentLeft, y: wsOverviewY, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
-    fontSize: 11, fontFace: FONTS.body, color: COLORS.dark, bold: true,
-  });
-
   const wsTableHeader: TableRow = row([
-    isZh ? '编号' : 'Code',
+    isZh ? '编号' : 'No.',
+    isZh ? '工站号' : 'Station No.',
     isZh ? '名称' : 'Name',
     isZh ? '类型' : 'Type',
     isZh ? '工位节拍(s)' : 'Station Cycle(s)',
@@ -1015,24 +1132,111 @@ export async function generatePPTX(
   ]);
 
   const wsTableRows: TableRow[] = workstations.map((ws, index) => row([
+    String(index + 1),
     getWorkstationCode(project.code, index, ws.code),
     ws.name,
     WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type,
-    ws.cycle_time?.toString() || '-',
+    formatWorkstationCycleTimePlain(ws),
     modules.filter(m => m.workstation_id === ws.id).length.toString(),
   ]));
 
-  descSlide.addTable([wsTableHeader, ...wsTableRows], {
-    x: SLIDE_LAYOUT.contentLeft, y: wsOverviewY + 0.32, w: SLIDE_LAYOUT.contentWidth,
-    fontFace: FONTS.body,
-    fontSize: 8,
-    colW: [1.1, 3.2, 1.4, 1.1, 1.1],
-    border: { pt: 0.5, color: COLORS.border },
-    fill: { color: COLORS.white },
-    valign: 'middle',
-    align: 'center',
-    rowH: 0.26,
+  const addWorkstationOverviewTable = (
+    slide: ReturnType<PptxGenJS['addSlide']>,
+    startY: number,
+    rows: TableRow[],
+    startIndex: number,
+    titleSuffix = '',
+  ): number => {
+    const tableY = startY + 0.32;
+    const availableHeight = SLIDE_LAYOUT.contentBottom - tableY - 0.04;
+    if (availableHeight < PROJECT_WS_HEADER_ROW_H) return startIndex;
+
+    const bodyCapacity = Math.max(0, Math.floor((availableHeight - PROJECT_WS_HEADER_ROW_H) / PROJECT_WS_DATA_ROW_H));
+    if (rows.length > 0 && bodyCapacity < 1) return startIndex;
+
+    const pageRows = rows.length > 0
+      ? rows.slice(startIndex, startIndex + bodyCapacity)
+      : [];
+    if (rows.length > 0 && pageRows.length === 0) return startIndex;
+
+    slide.addText(`${isZh ? '工位清单' : 'Workstation List'}${titleSuffix}`, {
+      x: SLIDE_LAYOUT.contentLeft, y: startY, w: SLIDE_LAYOUT.contentWidth, h: 0.28,
+      fontSize: 11, fontFace: FONTS.body, color: COLORS.dark, bold: true,
+    });
+
+    slide.addTable([wsTableHeader, ...pageRows], {
+      x: SLIDE_LAYOUT.contentLeft, y: tableY, w: SLIDE_LAYOUT.contentWidth,
+      fontFace: FONTS.body,
+      fontSize: 8,
+      colW: [0.6, 1.3, 3.35, 1.55, 1.35, 1.05],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+      align: 'center',
+      rowH: [PROJECT_WS_HEADER_ROW_H, ...pageRows.map(() => PROJECT_WS_DATA_ROW_H)],
+    });
+
+    return rows.length > 0 ? startIndex + pageRows.length : 0;
+  };
+
+  let wsRowIndex = 0;
+  if (!hasNotesContinuation) {
+    wsRowIndex = addWorkstationOverviewTable(descSlide, nextSectionY, wsTableRows, 0);
+  }
+
+  projectNotesContinuationChunks.forEach((chunk, pageIndex) => {
+    const notesSlide = createProjectContinuationSlide(
+      isZh ? '项目说明（续）' : 'Project Description (cont.)',
+      isZh ? '项目基本信息' : 'Project Information',
+    );
+    const pageLabel = projectNotesContinuationChunks.length > 1
+      ? ` (${pageIndex + 1}/${projectNotesContinuationChunks.length})`
+      : '';
+    notesSlide.addTable([
+      [
+        cell(`${isZh ? '项目备注（续）' : 'Project Notes (cont.)'}${pageLabel}`),
+        cell(chunk.join('\n'), {
+          fontSize: 8.5,
+          valign: 'top',
+        } as any),
+      ],
+    ], {
+      x: SLIDE_LAYOUT.contentLeft,
+      y: SLIDE_LAYOUT.contentTop + 0.45,
+      w: SLIDE_LAYOUT.contentWidth,
+      fontFace: FONTS.body,
+      fontSize: 9,
+      colW: [1.5, 7.7],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'top',
+      rowH: [Math.min(getProjectNotesRowHeight(chunk.length), SLIDE_LAYOUT.contentHeight - 0.55)],
+    });
   });
+
+  if (hasNotesContinuation && wsTableRows.length === 0) {
+    const wsSlide = createProjectContinuationSlide(
+      isZh ? '项目说明（续）' : 'Project Description (cont.)',
+      isZh ? '工位清单' : 'Workstation List',
+    );
+    addWorkstationOverviewTable(wsSlide, SLIDE_LAYOUT.contentTop + 0.45, wsTableRows, 0);
+  }
+
+  while (wsRowIndex < wsTableRows.length) {
+    const wsSlide = createProjectContinuationSlide(
+      isZh ? '项目说明（续）' : 'Project Description (cont.)',
+      isZh ? '工位清单' : 'Workstation List',
+    );
+    const nextWsRowIndex = addWorkstationOverviewTable(
+      wsSlide,
+      SLIDE_LAYOUT.contentTop + 0.45,
+      wsTableRows,
+      wsRowIndex,
+      wsRowIndex > 0 ? (isZh ? '（续）' : ' (cont.)') : '',
+    );
+    if (nextWsRowIndex <= wsRowIndex) break;
+    wsRowIndex = nextWsRowIndex;
+  }
 
   // ========== SLIDE 3: Revision History ==========
   progress = 10;
@@ -1051,18 +1255,13 @@ export async function generatePPTX(
     bold: st.bold, italic: st.italic,
   });
 
-  // Table title row
-  const tableTitleRow: TableRow = [
-    { text: isZh ? '发行/变更履历表' : 'Release/Change History', options: { colspan: 6, align: 'center', bold: true, fill: { color: '2E75B6' }, color: COLORS.white, fontSize: 10, fontFace: FONTS.body } as any },
-  ];
-
   const revisionHeader: TableRow = [
-    cell(isZh ? '编号' : 'No.', { fill: { color: '2E75B6' }, color: COLORS.white, bold: true, align: 'center', fontSize: 9, fontFace: FONTS.body } as any),
-    cell(isZh ? '版本' : 'Version', { fill: { color: '2E75B6' }, color: COLORS.white, bold: true, align: 'center', fontSize: 9, fontFace: FONTS.body } as any),
-    cell(isZh ? '发行/变更描述' : 'Description', { fill: { color: '2E75B6' }, color: COLORS.white, bold: true, align: 'center', fontSize: 9, fontFace: FONTS.body } as any),
-    cell(isZh ? '客户规格书版本' : 'Customer Spec', { fill: { color: '2E75B6' }, color: COLORS.white, bold: true, align: 'center', fontSize: 9, fontFace: FONTS.body } as any),
-    cell(isZh ? '日期' : 'Date', { fill: { color: '2E75B6' }, color: COLORS.white, bold: true, align: 'center', fontSize: 9, fontFace: FONTS.body } as any),
-    cell(isZh ? '发行/变更人' : 'Author', { fill: { color: '2E75B6' }, color: COLORS.white, bold: true, align: 'center', fontSize: 9, fontFace: FONTS.body } as any),
+    cell(isZh ? '编号' : 'No.', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
+    cell(isZh ? '版本' : 'Version', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
+    cell(isZh ? '发行/变更描述' : 'Description', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
+    cell(isZh ? '客户规格书版本' : 'Customer Spec', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
+    cell(isZh ? '日期' : 'Date', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
+    cell(isZh ? '发行/变更人' : 'Author', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
   ];
 
   const revisionHistory = project.revision_history || [];
@@ -1081,18 +1280,39 @@ export async function generatePPTX(
         row(['3', '', '', '', '', '']),
       ];
 
-  revisionSlide.addTable([tableTitleRow, revisionHeader, ...revisionRows], {
-    x: SLIDE_LAYOUT.contentLeft, 
-    y: 0.85, 
-    w: SLIDE_LAYOUT.contentWidth,
+  const revisionHeaderRowH = 0.4;
+  const revisionMaxDataRowH = 0.45;
+  const revisionMinDataRowH = 0.28;
+  const revisionContentTop = 0.9;
+  const revisionContentBottom = SLIDE_LAYOUT.contentBottom - 0.1;
+  const revisionAvailableHeight = revisionContentBottom - revisionContentTop;
+  const revisionDataRowH = Math.min(
+    revisionMaxDataRowH,
+    Math.max(
+      revisionMinDataRowH,
+      (revisionAvailableHeight - revisionHeaderRowH) / Math.max(revisionRows.length, 1),
+    ),
+  );
+  const revisionTableHeight = revisionHeaderRowH + revisionRows.length * revisionDataRowH;
+  const revisionTableWidth = SLIDE_LAYOUT.contentWidth;
+  const revisionTableX = (SLIDE_LAYOUT.width - revisionTableWidth) / 2;
+  const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 2);
+
+  revisionSlide.addTable([revisionHeader, ...revisionRows], {
+    x: revisionTableX,
+    y: revisionTableY,
+    w: revisionTableWidth,
     fontFace: FONTS.body,
-    fontSize: 9,
-    colW: [0.6, 0.7, 3.2, 1.6, 1.2, 1.2],
+    fontSize: 10,
+    colW: [0.65, 0.85, 3.6, 1.75, 1.2, 1.15],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
     align: 'center',
-    rowH: 0.3,
+    rowH: [
+      revisionHeaderRowH,
+      ...revisionRows.map(() => revisionDataRowH),
+    ],
   });
 
   // (Camera installation guide slide removed)
@@ -1187,6 +1407,7 @@ export async function generatePPTX(
         shot_count: ws.shot_count,
         risk_notes: ws.risk_notes,
         action_script: ws.action_script,
+        notes: ws.notes,
         description: (ws as unknown as Record<string, unknown>).description as string | null,
       },
       layout: wsLayout ? {
@@ -1207,8 +1428,8 @@ export async function generatePPTX(
         height: wsLayout.height,
         depth: wsLayout.depth,
         selected_cameras: wsLayout.selected_cameras,
-        selected_lenses: projectUses3D ? [] : wsLayout.selected_lenses,
-        selected_lights: projectUses3D ? [] : wsLayout.selected_lights,
+        selected_lenses: wsLayout.selected_lenses,
+        selected_lights: wsLayout.selected_lights,
         selected_controller: wsLayout.selected_controller,
       } : null,
       modules: wsModules.map(m => {
@@ -1224,6 +1445,7 @@ export async function generatePPTX(
           selected_lens: moduleUses3D ? null : m.selected_lens,
           selected_light: moduleUses3D ? null : m.selected_light,
           selected_controller: m.selected_controller,
+          is_3d_camera: moduleUses3D,
           schematic_image_url: m.schematic_image_url,
           positioning_config: m.positioning_config,
           defect_config: m.defect_config,
@@ -1493,6 +1715,39 @@ export async function generatePPTX(
 
   // ========== END SLIDE (16:9 optimized) ==========
   progress = 98;
+  onProgress(progress, isZh ? '生成封底页...' : 'Generating end slide...', isZh ? '封底页' : 'End slide');
+  const endSlide = pptx.addSlide();
+  const endImageUrl = `${window.location.origin}/ppt-covers/end.jpg`;
+  const endImageData = await fetchImageAsDataUri(endImageUrl, { timeoutMs: 60000 });
+  if (endImageData) {
+    endSlide.addImage({
+      data: endImageData,
+      x: 0,
+      y: 0,
+      w: SLIDE_LAYOUT.width,
+      h: SLIDE_LAYOUT.height,
+    });
+  } else {
+    endSlide.addShape('rect', {
+      x: 0,
+      y: 0,
+      w: '100%',
+      h: '100%',
+      fill: { color: COLORS.background },
+    });
+    endSlide.addText(isZh ? COMPANY_NAME_ZH : COMPANY_NAME_EN, {
+      x: 1,
+      y: 2.3,
+      w: 8,
+      h: 0.5,
+      fontSize: 20,
+      fontFace: FONTS.heading,
+      color: COLORS.primary,
+      bold: true,
+      align: 'center',
+    });
+  }
+
   // Generate blob
   progress = 100;
   onProgress(progress, isZh ? '完成' : 'Complete', isZh ? 'PPT生成完成' : 'PPT generation complete');

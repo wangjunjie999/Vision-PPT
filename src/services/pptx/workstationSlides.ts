@@ -35,7 +35,8 @@ import {
 } from '@/services/labelMaps';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import { buildModuleVisionChecklist } from '@/utils/moduleVisionChecklist';
-import { getThreeDDisplayInfo, type ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
+import { formatWorkstationCycleTime } from '@/utils/cycleTimeDisplay';
+import { buildThreeDMeasurementChecklist, getThreeDDisplayInfo, type ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 
 // Type definitions
 type TableCell = { text: string; options?: Record<string, unknown> };
@@ -282,6 +283,13 @@ interface SlideContext {
   responsible: string | null;
 }
 
+interface WorkstationAcceptanceCriteria {
+  accuracy?: string | null;
+  detection_content?: string | null;
+  cycle_time?: string | null;
+  compatible_sizes?: string | null;
+}
+
 interface WorkstationSlideData {
   ws: {
     id: string;
@@ -292,12 +300,13 @@ interface WorkstationSlideData {
     enclosed: boolean | null;
     process_stage?: string | null;
     observation_target?: string | null;
-    acceptance_criteria?: { accuracy?: string; cycle_time?: string; compatible_sizes?: string } | null;
+    acceptance_criteria?: WorkstationAcceptanceCriteria | null;
     motion_description?: string | null;
     shot_count?: number | null;
     risk_notes?: string | null;
     action_script?: string | null;
     description?: string | null;
+    notes?: string | null;
   };
   layout: {
     workstation_id: string;
@@ -332,6 +341,7 @@ interface WorkstationSlideData {
     selected_lens?: string | null;
     selected_light?: string | null;
     selected_controller?: string | null;
+    is_3d_camera?: boolean;
     schematic_image_url?: string | null;
     positioning_config?: Record<string, unknown> | null;
     defect_config?: Record<string, unknown> | null;
@@ -363,6 +373,71 @@ interface WorkstationSlideData {
 }
 
 export type { WorkstationSlideData, FullCameraData, FullLensData, FullLightData, FullControllerData };
+
+export interface WorkstationTechnicalRequirementTables {
+  basicInfoRows: string[][];
+  moduleRows: string[][];
+  detectionContentRows: string[][];
+  noteText: string;
+}
+
+function filledOrDash(value: unknown): string {
+  const text = value == null ? '' : String(value).trim();
+  return text || '-';
+}
+
+function blankIfMissing(value: unknown): string {
+  return value == null ? '' : String(value).trim();
+}
+
+function formatProductDimensions(dims: WorkstationSlideData['ws']['product_dimensions']): string {
+  if (!dims) return '-';
+  const { length, width, height } = dims;
+  if (length == null || width == null || height == null) return '-';
+  return `${length} × ${width} × ${height} mm`;
+}
+
+function buildModuleNameRows(modules: WorkstationSlideData['modules']): string[][] {
+  const moduleNames = modules
+    .map(mod => String(mod.name || '').trim())
+    .filter(Boolean);
+  return moduleNames.length > 0
+    ? moduleNames.map(name => [name])
+    : [['-']];
+}
+
+export function buildWorkstationTechnicalRequirementTables({
+  isZh,
+  wsCode,
+  wsName,
+  ws,
+  modules,
+}: {
+  isZh: boolean;
+  wsCode: string;
+  wsName: string;
+  ws: WorkstationSlideData['ws'];
+  modules: WorkstationSlideData['modules'];
+}): WorkstationTechnicalRequirementTables {
+  const acceptance = ws.acceptance_criteria || {};
+  const wsTypeLabel = WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type;
+
+  const basicInfoRows = [
+    [isZh ? '工位编号' : 'Code', filledOrDash(wsCode)],
+    [isZh ? '工位名称' : 'Name', filledOrDash(wsName)],
+    [isZh ? '工位类型' : 'Type', filledOrDash(wsTypeLabel)],
+    [isZh ? '工位节拍' : 'Station Cycle Time', formatWorkstationCycleTime(ws)],
+    [isZh ? '精度要求' : 'Accuracy', filledOrDash(acceptance.accuracy)],
+    [isZh ? '产品尺寸' : 'Product Size', formatProductDimensions(ws.product_dimensions)],
+  ];
+
+  return {
+    basicInfoRows,
+    moduleRows: buildModuleNameRows(modules),
+    detectionContentRows: [[filledOrDash(acceptance.detection_content)]],
+    noteText: blankIfMissing(ws.notes),
+  };
+}
 
 /**
  * Slide 0: Workstation Title
@@ -456,7 +531,7 @@ export function generateBasicInfoSlide(
 
   // Compatible sizes / Key dimensions
   const dims = ws.product_dimensions;
-  slide.addText(ctx.isZh ? '【兼容/蓝本尺寸】' : '[Compatible/Model Dimensions]', {
+  slide.addText(ctx.isZh ? '【产品尺寸】' : '[Product Size]', {
     x: 0.5, y: startY + 0.65, w: 4.3, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
@@ -478,7 +553,7 @@ export function generateBasicInfoSlide(
   });
 
   // Precision/Resolution/Pixels
-  const accuracy = ws.acceptance_criteria?.accuracy || '±0.1mm';
+  const accuracy = ws.acceptance_criteria?.accuracy || '-';
   slide.addText(ctx.isZh ? '【精度/分辨率/像素】' : '[Accuracy/Resolution/Pixels]', {
     x: 0.5, y: startY + 1.3, w: 4.3, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
@@ -493,7 +568,7 @@ export function generateBasicInfoSlide(
     x: 5, y: startY + 1.3, w: 4.5, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
-  slide.addText(ws.cycle_time ? `${ws.cycle_time} s/pcs` : '-', {
+  slide.addText(formatWorkstationCycleTime(ws), {
     x: 5, y: startY + 1.58, w: 4.5, h: 0.25,
     fontSize: 10, fontFace: FONTS.body, color: COLORS.dark,
   });
@@ -621,96 +696,30 @@ export function generateTechnicalRequirementsSlide(
   data: WorkstationSlideData
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { ws, modules, productAsset } = data;
+  const { ws, modules } = data;
   
   addSlideTitle(slide, ctx, ctx.isZh ? '技术要求' : 'Technical Requirements');
+  const tables = buildWorkstationTechnicalRequirementTables({
+    isZh: ctx.isZh,
+    wsCode: ctx.wsCode,
+    wsName: ctx.wsName,
+    ws,
+    modules,
+  });
 
   // Detection items with module description
-  slide.addText(ctx.isZh ? '【检测项/缺陷项】' : '[Detection/Defect Items]', {
+  slide.addText(ctx.isZh ? '【检测项】' : '[Detection Items]', {
     x: 0.5, y: 1.15, w: 4.3, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  const detectionItems: TableRow[] = [];
-  modules.forEach(mod => {
-    const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
-    // Include module description if available
-    const modDesc = mod.description ? ` - ${mod.description}` : '';
-    detectionItems.push(row([typeLabel, mod.name + modDesc]));
-    
-    // Add specific config details based on module type
-    const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config || mod.ocr_config || mod.deep_learning_config) as Record<string, unknown> | null;
-    if (cfg) {
-      // Defect detection specific
-      if (mod.defect_config) {
-        const defCfg = mod.defect_config as Record<string, unknown>;
-        const defectItems = normalizeDefectItemsFromConfig(defCfg);
-        if (defectItems.length > 0) {
-          detectionItems.push(row([ctx.isZh ? '缺陷/最小尺寸' : 'Defect / Min Size', formatDefectItems(defectItems)]));
-        }
-      }
-      // OCR specific
-      if (mod.ocr_config) {
-        const ocrCfg = mod.ocr_config as Record<string, unknown>;
-        if (ocrCfg.charType) {
-          const charTypeLabels: Record<string, string> = {
-            printed: ctx.isZh ? '印刷字符' : 'Printed',
-            laser: ctx.isZh ? '激光雕刻' : 'Laser Engraved',
-            engraved: ctx.isZh ? '雕刻字符' : 'Engraved',
-            dotMatrix: ctx.isZh ? '点阵字符' : 'Dot Matrix',
-          };
-          detectionItems.push(row([ctx.isZh ? '字符类型' : 'Char Type', charTypeLabels[ocrCfg.charType as string] || String(ocrCfg.charType)]));
-        }
-        if (ocrCfg.charCount) {
-          detectionItems.push(row([ctx.isZh ? '字符数量' : 'Char Count', String(ocrCfg.charCount)]));
-        }
-      }
-      // Measurement specific
-      if (mod.measurement_config) {
-        const measCfg = mod.measurement_config as Record<string, unknown>;
-        if (measCfg.systemAccuracy) {
-          detectionItems.push(row([ctx.isZh ? '系统精度' : 'System Acc.', `±${measCfg.systemAccuracy} mm`]));
-        }
-        if (measCfg.measurementItems && Array.isArray(measCfg.measurementItems)) {
-          const items = measCfg.measurementItems as Array<{ name: string }>;
-          items.forEach(item => {
-            detectionItems.push(row([ctx.isZh ? '测量项' : 'Measure Item', item.name || '-']));
-          });
-        }
-      }
-      // Deep learning specific
-      if (mod.deep_learning_config) {
-        const dlCfg = mod.deep_learning_config as Record<string, unknown>;
-        if (dlCfg.taskType) {
-          const taskLabels: Record<string, string> = {
-            classification: ctx.isZh ? '分类' : 'Classification',
-            detection: ctx.isZh ? '目标检测' : 'Detection',
-            segmentation: ctx.isZh ? '语义分割' : 'Segmentation',
-            anomaly: ctx.isZh ? '异常检测' : 'Anomaly',
-          };
-          detectionItems.push(row([ctx.isZh ? 'AI任务类型' : 'AI Task', taskLabels[dlCfg.taskType as string] || String(dlCfg.taskType)]));
-        }
-        if (dlCfg.targetClasses && Array.isArray(dlCfg.targetClasses)) {
-          detectionItems.push(row([ctx.isZh ? '目标类别' : 'Target Classes', (dlCfg.targetClasses as string[]).join('、')]));
-        }
-      }
-    }
-  });
-
-  // Add detection requirements from product asset
-  productAsset?.detection_requirements?.forEach((req, idx) => {
-    detectionItems.push(row([`${idx + 1}. ${ctx.isZh ? '检测项' : 'Item'}`, req.content]));
-  });
-
-  if (detectionItems.length === 0) {
-    detectionItems.push(row(['-', '-']));
-  }
+  const detectionItems = tables.moduleRows.map(values => row(values));
 
   addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Items', [], detectionItems, {
     x: 0.5, y: 1.45, w: 4.3, h: Math.min(detectionItems.length * 0.28 + 0.1, 2.2),
     fontFace: FONTS.body,
     fontSize: 8,
-    colW: [1.4, 2.9],
+    colW: [4.3],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   }, {
@@ -721,85 +730,39 @@ export function generateTechnicalRequirementsSlide(
       x: 0.5, y: 1.2, w: 9,
       fontFace: FONTS.body,
       fontSize: 8,
-      colW: [2.2, 6.8],
+      colW: [9],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
     },
   });
 
-  // Minimum defect / Tolerance / Configuration details
-  slide.addText(ctx.isZh ? '【配置参数/允许偏差】' : '[Config Parameters/Tolerance]', {
+  slide.addText(ctx.isZh ? '【检测内容】' : '[Detection Content]', {
     x: 5, y: 1.15, w: 4.5, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  const toleranceRows: TableRow[] = [];
-  modules.forEach(mod => {
-    const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config || mod.ocr_config) as Record<string, unknown> | null;
-    if (cfg) {
-      // Common imaging config
-      const imaging = cfg.imaging as Record<string, unknown> | undefined;
-      
-      const defectItems = normalizeDefectItemsFromConfig(cfg);
-      if (defectItems.length > 0) toleranceRows.push(row([ctx.isZh ? '缺陷最小尺寸' : 'Defect Min Size', formatDefectItems(defectItems)]));
-      if (cfg.targetAccuracy) toleranceRows.push(row([ctx.isZh ? '目标精度' : 'Target Acc.', `±${cfg.targetAccuracy} mm`]));
-      if (cfg.accuracyRequirement) toleranceRows.push(row([ctx.isZh ? '定位精度' : 'Position Acc.', `±${cfg.accuracyRequirement} mm`]));
-      if (cfg.systemAccuracy) toleranceRows.push(row([ctx.isZh ? '系统精度' : 'System Acc.', `±${cfg.systemAccuracy} mm`]));
-      if (cfg.allowedMissRate) toleranceRows.push(row([ctx.isZh ? '允许漏检率' : 'Miss Rate', String(cfg.allowedMissRate)]));
-      if (cfg.allowedFalseRate) toleranceRows.push(row([ctx.isZh ? '允许误检率' : 'False Rate', String(cfg.allowedFalseRate)]));
-      if (cfg.confidenceThreshold) toleranceRows.push(row([ctx.isZh ? '置信度阈值' : 'Confidence', String(cfg.confidenceThreshold)]));
-      if (cfg.lineSpeed) toleranceRows.push(row([ctx.isZh ? '线速度' : 'Line Speed', `${cfg.lineSpeed} m/min`]));
-      if (cfg.detectionAreaLength && cfg.detectionAreaWidth) {
-        toleranceRows.push(row([ctx.isZh ? '检测区域' : 'Detection Area', `${cfg.detectionAreaLength}×${cfg.detectionAreaWidth} mm`]));
-      }
-      
-      // Imaging parameters
-      if (imaging) {
-        if (imaging.workingDistance) toleranceRows.push(row([ctx.isZh ? '工作距离' : 'WD', `${imaging.workingDistance} mm`]));
-        if (imaging.fieldOfView) toleranceRows.push(row([ctx.isZh ? '视场' : 'FOV', `${imaging.fieldOfView}`]));
-        if (imaging.resolutionPerPixel) toleranceRows.push(row([ctx.isZh ? '分辨率' : 'Resolution', `${imaging.resolutionPerPixel} mm/px`]));
-        if (imaging.exposure) toleranceRows.push(row([ctx.isZh ? '曝光' : 'Exposure', `${imaging.exposure} μs`]));
-      }
-    }
-    
-    // Output types - with defensive array check
-    const outputTypes = Array.isArray(mod.output_types) ? mod.output_types : [];
-    if (outputTypes.length > 0) {
-      const outputLabels: Record<string, string> = {
-        '报警': ctx.isZh ? '报警' : 'Alarm',
-        '停机': ctx.isZh ? '停机' : 'Stop',
-        '分拣': ctx.isZh ? '分拣' : 'Sort',
-        '标记': ctx.isZh ? '标记' : 'Mark',
-      };
-      const outputs = outputTypes.map(o => outputLabels[o] || o).join('、');
-      toleranceRows.push(row([ctx.isZh ? '输出动作' : 'Output Action', outputs]));
-    }
-  });
+  const detectionContentRows = tables.detectionContentRows.map(values => row(values));
 
-  if (toleranceRows.length === 0) {
-    toleranceRows.push(row([ctx.isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria?.accuracy || '±0.1mm']));
-  }
-
-  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Config Parameters', [], toleranceRows, {
-    x: 5, y: 1.45, w: 4.5, h: Math.min(toleranceRows.length * 0.26 + 0.1, 2.4),
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Content', [], detectionContentRows, {
+    x: 5, y: 1.45, w: 4.5, h: Math.min(detectionContentRows.length * 0.4 + 0.1, 2.4),
     fontFace: FONTS.body,
     fontSize: 8,
-    colW: [1.8, 2.7],
+    colW: [4.5],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   }, {
-    rowHeight: 0.26,
-    firstPageMaxBodyRows: 10,
+    rowHeight: 0.4,
+    firstPageMaxBodyRows: 6,
     firstPageBottomY: 3.85,
     continuationOptions: {
       x: 0.5, y: 1.2, w: 9,
       fontFace: FONTS.body,
       fontSize: 8,
-      colW: [2.6, 6.4],
+      colW: [9],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
     },
-    continuationRowHeight: 0.26,
+    continuationRowHeight: 0.4,
   });
 
   // Risk notes section
@@ -1026,7 +989,7 @@ export function generateMotionMethodSlide(
   });
 
   const cycleRows: TableRow[] = [
-    row([ctx.isZh ? '目标工位节拍' : 'Target Station Cycle', `${ws.cycle_time || '-'} s/pcs`]),
+    row([ctx.isZh ? '目标工位节拍' : 'Target Station Cycle', formatWorkstationCycleTime(ws)]),
     row([ctx.isZh ? '拍照次数' : 'Shot Count', `${ws.shot_count || modules.length || '-'} ${ctx.isZh ? '次' : ''}`]),
     row([ctx.isZh ? '触发方式' : 'Trigger', TRIGGER_LABELS[modules[0]?.trigger_type || 'io']?.[ctx.isZh ? 'zh' : 'en'] || 'IO']),
   ];
@@ -1339,8 +1302,10 @@ export function generateBOMSlide(
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { layout } = data;
+  const bomSubtitle = ctx.isZh ? 'BOM清单' : 'BOM List';
+  const bomSectionTitle = ctx.isZh ? 'BOM明细' : 'BOM';
   
-  addSlideTitle(slide, ctx, ctx.isZh ? 'BOM清单' : 'BOM List');
+  addSlideTitle(slide, ctx, bomSubtitle);
 
   // BOM table
   const bomHeader: TableRow = row([
@@ -1379,7 +1344,7 @@ export function generateBOMSlide(
     bomRows.push(row(['1', '-', '-', '-', '-', '-']));
   }
 
-  addPaginatedTable(ctx, slide, 'BOM List', 'BOM', [bomHeader], bomRows, {
+  addPaginatedTable(ctx, slide, bomSubtitle, bomSectionTitle, [bomHeader], bomRows, {
     x: 0.5, y: 1.1, w: 9, h: Math.min((bomRows.length + 1) * 0.32 + 0.1, 3.0),
     fontFace: FONTS.body,
     fontSize: 9,
@@ -1417,124 +1382,69 @@ export function generateBasicInfoAndRequirementsSlide(
   data: WorkstationSlideData
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { ws, layout, modules, productAsset } = data;
+  const { ws, modules } = data;
   
   addSlideTitle(slide, ctx, ctx.isZh ? '技术要求' : 'Technical Requirements');
 
-  // === TOP HALF: Basic Info ===
+  const tables = buildWorkstationTechnicalRequirementTables({
+    isZh: ctx.isZh,
+    wsCode: ctx.wsCode,
+    wsName: ctx.wsName,
+    ws,
+    modules,
+  });
+
+  // === TOP HALF: Basic Info + Notes ===
   const startY = 1.1;
-  
-  // Left: Workstation info table
-  const wsTypeLabel = WS_TYPE_LABELS[ws.type]?.[ctx.isZh ? 'zh' : 'en'] || ws.type;
-  const processLabel = ws.process_stage ? (PROCESS_STAGE_LABELS[ws.process_stage]?.[ctx.isZh ? 'zh' : 'en'] || ws.process_stage) : '-';
-  const dims = ws.product_dimensions;
-  const dimsText = dims ? `${dims.length} × ${dims.width} × ${dims.height} mm` : '-';
-  
-  const basicInfoRows: TableRow[] = [
-    row([ctx.isZh ? '工位编号' : 'Code', ctx.wsCode]),
-    row([ctx.isZh ? '工位名称' : 'Name', ctx.wsName]),
-    row([ctx.isZh ? '工位类型' : 'Type', wsTypeLabel]),
-    row([ctx.isZh ? '工序阶段' : 'Process', processLabel]),
-    row([ctx.isZh ? '工位节拍' : 'Station Cycle Time', ws.cycle_time ? `${ws.cycle_time} s/pcs` : '-']),
-    row([ctx.isZh ? '兼容尺寸' : 'Product Dims', dimsText]),
-  ];
+  const basicInfoRows = tables.basicInfoRows.map(values => row(values));
 
   addSafeTable(slide, basicInfoRows, {
-    x: 0.4, y: startY, w: 4.5, h: 1.8,
+    x: 0.4, y: startY, w: 4.5, h: 2.0,
     fontFace: FONTS.body,
     fontSize: 8,
     colW: [1.2, 3.3],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
-  }, 0.24, 2.9);
+  }, 0.3, 3.15);
 
-  // Right: Detection method summary + camera info
-  const detectionMethods = modules.map(m => {
-    const typeLabel = MODULE_TYPE_LABELS[m.type]?.[ctx.isZh ? 'zh' : 'en'] || m.type;
-    return typeLabel;
-  });
-  const cameraCount = layout?.camera_count || modules.length;
-
-  const rightInfoRows: TableRow[] = [
-    row([ctx.isZh ? '模块分类' : 'Category', `${cameraCount}${ctx.isZh ? '相机' : ' cam'} - ${detectionMethods.join('/')}`]),
-    row([ctx.isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria?.accuracy || '±0.1mm']),
-    row([ctx.isZh ? '拍照次数' : 'Shots', `${ws.shot_count || modules.length || '-'}`]),
-    row([ctx.isZh ? '观测对象' : 'Target', ws.observation_target || '-']),
-  ];
-
-  // Add module names
-  modules.forEach(mod => {
-    const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
-    rightInfoRows.push(row([typeLabel, mod.name]));
-  });
-
-  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Workstation Summary', [], rightInfoRows, {
-    x: 5.1, y: startY, w: 4.5, h: 1.8,
-    fontFace: FONTS.body,
-    fontSize: 8,
-    colW: [1.4, 3.1],
-    border: { pt: 0.5, color: COLORS.border },
+  slide.addShape('rect', {
+    x: 5.1, y: startY, w: 4.5, h: 2.0,
     fill: { color: COLORS.white },
-    valign: 'middle',
-  }, {
-    rowHeight: 0.24,
-    firstPageMaxBodyRows: 8,
-    firstPageBottomY: 2.9,
-    continuationOptions: {
-      x: 0.5, y: 1.2, w: 9,
-      fontFace: FONTS.body,
-      fontSize: 8,
-      colW: [2.4, 6.6],
-      border: { pt: 0.5, color: COLORS.border },
-      fill: { color: COLORS.white },
-      valign: 'middle',
-    },
+    line: { color: COLORS.border, width: 0.5 },
   });
+  slide.addText(ctx.isZh ? '备注:' : 'Notes:', {
+    x: 5.25, y: startY + 0.85, w: 0.8, h: 0.25,
+    fontSize: 9,
+    fontFace: FONTS.body,
+    color: COLORS.dark,
+  });
+  if (tables.noteText) {
+    slide.addText(tables.noteText, {
+      x: 6.05, y: startY + 0.25, w: 3.3, h: 1.45,
+      fontSize: 8,
+      fontFace: FONTS.body,
+      color: COLORS.dark,
+      breakLine: false,
+      fit: 'shrink',
+    });
+  }
 
-  // === BOTTOM HALF: Detection Requirements ===
-  const bottomY = 3.1;
+  // === BOTTOM HALF: Detection Items + Detection Content ===
+  const bottomY = 3.4;
 
-  slide.addText(ctx.isZh ? '【检测项/缺陷项】' : '[Detection/Defect Items]', {
+  slide.addText(ctx.isZh ? '【检测项】' : '[Detection Items]', {
     x: 0.4, y: bottomY, w: 4.5, h: 0.25,
     fontSize: 10, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  const detectionItems: TableRow[] = [];
-  modules.forEach(mod => {
-    const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
-    detectionItems.push(row([typeLabel, mod.name]));
-    
-    // Add key config details
-    if (mod.defect_config) {
-      const defCfg = mod.defect_config as Record<string, unknown>;
-      const defectItems = normalizeDefectItemsFromConfig(defCfg);
-      if (defectItems.length > 0) {
-        detectionItems.push(row([ctx.isZh ? '  缺陷/最小尺寸' : '  Defects / Min Size', formatDefectItems(defectItems)]));
-      }
-    }
-    if (mod.measurement_config) {
-      const measCfg = mod.measurement_config as Record<string, unknown>;
-      if (measCfg.systemAccuracy) {
-        detectionItems.push(row([ctx.isZh ? '  系统精度' : '  Sys Acc.', `±${measCfg.systemAccuracy} mm`]));
-      }
-    }
-  });
+  const moduleItems = tables.moduleRows.map(values => row(values));
 
-  // Add detection requirements from product asset
-  productAsset?.detection_requirements?.forEach((req, idx) => {
-    detectionItems.push(row([`${idx + 1}.`, req.content]));
-  });
-
-  if (detectionItems.length === 0) {
-    detectionItems.push(row(['-', '-']));
-  }
-
-  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Items', [], detectionItems, {
-    x: 0.4, y: bottomY + 0.3, w: 4.5, h: Math.min(detectionItems.length * 0.26 + 0.05, 1.8),
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Items', [], moduleItems, {
+    x: 0.4, y: bottomY + 0.3, w: 4.5, h: Math.min(moduleItems.length * 0.26 + 0.05, 1.8),
     fontFace: FONTS.body,
     fontSize: 8,
-    colW: [1.4, 3.1],
+    colW: [4.5],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   }, {
@@ -1545,56 +1455,40 @@ export function generateBasicInfoAndRequirementsSlide(
       x: 0.5, y: 1.2, w: 9,
       fontFace: FONTS.body,
       fontSize: 8,
-      colW: [2.4, 6.6],
+      colW: [9],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
     },
     continuationRowHeight: 0.26,
   });
 
-  // Right: Config parameters / tolerances
-  slide.addText(ctx.isZh ? '【配置参数/允许偏差】' : '[Config / Tolerance]', {
+  slide.addText(ctx.isZh ? '【检测内容】' : '[Detection Content]', {
     x: 5.1, y: bottomY, w: 4.5, h: 0.25,
     fontSize: 10, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  const toleranceRows: TableRow[] = [];
-  modules.forEach(mod => {
-    const cfg = (mod.defect_config || mod.measurement_config || mod.positioning_config || mod.ocr_config) as Record<string, unknown> | null;
-    if (cfg) {
-      const defectItems = normalizeDefectItemsFromConfig(cfg);
-      if (defectItems.length > 0) toleranceRows.push(row([ctx.isZh ? '缺陷最小尺寸' : 'Defect Min Size', formatDefectItems(defectItems)]));
-      if (cfg.targetAccuracy) toleranceRows.push(row([ctx.isZh ? '目标精度' : 'Target Acc.', `±${cfg.targetAccuracy} mm`]));
-      if (cfg.accuracyRequirement) toleranceRows.push(row([ctx.isZh ? '定位精度' : 'Pos. Acc.', `±${cfg.accuracyRequirement} mm`]));
-      if (cfg.systemAccuracy) toleranceRows.push(row([ctx.isZh ? '系统精度' : 'Sys. Acc.', `±${cfg.systemAccuracy} mm`]));
-      if (cfg.allowedMissRate) toleranceRows.push(row([ctx.isZh ? '允许漏检率' : 'Miss Rate', `${cfg.allowedMissRate}%`]));
-      if (cfg.confidenceThreshold) toleranceRows.push(row([ctx.isZh ? '置信度阈值' : 'Confidence', `${cfg.confidenceThreshold}%`]));
-    }
-  });
-  if (toleranceRows.length === 0) {
-    toleranceRows.push(row([ctx.isZh ? '精度要求' : 'Accuracy', ws.acceptance_criteria?.accuracy || '±0.1mm']));
-  }
+  const detectionContentRows = tables.detectionContentRows.map(values => row(values));
 
-  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Config / Tolerance', [], toleranceRows, {
-    x: 5.1, y: bottomY + 0.3, w: 4.5, h: Math.min(toleranceRows.length * 0.26 + 0.05, 1.8),
+  addPaginatedTable(ctx, slide, 'Technical Requirements', 'Detection Content', [], detectionContentRows, {
+    x: 5.1, y: bottomY + 0.3, w: 4.5, h: Math.min(detectionContentRows.length * 0.4 + 0.05, 1.8),
     fontFace: FONTS.body,
     fontSize: 8,
-    colW: [1.6, 2.9],
+    colW: [4.5],
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
   }, {
-    rowHeight: 0.26,
-    firstPageMaxBodyRows: 7,
+    rowHeight: 0.4,
+    firstPageMaxBodyRows: 4,
     firstPageBottomY: 5.05,
     continuationOptions: {
       x: 0.5, y: 1.2, w: 9,
       fontFace: FONTS.body,
       fontSize: 8,
-      colW: [2.6, 6.4],
+      colW: [9],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
     },
-    continuationRowHeight: 0.26,
+    continuationRowHeight: 0.4,
   });
 
   // Risk notes removed per user request
@@ -1881,13 +1775,21 @@ function extractThreeDConfig(mod: WorkstationSlideData['modules'][number]): Reco
   ] as Array<Record<string, unknown> | null | undefined>;
   for (const c of cfgs) {
     if (c && typeof c === 'object' && c.three_d && typeof c.three_d === 'object') {
-      return c.three_d as Record<string, unknown>;
+      const imaging = c.imaging && typeof c.imaging === 'object'
+        ? c.imaging as Record<string, unknown>
+        : null;
+      return {
+        ...(c.three_d as Record<string, unknown>),
+        workingDistance: imaging?.workingDistance ?? null,
+        workingDistanceTolerance: imaging?.workingDistanceTolerance ?? null,
+      };
     }
   }
   return null;
 }
 
 function isImaging3D(mod: WorkstationSlideData['modules'][number]): boolean {
+  if ((mod as Record<string, unknown>).is_3d_camera === true) return true;
   const cfgs = [
     mod.measurement_config,
     mod.defect_config,
@@ -1901,9 +1803,6 @@ function isImaging3D(mod: WorkstationSlideData['modules'][number]): boolean {
   }
   return false;
 }
-
-const PLACEHOLDER = '待维护';
-const v = (s: string | null): string => s && s.trim() ? s : PLACEHOLDER;
 
 /**
  * 3D 相机光学方案 Slide
@@ -1923,86 +1822,74 @@ export async function generateModule3DOpticalSlide(
   const typeLabel = MODULE_TYPE_LABELS[mod.type]?.[ctx.isZh ? 'zh' : 'en'] || mod.type;
   addSlideTitle(slide, ctx, `${typeLabel} - ${mod.name}`);
 
-  // ===== Two column header bars =====
-  const leftX = 0.4, leftW = 9.2;
-  const headerY = 1.05;
+  const leftX = 0.4;
+  const leftW = 5.0;
+  const rightX = 5.45;
+  const rightW = 4.15;
+  const headerY = 1.1;
+  const titleBodyGap = 0.22;
 
-  const drawHeader = (x: number, w: number, text: string) => {
-    slide.addShape('rect', {
-      x, y: headerY, w, h: 0.32,
-      fill: { color: COLORS.primary }, line: { color: COLORS.primary, width: 0 },
-    });
-    slide.addText(text, {
-      x, y: headerY, w, h: 0.32,
-      fontSize: 12, bold: true, fontFace: FONTS.body, color: COLORS.white,
-      align: 'center', valign: 'middle',
-    });
-  };
-  drawHeader(leftX, leftW, ctx.isZh ? '光学方案' : 'Optical Solution');
-
-  // ===== LEFT: 3D camera diagram =====
-  const diagBaseY = headerY + 0.55;
-  const cameraX = leftX + 1.2;
-  const cameraY = diagBaseY;
-  const cameraW = 1.4;
-  const cameraH = 0.6;
-
-  // Camera box (laser scanner)
-  slide.addShape('rect', {
-    x: cameraX, y: cameraY, w: cameraW, h: cameraH,
-    fill: { color: '8B95A1' }, line: { color: COLORS.dark, width: 0.5 },
-  });
-  slide.addText(ctx.isZh ? '激光飞扫' : 'Laser Scan', {
-    x: cameraX, y: cameraY, w: cameraW, h: cameraH,
-    fontSize: 10, fontFace: FONTS.body, color: COLORS.white, align: 'center', valign: 'middle',
+  slide.addText(ctx.isZh ? '光学方案' : 'Optical Solution', {
+    x: leftX, y: headerY, w: leftW, h: 0.25,
+    fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  // Scan cone (triangle) - product is below
-  const coneTopX = cameraX + cameraW / 2;
-  const coneTopY = cameraY + cameraH;
-  const productY = diagBaseY + 3.2;
-  const productW = 1.6;
-  const productX = coneTopX - productW / 2;
-  const productH = 0.25;
-
-  // Use a filled isoceles triangle approximated by a custom shape (use 'triangle' pointing down)
-  slide.addShape('triangle', {
-    x: productX, y: coneTopY, w: productW, h: productY - coneTopY,
-    fill: { color: 'C8B8DC', transparency: 30 },
-    line: { color: '9B7CB9', width: 0.5 },
-    flipV: true,
-  });
-
-  // Product
-  slide.addShape('rect', {
-    x: productX - 0.2, y: productY, w: productW + 0.4, h: productH,
-    fill: { color: '8B95A1' }, line: { color: COLORS.dark, width: 0.5 },
-  });
-  slide.addText(ctx.isZh ? '产品' : 'Product', {
-    x: productX - 0.2, y: productY, w: productW + 0.4, h: productH,
-    fontSize: 9, fontFace: FONTS.body, color: COLORS.white, align: 'center', valign: 'middle',
-  });
-
-  // Right-side labels (model / scanLineWidth / dataPoints)
-  const labelsX = cameraX + cameraW + 0.35;
-  const labelsW = leftX + leftW - labelsX - 0.1;
-  slide.addText(
-    [
-      `${ctx.isZh ? '型号' : 'Model'}：${v(info.model)}`,
-      `${ctx.isZh ? '线宽' : 'Scan Width'}：${v(info.scanLineWidth)}`,
-      `${ctx.isZh ? 'XY 数据点' : 'XY Data Points'}：${v(info.dataPoints)}`,
-    ].join('\n'),
-    {
-      x: labelsX, y: cameraY - 0.1, w: labelsW, h: 1.3,
-      fontSize: 12, fontFace: FONTS.body, color: COLORS.dark, lineSpacingMultiple: 1.6,
-      line: { color: COLORS.primary, width: 1 },
-      margin: 8,
+  const imageArea = { x: leftX, y: headerY + titleBodyGap, width: leftW, height: 4.45 };
+  if (mod.schematic_image_url) {
+    try {
+      const dataUri = await fetchImageAsDataUri(mod.schematic_image_url);
+      if (!dataUri) throw new Error('Failed to fetch image');
+      const trimmedDataUri = await trimImageWhitespaceDataUri(dataUri);
+      const dims = await getImageDimensions(trimmedDataUri);
+      const fit = calculateContainFit(dims.width, dims.height, imageArea);
+      slide.addImage({ data: trimmedDataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
+    } catch (err) {
+      console.warn('[PPT] 3D光学方案图片加载失败，使用占位符', err);
+      slide.addShape('rect', {
+        x: imageArea.x, y: imageArea.y, w: imageArea.width, h: imageArea.height,
+        fill: { color: COLORS.lightGray }, line: { color: COLORS.border, width: 0.5 },
+      });
+      slide.addText(ctx.isZh ? '请先在系统中保存3D光学方案图' : 'Please save the 3D optical diagram first', {
+        x: imageArea.x, y: imageArea.y, w: imageArea.width, h: imageArea.height,
+        fontSize: 10, fontFace: FONTS.body, color: COLORS.secondary, align: 'center', valign: 'middle',
+      });
     }
-  );
+  } else {
+    slide.addShape('rect', {
+      x: imageArea.x, y: imageArea.y, w: imageArea.width, h: imageArea.height,
+      fill: { color: COLORS.lightGray }, line: { color: COLORS.border, width: 0.5 },
+    });
+    slide.addText(ctx.isZh ? '请先在系统中保存3D光学方案图' : 'Please save the 3D optical diagram first', {
+      x: imageArea.x, y: imageArea.y, w: imageArea.width, h: imageArea.height,
+      fontSize: 10, fontFace: FONTS.body, color: COLORS.secondary, align: 'center', valign: 'middle',
+    });
+  }
 
-  // Optional: 产品大面 label
-  slide.addText(ctx.isZh ? '产品大面' : 'Product Face', {
-    x: labelsX, y: productY - 0.15, w: labelsW, h: 0.25,
-    fontSize: 11, fontFace: FONTS.body, color: COLORS.secondary,
+  slide.addText(ctx.isZh ? '测量方法及视觉清单' : 'Measurement Method & Vision Checklist', {
+    x: rightX, y: headerY, w: rightW, h: 0.25,
+    fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
+  });
+
+  const checklistItems = buildThreeDMeasurementChecklist(info).map((line, index) => `${index + 1}. ${line}`);
+  slide.addText(checklistItems.join('\n'), {
+    x: rightX, y: headerY + titleBodyGap, w: rightW, h: 2.1,
+    fontSize: 9, fontFace: FONTS.body, color: COLORS.dark, lineSpacingMultiple: 1.45,
+    fit: 'shrink',
+  });
+
+  slide.addText(ctx.isZh ? '测量步骤:' : 'Measurement Steps:', {
+    x: rightX, y: 3.35, w: rightW, h: 0.25,
+    fontSize: 10, fontFace: FONTS.body, color: COLORS.primary, bold: true,
+  });
+
+  const steps = mod.description?.trim()
+    ? mod.description.split(/\r?\n/).map(step => step.trim()).filter(Boolean)
+    : info.detectionSteps.length > 0
+      ? info.detectionSteps
+    : [ctx.isZh ? '待维护测量步骤' : 'Measurement steps pending'];
+  slide.addText(steps.map((step, index) => `${index + 1}. ${step}`).join('\n'), {
+    x: rightX, y: 3.62, w: rightW, h: 2.0,
+    fontSize: 8.5, fontFace: FONTS.body, color: COLORS.dark, lineSpacingMultiple: 1.35,
+    fit: 'shrink',
   });
 }

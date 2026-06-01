@@ -1,6 +1,6 @@
 import { Check, FolderPlus, Layers, Box, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { GuideStep, useGuide } from '@/contexts/GuideContext';
+import { type GuideStep, useGuide } from '@/contexts/GuideContext';
 
 interface StepConfig {
   key: GuideStep;
@@ -76,3 +76,4 @@ export function GuideSteps({ className }: { className?: string }) {
     </div>
   );
 }
+
