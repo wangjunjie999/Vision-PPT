@@ -1260,6 +1260,7 @@ export async function generatePPTX(
     cell(isZh ? '发行/变更人' : 'Author', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
   ];
 
+  const revisionAuthor = project.responsible?.trim() || '-';
   const revisionHistory = project.revision_history || [];
   const revisionRows: TableRow[] = revisionHistory.length > 0
     ? revisionHistory.map((item, idx) => row([
@@ -1268,10 +1269,10 @@ export async function generatePPTX(
         item.content,
         '——',
         item.date,
-        item.author,
+        revisionAuthor,
       ]))
     : [
-        row(['1', 'V1.0', isZh ? '原始版本发行' : 'Initial release', '——', project.date || '-', project.responsible || '-']),
+        row(['1', 'V1.0', isZh ? '原始版本发行' : 'Initial release', '——', project.date || '-', revisionAuthor]),
         row(['2', '', '', '', '', '']),
         row(['3', '', '', '', '', '']),
       ];

@@ -1823,9 +1823,9 @@ export async function generateModule3DOpticalSlide(
   addSlideTitle(slide, ctx, `${typeLabel} - ${mod.name}`);
 
   const leftX = 0.4;
-  const leftW = 5.0;
-  const rightX = 5.45;
-  const rightW = 4.15;
+  const leftW = 5.8;
+  const rightX = 6.15;
+  const rightW = 3.45;
   const headerY = 1.1;
   const titleBodyGap = 0.22;
 
@@ -1839,7 +1839,12 @@ export async function generateModule3DOpticalSlide(
     try {
       const dataUri = await fetchImageAsDataUri(mod.schematic_image_url);
       if (!dataUri) throw new Error('Failed to fetch image');
-      const trimmedDataUri = await trimImageWhitespaceDataUri(dataUri);
+      const trimmedDataUri = await trimImageWhitespaceDataUri(dataUri, {
+        paddingPx: 8,
+        threshold: 18,
+        minContentRatio: 0.01,
+        maxCropCoverage: 0.995,
+      });
       const dims = await getImageDimensions(trimmedDataUri);
       const fit = calculateContainFit(dims.width, dims.height, imageArea);
       slide.addImage({ data: trimmedDataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
@@ -1868,6 +1873,7 @@ export async function generateModule3DOpticalSlide(
   slide.addText(ctx.isZh ? '测量方法及视觉清单' : 'Measurement Method & Vision Checklist', {
     x: rightX, y: headerY, w: rightW, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
+    fit: 'shrink',
   });
 
   const checklistItems = buildThreeDMeasurementChecklist(info).map((line, index) => `${index + 1}. ${line}`);
