@@ -1209,7 +1209,7 @@ export async function generatePPTX(
   });
 
   let wsRowIndex = 0;
-  const workstationListStartY = SLIDE_LAYOUT.contentTop + 0.18;
+  const workstationListStartY = SLIDE_LAYOUT.contentTop + 0.35;
   if (wsTableRows.length === 0) {
     const wsSlide = createProjectContinuationSlide(
       isZh ? '项目说明（续）' : 'Project Description (cont.)',
@@ -1293,7 +1293,7 @@ export async function generatePPTX(
   const revisionTableHeight = revisionHeaderRowH + revisionRows.length * revisionDataRowH;
   const revisionTableWidth = SLIDE_LAYOUT.contentWidth;
   const revisionTableX = (SLIDE_LAYOUT.width - revisionTableWidth) / 2;
-  const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 3);
+  const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 5);
 
   revisionSlide.addTable([revisionHeader, ...revisionRows], {
     x: revisionTableX,
