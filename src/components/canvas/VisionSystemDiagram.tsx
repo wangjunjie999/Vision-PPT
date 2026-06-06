@@ -73,6 +73,86 @@ function joinDotParts(parts: Array<string | null | undefined>): string {
   return parts.filter((p): p is string => Boolean(p && p.trim())).join(' · ');
 }
 
+function estimateSvgTextWidth(text: string, fontSize: number): number {
+  let units = 0;
+  for (const char of text) {
+    if (/\s/.test(char)) units += 0.34;
+    else if (/[\u4e00-\u9fff]/.test(char)) units += 1;
+    else if (/[A-Z0-9]/.test(char)) units += 0.66;
+    else if (/[a-z]/.test(char)) units += 0.56;
+    else if (/[.,:;'"|]/.test(char)) units += 0.32;
+    else if (/[-/·，、@×+]/.test(char)) units += 0.52;
+    else units += 0.75;
+  }
+  return units * fontSize;
+}
+
+function splitSvgTextTokens(text: string): string[] {
+  const breakChars = new Set([' ', '·', '，', '、', ',', '/', '@', '-']);
+  const tokens: string[] = [];
+  let token = '';
+
+  for (const char of text) {
+    token += char;
+    if (breakChars.has(char)) {
+      if (token.trim()) tokens.push(token);
+      token = '';
+    }
+  }
+
+  if (token.trim()) tokens.push(token);
+  return tokens;
+}
+
+function splitOversizedSvgTextToken(token: string, maxWidth: number, fontSize: number): string[] {
+  const lines: string[] = [];
+  let current = '';
+
+  for (const char of token) {
+    const candidate = `${current}${char}`;
+    if (current && estimateSvgTextWidth(candidate, fontSize) > maxWidth) {
+      lines.push(current.trim());
+      current = char;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current.trim()) lines.push(current.trim());
+  return lines;
+}
+
+function wrapSvgText(text: string | null | undefined, maxWidth: number, fontSize: number): string[] {
+  const source = String(text || '-').trim() || '-';
+  const tokens = splitSvgTextTokens(source);
+  const lines: string[] = [];
+  let current = '';
+
+  for (const token of tokens) {
+    const candidate = `${current}${token}`;
+    if (estimateSvgTextWidth(candidate.trim(), fontSize) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+
+    if (current.trim()) {
+      lines.push(current.trim());
+      current = '';
+    }
+
+    if (estimateSvgTextWidth(token.trim(), fontSize) > maxWidth) {
+      const split = splitOversizedSvgTextToken(token, maxWidth, fontSize);
+      lines.push(...split.slice(0, -1));
+      current = split[split.length - 1] || '';
+    } else {
+      current = token;
+    }
+  }
+
+  if (current.trim()) lines.push(current.trim());
+  return lines.length ? lines : ['-'];
+}
+
 const DEFAULT_PRODUCT_POS = { x: 275, y: 420 };
 const PRODUCT_MIN_Y = 300;
 const PRODUCT_MAX_Y = 430;
@@ -1448,136 +1528,191 @@ export function VisionSystemDiagram({
           /* Export mode: pure SVG cards */
           <g>
             {(() => {
-              const cardX = 508, cardW = 274, cardH = 58, cardGap = 7;
-              const cardTitleFontSize = 13;
-              const cardMainFontSize = 12;
-              const cardSubFontSize = 11;
-              const cardFineFontSize = 10;
-              const cardTitleY = 20;
-              const cardLine1Y = 37;
-              const cardLine2Y = 52;
-              const cardLine3Y = 67;
-              const cardLine4Y = 82;
-              const cardLineStep = 15;
+              const cardX = 508, cardW = 274, cardGap = 7;
+              const cardMinHeight = 64;
+              const cardPadX = 12;
+              const cardPadTop = 7;
+              const cardPadBottom = 9;
+              const cardTextWidth = cardW - cardPadX * 2;
+              const cardTitleFontSize = 16;
+              const cardMainFontSize = 14;
+              const cardSubFontSize = 13;
+              const cardFineFontSize = 12;
+              const cardTitleLineHeight = 20;
+              const cardMainLineHeight = 18;
+              const cardSubLineHeight = 17;
+              const cardFineLineHeight = 16;
               const cardBg = 'hsl(220, 10%, 96%)', cardBorder = 'hsl(220, 15%, 82%)';
               const tc = '#333333', ts = '#666666';
               let y = 28;
               const cards: React.ReactNode[] = [];
 
-              cards.push(
-                <g key="cam" transform={`translate(${cardX}, ${y})`}>
-                  {(() => {
-                    const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
-                    const camH = hasCamera ? (line2 ? 78 : cardH) : cardH;
-                    return (
-                      <>
-                        <rect width={cardW} height={camH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                        <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>📷 工业相机</text>
-                        {hasCamera ? (
-                          <>
-                            <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}</text>
-                            {line2 && <text x="12" y={cardLine2Y} fill={tc} style={{ fontSize: cardFineFontSize }}>{line2}</text>}
-                            <text x="12" y={line2 ? cardLine3Y : cardLine2Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</text>
-                          </>
-                        ) : <text x="12" y={cardLine1Y} fill={ts} style={{ fontSize: cardSubFontSize }}>未选择相机</text>}
-                      </>
-                    );
-                  })()}
-                </g>
+              type ExportCardTextBlock = {
+                key: string;
+                text: string | null | undefined;
+                color: string;
+                fontSize: number;
+                lineHeight: number;
+                fontWeight?: number;
+                gapAfter?: number;
+              };
+              type ExportCardLayoutBlock = ExportCardTextBlock & {
+                lines: string[];
+                y: number;
+              };
+
+              const titleBlock = (key: string, text: string): ExportCardTextBlock => ({
+                key,
+                text,
+                color: tc,
+                fontSize: cardTitleFontSize,
+                lineHeight: cardTitleLineHeight,
+                fontWeight: 600,
+                gapAfter: 3,
+              });
+              const mainBlock = (key: string, text: string | null | undefined, color = tc): ExportCardTextBlock => ({
+                key,
+                text,
+                color,
+                fontSize: cardMainFontSize,
+                lineHeight: cardMainLineHeight,
+                gapAfter: 2,
+              });
+              const subBlock = (key: string, text: string | null | undefined, color = ts): ExportCardTextBlock => ({
+                key,
+                text,
+                color,
+                fontSize: cardSubFontSize,
+                lineHeight: cardSubLineHeight,
+                gapAfter: 2,
+              });
+              const fineBlock = (key: string, text: string | null | undefined, color = ts): ExportCardTextBlock => ({
+                key,
+                text,
+                color,
+                fontSize: cardFineFontSize,
+                lineHeight: cardFineLineHeight,
+                gapAfter: 2,
+              });
+
+              const layoutCardBlocks = (blocks: ExportCardTextBlock[], minHeight = cardMinHeight) => {
+                let cursor = cardPadTop;
+                const layoutBlocks: ExportCardLayoutBlock[] = blocks.map((block) => {
+                  const lines = wrapSvgText(block.text, cardTextWidth, block.fontSize);
+                  const baselineY = cursor + block.fontSize;
+                  cursor = baselineY + Math.max(0, lines.length - 1) * block.lineHeight + (block.gapAfter ?? 2);
+                  return { ...block, lines, y: baselineY };
+                });
+                const lastGap = blocks.length ? (blocks[blocks.length - 1].gapAfter ?? 2) : 0;
+                const height = Math.max(minHeight, cursor - lastGap + cardPadBottom);
+                return { height, blocks: layoutBlocks };
+              };
+
+              const renderTextBlock = (block: ExportCardLayoutBlock) => (
+                <text
+                  key={block.key}
+                  x={cardPadX}
+                  y={block.y}
+                  fill={block.color}
+                  style={{ fontSize: block.fontSize, fontWeight: block.fontWeight }}
+                >
+                  {block.lines.map((line, index) => (
+                    <tspan key={`${block.key}-${index}`} x={cardPadX} dy={index === 0 ? 0 : block.lineHeight}>
+                      {line}
+                    </tspan>
+                  ))}
+                </text>
               );
-              {
-                const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
-                y += (hasCamera ? (line2 ? 78 : cardH) : cardH) + cardGap;
+
+              const pushCard = (cardKey: string, blocks: ExportCardTextBlock[], minHeight = cardMinHeight) => {
+                const layout = layoutCardBlocks(blocks, minHeight);
+                cards.push(
+                  <g key={cardKey} data-testid={`export-card-${cardKey}`} transform={`translate(${cardX}, ${y})`}>
+                    <rect width={cardW} height={layout.height} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    {layout.blocks.map(renderTextBlock)}
+                  </g>
+                );
+                y += layout.height + cardGap;
+              };
+
+              const cameraLine2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
+              const cameraBlocks = [titleBlock('cam-title', '📷 工业相机')];
+              if (hasCamera) {
+                cameraBlocks.push(
+                  mainBlock('cam-spec', joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])),
+                );
+                if (cameraLine2) cameraBlocks.push(fineBlock('cam-sensor', cameraLine2, tc));
+                cameraBlocks.push(subBlock('cam-model', `${camera.brand} ${camera.model} @ ${camera.frame_rate}fps`));
+              } else {
+                cameraBlocks.push(subBlock('cam-empty', '未选择相机'));
+              }
+              pushCard('cam', cameraBlocks);
+
+              if (!is3DCamera) {
+                const lensBlocks = [titleBlock('lens-title', '🔭 工业镜头')];
+                if (hasLens) {
+                  lensBlocks.push(
+                    mainBlock('lens-spec', joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])),
+                    subBlock('lens-model', `${lens.brand} ${lens.model}`),
+                  );
+                } else {
+                  lensBlocks.push(subBlock('lens-empty', '未选择镜头'));
+                }
+                pushCard('lens', lensBlocks);
               }
 
               if (!is3DCamera) {
-                cards.push(
-                  <g key="lens" transform={`translate(${cardX}, ${y})`}>
-                    <rect width={cardW} height={cardH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>🔭 工业镜头</text>
-                    {hasLens ? (
-                      <>
-                        <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])}</text>
-                        <text x="12" y={cardLine2Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{lens.brand} {lens.model}</text>
-                      </>
-                    ) : <text x="12" y={cardLine1Y} fill={ts} style={{ fontSize: cardSubFontSize }}>未选择镜头</text>}
-                  </g>
-                );
-                y += cardH + cardGap;
-              }
-
-              if (!is3DCamera) {
-                const lightLineHeight = cardLineStep;
-                const lh = hasMultiLights ? 30 + diagramLightItems.length * lightLineHeight : (hasLight ? 72 : cardH);
-                cards.push(
-                  <g key="light" transform={`translate(${cardX}, ${y})`}>
-                    <rect width={cardW} height={lh} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>💡 光源</text>
-                    {hasMultiLights ? (
-                      <>
-                        {diagramLightItems.map((item, index) => (
-                          <text key={item.id} x="12" y={cardLine1Y + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: cardFineFontSize }}>
-                            {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {formatDistanceDisplay(item.distanceInput, distanceUnit, item.distanceMm)}
-                          </text>
-                        ))}
-                      </>
-                    ) : hasLight ? (
-                      <>
-                        <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{light.color}{light.type} · {light.power}</text>
-                        <text x="12" y={cardLine2Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{light.brand} {light.model}</text>
-                        <text x="12" y={cardLine3Y} fill={ts} style={{ fontSize: cardSubFontSize }}>数量 {boundedLightCount} · 光源距产品: {diagramLightDistanceWithUnit}</text>
-                      </>
-                    ) : <text x="12" y={cardLine1Y} fill={ts} style={{ fontSize: cardSubFontSize }}>未选择光源</text>}
-                  </g>
-                );
-                y += lh + cardGap;
+                const lightBlocks = [titleBlock('light-title', '💡 光源')];
+                if (hasMultiLights) {
+                  diagramLightItems.forEach((item, index) => {
+                    lightBlocks.push(fineBlock(
+                      `light-${item.id}`,
+                      `${item.label || `LIGHT${index + 1}`} · ${item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 ${formatDistanceDisplay(item.distanceInput, distanceUnit, item.distanceMm)}`,
+                      index === 0 ? tc : ts,
+                    ));
+                  });
+                } else if (hasLight) {
+                  lightBlocks.push(
+                    mainBlock('light-spec', `${light.color}${light.type} · ${light.power}`),
+                    subBlock('light-model', `${light.brand} ${light.model}`),
+                    subBlock('light-distance', `数量 ${boundedLightCount} · 光源距产品: ${diagramLightDistanceWithUnit}`),
+                  );
+                } else {
+                  lightBlocks.push(subBlock('light-empty', '未选择光源'));
+                }
+                pushCard('light', lightBlocks);
               }
 
               if (is3DCamera) {
                 const opticalLines = threeDOpticalLines.length ? threeDOpticalLines : ['待维护3D光学参数'];
-                const opticalH = Math.max(cardH, 30 + opticalLines.length * cardLineStep);
-                cards.push(
-                  <g key="three-d-optical" transform={`translate(${cardX}, ${y})`}>
-                    <rect width={cardW} height={opticalH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>▣ 3D光学方案</text>
-                    {opticalLines.map((line, index) => (
-                      <text key={line} x="12" y={cardLine1Y + index * cardLineStep} fill={index === 0 ? tc : ts} style={{ fontSize: cardSubFontSize }}>{line}</text>
-                    ))}
-                  </g>
-                );
-                y += opticalH + cardGap;
+                pushCard('three-d-optical', [
+                  titleBlock('three-d-title', '▣ 3D光学方案'),
+                  ...opticalLines.map((line, index) => subBlock(`three-d-line-${index}`, line, index === 0 ? tc : ts)),
+                ]);
               }
 
               if (!is3DCamera) {
-              {
-                const fovH = cameraSensorInfo.sourceLabel ? 92 : 76;
-                cards.push(
-                  <g key="fov" transform={`translate(${cardX}, ${y})`}>
-                    <rect width={cardW} height={fovH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>📐 视野参数</text>
-                    <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>视角: {fovAngle}°</text>
-                    <text x="12" y={cardLine2Y} fill={tc} style={{ fontSize: cardMainFontSize }}>工作距离: {workingDistanceDisplay}</text>
-                    <text x="12" y={cardLine3Y} fill={ts} style={{ fontSize: cardSubFontSize }}>视野宽度约 {fovWidthDisplay}</text>
-                    {cameraSensorInfo.sourceLabel && (
-                      <text x="12" y={cardLine4Y} fill={ts} style={{ fontSize: cardSubFontSize }}>计算依据：{cameraSensorInfo.sourceLabel}</text>
-                    )}
-                  </g>
-                );
-                y += fovH + cardGap;
-              }
+                const fovBlocks = [
+                  titleBlock('fov-title', '📐 视野参数'),
+                  mainBlock('fov-angle', `视角: ${fovAngle}°`),
+                  mainBlock('fov-distance', `工作距离: ${workingDistanceDisplay}`),
+                  subBlock('fov-width', `视野宽度约 ${fovWidthDisplay}`),
+                ];
+                if (cameraSensorInfo.sourceLabel) {
+                  fovBlocks.push(subBlock('fov-source', `计算依据：${cameraSensorInfo.sourceLabel}`));
+                }
+                pushCard('fov', fovBlocks);
               }
 
               if (hasController) {
-                cards.push(
-                  <g key="controller" transform={`translate(${cardX}, ${y})`}>
-                    <rect width={cardW} height={88} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>🖥️ 工控机</text>
-                    <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{controller.cpu || '-'}</text>
-                    <text x="12" y={cardLine2Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{controller.memory || '-'} · {controller.storage || '-'}</text>
-                    <text x="12" y={cardLine3Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{controller.brand} {controller.model}</text>
-                    {controller.gpu && <text x="12" y={cardLine4Y} fill={ts} style={{ fontSize: cardSubFontSize }}>GPU: {controller.gpu}</text>}
-                  </g>
-                );
+                const controllerBlocks = [
+                  titleBlock('controller-title', '🖥️ 工控机'),
+                  mainBlock('controller-cpu', controller.cpu || '-'),
+                  mainBlock('controller-memory', `${controller.memory || '-'} · ${controller.storage || '-'}`),
+                  subBlock('controller-model', `${controller.brand} ${controller.model}`),
+                ];
+                if (controller.gpu) controllerBlocks.push(subBlock('controller-gpu', `GPU: ${controller.gpu}`));
+                pushCard('controller', controllerBlocks);
               }
 
               return cards;

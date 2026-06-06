@@ -55,6 +55,59 @@ describe('VisionSystemDiagram export mode', () => {
     expect(screen.queryByText(/其余|略/)).not.toBeInTheDocument();
   });
 
+  it('wraps long static export card text and grows the card height', () => {
+    const { container } = render(
+      <VisionSystemDiagram
+        camera={{
+          id: 'camera-long',
+          brand: 'Basler',
+          model: 'acA2500-14gm-Very-Long-Model-Name-For-Wrapping',
+          resolution: '3200×6400',
+          sensor_size: '1/2.5',
+          frame_rate: '14',
+          pixel_size_um: 2.2,
+          sensor_width_mm: 66,
+          sensor_height_mm: 78,
+          enabled: true,
+        } as any}
+        lens={{
+          id: 'lens-long',
+          brand: 'Fujinon',
+          model: 'HF16SA-1-Long-Industrial-Lens-Name',
+          focal_length: '16mm',
+          max_sensor_size: '1.1',
+          enabled: true,
+        } as any}
+        light={null}
+        controller={{
+          id: 'controller-long',
+          brand: '研华',
+          model: 'IPC547G-Extended-Industrial-Controller',
+          cpu: 'Intel i7-8700 Long CPU Description',
+          memory: '32GB DDR4',
+          storage: '1TB HDD',
+          gpu: 'NVIDIA Quadro P2000 Extra Long GPU Description',
+          enabled: true,
+        } as any}
+        interactive={false}
+      />,
+    );
+
+    expect(container.textContent).toContain('3200×6400');
+    expect(container.textContent).toContain('1/2.5"光学格式');
+    expect(container.textContent).toContain('Basler');
+    expect(container.textContent).toContain('Very-Long-Model-Name-For-Wrapping');
+    expect(container.textContent).toContain('GPU: NVIDIA Quadro P2000');
+    expect(container.textContent).toContain('Long GPU Description');
+
+    const cameraCard = container.querySelector('[data-testid="export-card-cam"]');
+    const controllerCard = container.querySelector('[data-testid="export-card-controller"]');
+    expect(cameraCard?.querySelectorAll('tspan').length).toBeGreaterThan(4);
+    expect(controllerCard?.querySelectorAll('tspan').length).toBeGreaterThan(5);
+    expect(Number(cameraCard?.querySelector('rect')?.getAttribute('height'))).toBeGreaterThan(80);
+    expect(Number(controllerCard?.querySelector('rect')?.getAttribute('height'))).toBeGreaterThan(95);
+  });
+
   it('uses configured working distance tolerance instead of a hardcoded value', () => {
     render(
       <VisionSystemDiagram
@@ -89,7 +142,7 @@ describe('VisionSystemDiagram export mode', () => {
   });
 
   it('keeps raw range text in light distance labels', () => {
-    render(
+    const { container } = render(
       <VisionSystemDiagram
         camera={null}
         lens={null}
@@ -112,7 +165,8 @@ describe('VisionSystemDiagram export mode', () => {
       />,
     );
 
-    expect(screen.getByText((content) => content.includes('LIGHT1') && content.includes('200~250mm'))).toBeInTheDocument();
+    expect(container.textContent).toContain('LIGHT1');
+    expect(container.textContent).toContain('200~250mm');
   });
 
   it('measures a legacy light below the product from the product bottom edge', () => {
