@@ -1448,7 +1448,17 @@ export function VisionSystemDiagram({
           /* Export mode: pure SVG cards */
           <g>
             {(() => {
-              const cardX = 508, cardW = 274, cardH = 52, cardGap = 6;
+              const cardX = 508, cardW = 274, cardH = 58, cardGap = 7;
+              const cardTitleFontSize = 13;
+              const cardMainFontSize = 12;
+              const cardSubFontSize = 11;
+              const cardFineFontSize = 10;
+              const cardTitleY = 20;
+              const cardLine1Y = 37;
+              const cardLine2Y = 52;
+              const cardLine3Y = 67;
+              const cardLine4Y = 82;
+              const cardLineStep = 15;
               const cardBg = 'hsl(220, 10%, 96%)', cardBorder = 'hsl(220, 15%, 82%)';
               const tc = '#333333', ts = '#666666';
               let y = 28;
@@ -1458,18 +1468,18 @@ export function VisionSystemDiagram({
                 <g key="cam" transform={`translate(${cardX}, ${y})`}>
                   {(() => {
                     const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
-                    const camH = hasCamera ? (line2 ? 66 : 52) : cardH;
+                    const camH = hasCamera ? (line2 ? 78 : cardH) : cardH;
                     return (
                       <>
                         <rect width={cardW} height={camH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                        <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📷 工业相机</text>
+                        <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>📷 工业相机</text>
                         {hasCamera ? (
                           <>
-                            <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}</text>
-                            {line2 && <text x="12" y="45" fill={tc} style={{ fontSize: '10px' }}>{line2}</text>}
-                            <text x="12" y={line2 ? 58 : 45} fill={ts} style={{ fontSize: '10px' }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</text>
+                            <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{joinDotParts([camera.resolution, formatOpticalFormat(camera.sensor_size)])}</text>
+                            {line2 && <text x="12" y={cardLine2Y} fill={tc} style={{ fontSize: cardFineFontSize }}>{line2}</text>}
+                            <text x="12" y={line2 ? cardLine3Y : cardLine2Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{camera.brand} {camera.model} @ {camera.frame_rate}fps</text>
                           </>
-                        ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择相机</text>}
+                        ) : <text x="12" y={cardLine1Y} fill={ts} style={{ fontSize: cardSubFontSize }}>未选择相机</text>}
                       </>
                     );
                   })()}
@@ -1477,47 +1487,47 @@ export function VisionSystemDiagram({
               );
               {
                 const line2 = joinDotParts([cameraSensorInfo.effectiveSensorText, cameraSensorInfo.pixelText]);
-                y += (hasCamera ? (line2 ? 66 : 52) : cardH) + cardGap;
+                y += (hasCamera ? (line2 ? 78 : cardH) : cardH) + cardGap;
               }
 
               if (!is3DCamera) {
                 cards.push(
                   <g key="lens" transform={`translate(${cardX}, ${y})`}>
                     <rect width={cardW} height={cardH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🔭 工业镜头</text>
+                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>🔭 工业镜头</text>
                     {hasLens ? (
                       <>
-                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])}</text>
-                        <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{lens.brand} {lens.model}</text>
+                        <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])}</text>
+                        <text x="12" y={cardLine2Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{lens.brand} {lens.model}</text>
                       </>
-                    ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择镜头</text>}
+                    ) : <text x="12" y={cardLine1Y} fill={ts} style={{ fontSize: cardSubFontSize }}>未选择镜头</text>}
                   </g>
                 );
                 y += cardH + cardGap;
               }
 
               if (!is3DCamera) {
-                const lightLineHeight = 14;
-                const lh = hasMultiLights ? 28 + diagramLightItems.length * lightLineHeight : (hasLight ? 62 : cardH);
+                const lightLineHeight = cardLineStep;
+                const lh = hasMultiLights ? 30 + diagramLightItems.length * lightLineHeight : (hasLight ? 72 : cardH);
                 cards.push(
                   <g key="light" transform={`translate(${cardX}, ${y})`}>
                     <rect width={cardW} height={lh} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>💡 光源</text>
+                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>💡 光源</text>
                     {hasMultiLights ? (
                       <>
                         {diagramLightItems.map((item, index) => (
-                          <text key={item.id} x="12" y={34 + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: '9px' }}>
+                          <text key={item.id} x="12" y={cardLine1Y + index * lightLineHeight} fill={index === 0 ? tc : ts} style={{ fontSize: cardFineFontSize }}>
                             {item.label || `LIGHT${index + 1}`} · {item.light ? `${item.light.brand} ${item.light.model}` : '未选择'} · 距离 {formatDistanceDisplay(item.distanceInput, distanceUnit, item.distanceMm)}
                           </text>
                         ))}
                       </>
                     ) : hasLight ? (
                       <>
-                        <text x="12" y="32" fill={tc} style={{ fontSize: '11px' }}>{light.color}{light.type} · {light.power}</text>
-                        <text x="12" y="45" fill={ts} style={{ fontSize: '10px' }}>{light.brand} {light.model}</text>
-                        <text x="12" y="57" fill={ts} style={{ fontSize: '10px' }}>数量 {boundedLightCount} · 光源距产品: {diagramLightDistanceWithUnit}</text>
+                        <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{light.color}{light.type} · {light.power}</text>
+                        <text x="12" y={cardLine2Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{light.brand} {light.model}</text>
+                        <text x="12" y={cardLine3Y} fill={ts} style={{ fontSize: cardSubFontSize }}>数量 {boundedLightCount} · 光源距产品: {diagramLightDistanceWithUnit}</text>
                       </>
-                    ) : <text x="12" y="35" fill={ts} style={{ fontSize: '10px' }}>未选择光源</text>}
+                    ) : <text x="12" y={cardLine1Y} fill={ts} style={{ fontSize: cardSubFontSize }}>未选择光源</text>}
                   </g>
                 );
                 y += lh + cardGap;
@@ -1525,13 +1535,13 @@ export function VisionSystemDiagram({
 
               if (is3DCamera) {
                 const opticalLines = threeDOpticalLines.length ? threeDOpticalLines : ['待维护3D光学参数'];
-                const opticalH = Math.max(52, 24 + opticalLines.length * 12);
+                const opticalH = Math.max(cardH, 30 + opticalLines.length * cardLineStep);
                 cards.push(
                   <g key="three-d-optical" transform={`translate(${cardX}, ${y})`}>
                     <rect width={cardW} height={opticalH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>▣ 3D光学方案</text>
+                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>▣ 3D光学方案</text>
                     {opticalLines.map((line, index) => (
-                      <text key={line} x="12" y={34 + index * 12} fill={index === 0 ? tc : ts} style={{ fontSize: '10px' }}>{line}</text>
+                      <text key={line} x="12" y={cardLine1Y + index * cardLineStep} fill={index === 0 ? tc : ts} style={{ fontSize: cardSubFontSize }}>{line}</text>
                     ))}
                   </g>
                 );
@@ -1540,16 +1550,16 @@ export function VisionSystemDiagram({
 
               if (!is3DCamera) {
               {
-                const fovH = cameraSensorInfo.sourceLabel ? 76 : 62;
+                const fovH = cameraSensorInfo.sourceLabel ? 92 : 76;
                 cards.push(
                   <g key="fov" transform={`translate(${cardX}, ${y})`}>
                     <rect width={cardW} height={fovH} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>📐 视野参数</text>
-                    <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>视角: {fovAngle}°</text>
-                    <text x="12" y="47" fill={tc} style={{ fontSize: '11px' }}>工作距离: {workingDistanceDisplay}</text>
-                    <text x="12" y="58" fill={ts} style={{ fontSize: '10px' }}>视野宽度约 {fovWidthDisplay}</text>
+                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>📐 视野参数</text>
+                    <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>视角: {fovAngle}°</text>
+                    <text x="12" y={cardLine2Y} fill={tc} style={{ fontSize: cardMainFontSize }}>工作距离: {workingDistanceDisplay}</text>
+                    <text x="12" y={cardLine3Y} fill={ts} style={{ fontSize: cardSubFontSize }}>视野宽度约 {fovWidthDisplay}</text>
                     {cameraSensorInfo.sourceLabel && (
-                      <text x="12" y="70" fill={ts} style={{ fontSize: '10px' }}>计算依据：{cameraSensorInfo.sourceLabel}</text>
+                      <text x="12" y={cardLine4Y} fill={ts} style={{ fontSize: cardSubFontSize }}>计算依据：{cameraSensorInfo.sourceLabel}</text>
                     )}
                   </g>
                 );
@@ -1560,12 +1570,12 @@ export function VisionSystemDiagram({
               if (hasController) {
                 cards.push(
                   <g key="controller" transform={`translate(${cardX}, ${y})`}>
-                    <rect width={cardW} height={78} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
-                    <text x="12" y="18" fill={tc} style={{ fontSize: '12px', fontWeight: 600 }}>🖥️ 工控机</text>
-                    <text x="12" y="34" fill={tc} style={{ fontSize: '11px' }}>{controller.cpu || '-'}</text>
-                    <text x="12" y="48" fill={tc} style={{ fontSize: '11px' }}>{controller.memory || '-'} · {controller.storage || '-'}</text>
-                    <text x="12" y="62" fill={ts} style={{ fontSize: '10px' }}>{controller.brand} {controller.model}</text>
-                    {controller.gpu && <text x="12" y="74" fill={ts} style={{ fontSize: '10px' }}>GPU: {controller.gpu}</text>}
+                    <rect width={cardW} height={88} rx="8" fill={cardBg} stroke={cardBorder} strokeWidth="1" />
+                    <text x="12" y={cardTitleY} fill={tc} style={{ fontSize: cardTitleFontSize, fontWeight: 600 }}>🖥️ 工控机</text>
+                    <text x="12" y={cardLine1Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{controller.cpu || '-'}</text>
+                    <text x="12" y={cardLine2Y} fill={tc} style={{ fontSize: cardMainFontSize }}>{controller.memory || '-'} · {controller.storage || '-'}</text>
+                    <text x="12" y={cardLine3Y} fill={ts} style={{ fontSize: cardSubFontSize }}>{controller.brand} {controller.model}</text>
+                    {controller.gpu && <text x="12" y={cardLine4Y} fill={ts} style={{ fontSize: cardSubFontSize }}>GPU: {controller.gpu}</text>}
                   </g>
                 );
               }

@@ -1834,7 +1834,13 @@ export async function generateModule3DOpticalSlide(
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  const imageArea = { x: leftX, y: headerY + titleBodyGap, width: leftW, height: 4.45 };
+  const imageY = headerY + titleBodyGap;
+  const imageArea = {
+    x: leftX,
+    y: imageY,
+    width: leftW,
+    height: Math.max(0.5, SLIDE_LAYOUT.contentBottom - 0.1 - imageY),
+  };
   if (mod.schematic_image_url) {
     try {
       const dataUri = await fetchImageAsDataUri(mod.schematic_image_url);
