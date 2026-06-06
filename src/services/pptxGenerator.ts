@@ -267,6 +267,7 @@ interface GenerationOptions {
   language: 'zh' | 'en';
   quality: 'standard' | 'high' | 'ultra';
   mode?: 'draft' | 'final';
+  scope?: 'full' | 'workstations' | 'modules';
 }
 
 type ProgressCallback = (progress: number, step: string, log: string) => void;
@@ -922,6 +923,7 @@ export async function generatePPTX(
   const pptx = new pptxgen();
   const isZh = options.language === 'zh';
   const isDraft = options.mode === 'draft';
+  const generationScope = options.scope || 'full';
   const projectUses3D = Boolean((project as any).use_3d);
 
   // Use hardcoded corporate colors directly
@@ -970,6 +972,154 @@ export async function generatePPTX(
       const imgProgress = 6 + Math.round((loaded / total) * 2);
       onProgress(imgProgress, isZh ? `预加载图片 ${loaded}/${total}` : `Preloading images ${loaded}/${total}`, '');
     });
+  }
+
+  const buildWorkstationSlideData = (
+    ws: WorkstationData,
+    wsLayout: LayoutData | null,
+    wsModules: ModuleData[],
+  ) => {
+    const wsModuleIds = new Set(wsModules.map(m => m.id));
+    const wsAnnotations = annotations?.filter(a =>
+      (a.scope_type === 'workstation' && a.workstation_id === ws.id) ||
+      (a.scope_type === 'module' && a.module_id && wsModuleIds.has(a.module_id))
+    ) || [];
+    const wsProductAsset = productAssets?.find(a => a.scope_type === 'workstation' && a.workstation_id === ws.id);
+
+    return {
+      ws: {
+        id: ws.id,
+        name: ws.name,
+        type: ws.type,
+        cycle_time: ws.cycle_time,
+        product_dimensions: ws.product_dimensions,
+        enclosed: ws.enclosed,
+        process_stage: ws.process_stage,
+        observation_target: ws.observation_target,
+        acceptance_criteria: ws.acceptance_criteria,
+        motion_description: ws.motion_description,
+        shot_count: ws.shot_count,
+        risk_notes: ws.risk_notes,
+        action_script: ws.action_script,
+        notes: ws.notes,
+        description: (ws as unknown as Record<string, unknown>).description as string | null,
+      },
+      layout: wsLayout ? {
+        workstation_id: wsLayout.workstation_id,
+        conveyor_type: wsLayout.conveyor_type,
+        camera_count: wsLayout.camera_count,
+        camera_mounts: wsLayout.camera_mounts,
+        camera_mounts_labels: (wsLayout as any).camera_mounts_labels || null,
+        mechanisms: wsLayout.mechanisms,
+        front_view_image_url: wsLayout.front_view_image_url,
+        side_view_image_url: wsLayout.side_view_image_url,
+        top_view_image_url: wsLayout.top_view_image_url,
+        isometric_view_image_url: (wsLayout as any).isometric_view_image_url || null,
+        primary_view: (wsLayout as any).primary_view || 'front',
+        auxiliary_view: (wsLayout as any).auxiliary_view || 'side',
+        layout_description: (wsLayout as any).layout_description || '',
+        width: wsLayout.width,
+        height: wsLayout.height,
+        depth: wsLayout.depth,
+        selected_cameras: wsLayout.selected_cameras,
+        selected_lenses: wsLayout.selected_lenses,
+        selected_lights: wsLayout.selected_lights,
+        selected_controller: wsLayout.selected_controller,
+      } : null,
+      modules: wsModules.map(m => {
+        const moduleUses3D = isModule3DCameraForOutput(m, projectUses3D);
+        return {
+          id: m.id,
+          name: m.name,
+          type: m.type,
+          description: m.description,
+          trigger_type: m.trigger_type,
+          processing_time_limit: m.processing_time_limit,
+          selected_camera: m.selected_camera,
+          selected_lens: moduleUses3D ? null : m.selected_lens,
+          selected_light: moduleUses3D ? null : m.selected_light,
+          selected_controller: m.selected_controller,
+          is_3d_camera: moduleUses3D,
+          schematic_image_url: m.schematic_image_url,
+          positioning_config: m.positioning_config,
+          defect_config: m.defect_config,
+          measurement_config: m.measurement_config,
+          ocr_config: m.ocr_config,
+          deep_learning_config: m.deep_learning_config,
+          output_types: m.output_types,
+          roi_strategy: m.roi_strategy,
+          lighting_photos: (m as any).lighting_photos || [],
+        };
+      }),
+      annotations: wsAnnotations.map(a => ({
+        snapshot_url: a.snapshot_url,
+        annotations_json: a.annotations_json,
+        remark: a.remark,
+      })),
+      productAsset: wsProductAsset ? {
+        preview_images: wsProductAsset.preview_images,
+        detection_method: wsProductAsset.detection_method,
+        product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
+        detection_requirements: wsProductAsset.detection_requirements as Array<{ content: string; highlight?: string | null }> | null,
+      } : undefined,
+      hardware: hardware ? {
+        cameras: hardware.cameras,
+        lenses: hardware.lenses,
+        lights: hardware.lights,
+        controllers: hardware.controllers,
+      } : undefined,
+    };
+  };
+
+  if (generationScope === 'modules') {
+    const totalModules = Math.max(modules.length, 1);
+    let generatedModules = 0;
+
+    for (let wi = 0; wi < workstations.length; wi++) {
+      const ws = workstations[wi];
+      const wsModules = modules.filter(m => m.workstation_id === ws.id);
+      if (wsModules.length === 0) continue;
+
+      const wsLayout = layouts.find(l => l.workstation_id === ws.id) || null;
+      const wsCode = getWorkstationCode(project.code, wi, ws.code);
+      const ctx = {
+        pptx,
+        isZh,
+        wsCode,
+        wsName: ws.name,
+        responsible: project.responsible,
+      };
+      const slideData = buildWorkstationSlideData(ws, wsLayout, wsModules);
+
+      for (let mi = 0; mi < wsModules.length; mi++) {
+        const modName = wsModules[mi].name;
+        generatedModules++;
+        const moduleProgress = 8 + Math.round((generatedModules / totalModules) * 88);
+        onProgress(
+          moduleProgress,
+          `${isZh ? '鐢熸垚妯″潡' : 'Generating module'} (${generatedModules}/${totalModules}): ${modName}`,
+          `[WORKSTATION:${modName}:${generatedModules}/${totalModules}] Module slides`
+        );
+
+        if (isDraft) {
+          const draftOpticalSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+          draftOpticalSlide.addText(`${isZh ? '[鑽夌] 鍏夊鏂规' : '[DRAFT] Optical'}: ${modName}`, {
+            x: 1, y: 2, w: 8, h: 1, fontSize: 18, fontFace: FONTS.body, color: COLORS.secondary, align: 'center',
+          });
+        } else {
+          await generateModuleOpticalSlide(ctx, slideData, mi);
+
+          const photos = (wsModules[mi] as any).lighting_photos || [];
+          if (photos.length > 0) {
+            await generateLightingPhotosSlide(ctx, slideData, mi);
+          }
+        }
+      }
+    }
+
+    progress = 100;
+    onProgress(progress, isZh ? '瀹屾垚' : 'Complete', isZh ? 'PPT鐢熸垚瀹屾垚' : 'PPT generation complete');
+    return await pptx.write({ outputType: 'blob' }) as Blob;
   }
 
   // ========== SLIDE 1: Cover - Full image, no modifications ==========

@@ -57,8 +57,13 @@ import type { ImageCacheType } from '@/services/imageLocalCache';
 import { PPTImagePreviewDialog } from './PPTImagePreviewDialog';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { buildModuleVisionChecklistTemplateFields } from '@/utils/moduleVisionChecklist';
+import {
+  deriveScopedGenerationData,
+  getScopeSelectionPrompt,
+  hasRequiredScopeSelection,
+  type GenerationScope,
+} from './pptGenerationScope';
 
-type GenerationScope = 'full' | 'workstations' | 'modules';
 type OutputLanguage = 'zh' | 'en';
 type ImageQuality = 'standard' | 'high' | 'ultra';
 type GenerationMode = 'draft' | 'final';
@@ -170,6 +175,49 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const project = projects.find(p => p.id === selectedProjectId);
   const projectWorkstations = selectedProjectId ? getProjectWorkstations(selectedProjectId) : [];
 
+  const projectModules = useMemo(() => {
+    const projectWsIds = new Set(projectWorkstations.map(ws => ws.id));
+    return allModules.filter(mod => projectWsIds.has(mod.workstation_id));
+  }, [projectWorkstations, allModules]);
+
+  const scopedSelection = useMemo(() => {
+    return deriveScopedGenerationData({
+      scope,
+      projectWorkstations,
+      projectModules,
+      layouts: allLayouts,
+      selectedWorkstationIds: selectedWorkstations,
+      selectedModuleIds: selectedModules,
+    });
+  }, [scope, selectedWorkstations, selectedModules, projectWorkstations, projectModules, allLayouts]);
+
+  const hasRequiredSelection = hasRequiredScopeSelection(scope, scopedSelection);
+  const selectionPrompt = getScopeSelectionPrompt(scope);
+
+  const scopedProductAssets = useMemo(() => {
+    const wsIds = new Set(scopedSelection.workstations.map(ws => ws.id));
+    const modIds = new Set(scopedSelection.modules.map(mod => mod.id));
+    return productAssets.filter(asset => {
+      if (asset.scope_type === 'module') {
+        return Boolean(asset.module_id && modIds.has(asset.module_id));
+      }
+      return Boolean(asset.workstation_id && wsIds.has(asset.workstation_id));
+    });
+  }, [productAssets, scopedSelection]);
+
+  const scopedAnnotations = useMemo(() => {
+    const wsIds = new Set(scopedSelection.workstations.map(ws => ws.id));
+    const modIds = new Set(scopedSelection.modules.map(mod => mod.id));
+    const assetIds = new Set(scopedProductAssets.map(asset => asset.id));
+    return annotations.filter(annotation => {
+      if (assetIds.has(annotation.asset_id)) return true;
+      if (annotation.scope_type === 'module') {
+        return Boolean(annotation.module_id && modIds.has(annotation.module_id));
+      }
+      return Boolean(annotation.workstation_id && wsIds.has(annotation.workstation_id));
+    });
+  }, [annotations, scopedSelection, scopedProductAssets]);
+
   // Check generation readiness using pptReadiness service
   const readinessResult = useMemo(() => {
     return checkPPTReadiness({
@@ -178,8 +226,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       layouts: allLayouts,
       modules: allModules,
       selectedProjectId,
+      mode,
+      scope,
+      selectedWorkstationIds: selectedWorkstations,
+      selectedModuleIds: selectedModules,
     });
-  }, [projects, allWorkstations, allLayouts, allModules, selectedProjectId]);
+  }, [projects, allWorkstations, allLayouts, allModules, selectedProjectId, mode, scope, selectedWorkstations, selectedModules]);
 
   const { draftReady, finalReady, missing, warnings } = readinessResult;
 
@@ -199,35 +251,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
   // Calculate what will be generated
   const generationPreview = useMemo(() => {
-    let wsCount = 0;
-    let modCount = 0;
-
-    if (scope === 'full') {
-      projectWorkstations.forEach(ws => {
-        wsCount++;
-        const wsMods = getWorkstationModules(ws.id);
-        modCount += wsMods.length;
-      });
-    } else if (scope === 'workstations') {
-      selectedWorkstations.forEach(wsId => {
-        const ws = allWorkstations.find(w => w.id === wsId);
-        if (ws) {
-          wsCount++;
-          const wsMods = getWorkstationModules(wsId);
-          modCount += wsMods.length;
-        }
-      });
-    } else {
-      selectedModules.forEach(modId => {
-        const mod = allModules.find(m => m.id === modId);
-        if (mod) {
-          modCount++;
-        }
-      });
-    }
-
-    return { wsCount, modCount };
-  }, [scope, selectedWorkstations, selectedModules, projectWorkstations, allModules, allWorkstations, getWorkstationModules]);
+    return {
+      wsCount: scope === 'modules' ? 0 : scopedSelection.workstations.length,
+      modCount: scopedSelection.modules.length,
+      hardwareCount: scope === 'modules' ? 0 : 1,
+    };
+  }, [scope, scopedSelection]);
 
   useEffect(() => {
     if (!open) {
@@ -356,17 +385,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     
     setIsCheckingImages(true);
     try {
-      const wsToCheck = scope === 'full' 
-        ? projectWorkstations 
-        : allWorkstations.filter(ws => selectedWorkstations.includes(ws.id));
-      
-      const modsToCheck = scope === 'modules' 
-        ? allModules.filter(m => selectedModules.includes(m.id))
-        : allModules.filter(m => wsToCheck.some(ws => ws.id === m.workstation_id));
-      
-      const layoutsToCheck = allLayouts.filter(l => 
-        wsToCheck.some(ws => ws.id === l.workstation_id)
-      );
+      const wsToCheck = scopedSelection.workstations;
+      const modsToCheck = scopedSelection.modules;
+      const layoutsToCheck = scopedSelection.layouts;
 
       // Collect all image URLs
       const imagesToCheck = collectWorkstationImageUrls(
@@ -380,8 +401,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           name: m.name,
           schematic_image_url: m.schematic_image_url,
         })),
-        annotations.map(a => ({ snapshot_url: a.snapshot_url })),
-        productAssets.map(a => ({ preview_images: a.preview_images }))
+        scopedAnnotations.map(a => ({ snapshot_url: a.snapshot_url })),
+        scopedProductAssets.map(a => ({ preview_images: a.preview_images }))
       );
 
       if (imagesToCheck.length === 0) {
@@ -410,17 +431,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const handleDownloadToCache = async () => {
     if (!project) return;
     
-    const wsToCheck = scope === 'full' 
-      ? projectWorkstations 
-      : allWorkstations.filter(ws => selectedWorkstations.includes(ws.id));
-    
-    const modsToCheck = scope === 'modules' 
-      ? allModules.filter(m => selectedModules.includes(m.id))
-      : allModules.filter(m => wsToCheck.some(ws => ws.id === m.workstation_id));
-    
-    const layoutsToCheck = allLayouts.filter(l => 
-      wsToCheck.some(ws => ws.id === l.workstation_id)
-    );
+    const wsToCheck = scopedSelection.workstations;
+    const modsToCheck = scopedSelection.modules;
+    const layoutsToCheck = scopedSelection.layouts;
 
     // 收集所有需要缓存的图片
     const itemsToCache: Array<{
@@ -567,6 +580,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
   const handleGenerate = async () => {
     if (!project) return;
+    if (!hasRequiredSelection) {
+      toast.warning(selectionPrompt);
+      return;
+    }
     
     setIsGenerating(true);
     setStage('generating');
@@ -575,28 +592,18 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     // 重置详细进度追踪状态
     setCurrentWorkstation('');
     setCurrentSlideInfo('');
-    setWorkstationProgress({ current: 0, total: projectWorkstations.length });
+    setWorkstationProgress({
+      current: 0,
+      total: scope === 'modules' ? scopedSelection.modules.length : scopedSelection.workstations.length,
+    });
     
     // 重置失败URL缓存，允许重新尝试加载
     resetFailedUrlsCache();
 
     try {
-      // Determine which workstations and modules to include
-      const wsToProcess = scope === 'full' 
-        ? projectWorkstations 
-        : scope === 'workstations' 
-          ? allWorkstations.filter(ws => selectedWorkstations.includes(ws.id))
-          : [];
-
-      const modsToProcess = scope === 'modules' 
-        ? allModules.filter(m => selectedModules.includes(m.id))
-        : scope === 'full'
-          ? allModules.filter(m => projectWorkstations.some(ws => ws.id === m.workstation_id))
-          : allModules.filter(m => selectedWorkstations.includes(m.workstation_id));
-
-      const layoutsToProcess = allLayouts.filter(l => 
-        wsToProcess.some(ws => ws.id === l.workstation_id)
-      );
+      const wsToProcess = scopedSelection.workstations;
+      const modsToProcess = scopedSelection.modules;
+      const layoutsToProcess = scopedSelection.layouts;
 
       // ===================== 使用统一数据构建 =====================
       // Build hardware library
@@ -644,7 +651,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       };
 
       // Prepare product assets input
-      const productAssetInputs: ProductAssetInput[] = productAssets.map(a => ({
+      const productAssetInputs: ProductAssetInput[] = scopedProductAssets.map(a => ({
         id: a.id,
         workstation_id: a.workstation_id,
         module_id: a.module_id,
@@ -657,7 +664,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       }));
 
       // Prepare annotation inputs
-      const annotationInputs: AnnotationInput[] = annotations.map(a => ({
+      const annotationInputs: AnnotationInput[] = scopedAnnotations.map(a => ({
         id: a.id,
         asset_id: a.asset_id,
         snapshot_url: a.snapshot_url,
@@ -836,7 +843,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       // ==================== 根据输出格式选择不同的生成逻辑 ====================
       
       // Prepare product assets and annotations for generator
-      const productAssetData = productAssets.map(a => ({
+      const productAssetData = scopedProductAssets.map(a => ({
         id: a.id,
         workstation_id: a.workstation_id,
         module_id: a.module_id,
@@ -845,7 +852,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         model_file_url: a.model_file_url,
       }));
 
-      const annotationData = annotations.map(a => ({
+      const annotationData = scopedAnnotations.map(a => ({
         id: a.id,
         asset_id: a.asset_id,
         snapshot_url: a.snapshot_url,
@@ -1093,7 +1100,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           const wsModules = moduleData.filter(m => m.workstation_id === ws.id);
           const wsLayout = layoutData.find(l => l.workstation_id === ws.id) || null;
           const wsProductAsset = productAssetData.find(a => a.workstation_id === ws.id) || null;
-          const wsAnnotation = annotations.find(a => a.workstation_id === ws.id) || null;
+          const wsAnnotation = scopedAnnotations.find(a => a.workstation_id === ws.id) || null;
 
           return {
             ...ws,
@@ -1175,6 +1182,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             language, 
             quality, 
             mode,
+            scope,
           },
           (prog, step, log) => {
             // Adjust progress to start from 10%
@@ -1201,19 +1209,25 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           },
           hardwareData,
           readinessResult,
-          annotations,
-          productAssets
+          scopedAnnotations,
+          scopedProductAssets
         );
 
         generatedBlobRef.current = blob;
 
-        const pptPageCount = 2 + wsToProcess.length + modsToProcess.length + 2;
+        const moduleOnlyPageCount = moduleData.reduce(
+          (count, mod) => count + 1 + ((mod as any).lighting_photos?.length ? 1 : 0),
+          0,
+        );
+        const pptPageCount = scope === 'modules'
+          ? moduleOnlyPageCount
+          : 2 + wsToProcess.length + modsToProcess.length + 2;
         // Set result
         setGenerationResult({
           pageCount: pptPageCount,
-          layoutImages: wsToProcess.length * 3,
+          layoutImages: scope === 'modules' ? moduleData.length : wsToProcess.length * 3,
           parameterTables: wsToProcess.length + modsToProcess.length,
-          hardwareList: 1,
+          hardwareList: scope === 'modules' ? 0 : 1,
           fileUrl: '',
         });
 
@@ -1298,7 +1312,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-2xl max-h-[92dvh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
@@ -1308,7 +1322,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
         {/* Config Stage */}
         {stage === 'config' && (
-          <div className="flex flex-col gap-4 overflow-y-auto flex-1 pr-1">
+          <div className="flex flex-col gap-4 overflow-y-auto flex-1 pr-1 pb-1">
             {/* Output Format Selection - 输出格式选择 */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">输出格式</Label>
@@ -1665,7 +1679,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             {/* Generation Scope */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">生成范围</Label>
-              <RadioGroup value={scope} onValueChange={(v) => setScope(v as GenerationScope)} className="grid grid-cols-3 gap-2">
+              <RadioGroup value={scope} onValueChange={(v) => setScope(v as GenerationScope)} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <Label className={cn(
                   "flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors",
                   scope === 'full' ? "border-primary bg-primary/5" : "hover:bg-muted"
@@ -1692,39 +1706,67 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
             {/* Workstation/Module Selection */}
             {(scope === 'workstations' || scope === 'modules') && (
-              <div className="border rounded-lg overflow-hidden flex-1 min-h-0">
-                <ScrollArea className="h-40">
+              <div className="border rounded-lg overflow-hidden bg-background">
+                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {scope === 'workstations' ? '选择要生成的工位' : '选择要生成的模块'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {scope === 'workstations'
+                        ? '只导出勾选工位及其包含模块'
+                        : '只导出勾选模块的光学方案页和打光照片页'}
+                    </p>
+                  </div>
+                  <Badge variant={hasRequiredSelection ? 'secondary' : 'outline'} className="shrink-0">
+                    {scope === 'workstations' ? scopedSelection.workstations.length : scopedSelection.modules.length} 已选
+                  </Badge>
+                </div>
+                <ScrollArea className="h-48 max-h-[32vh]">
                   <div className="p-2 space-y-1">
+                    {scope === 'workstations' && projectWorkstations.length === 0 && (
+                      <div className="p-4 text-center text-sm text-muted-foreground">当前项目暂无工位</div>
+                    )}
                     {scope === 'workstations' && projectWorkstations.map(ws => (
                       <label key={ws.id} className="flex items-center gap-2 p-2 rounded hover:bg-muted cursor-pointer">
                         <Checkbox 
                           checked={selectedWorkstations.includes(ws.id)} 
                           onCheckedChange={() => toggleWorkstation(ws.id)} 
                         />
-                        <Box className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm flex-1">{ws.name}</span>
-                        <Badge variant="outline" className="text-xs">
+                        <Box className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm flex-1 min-w-0 truncate">{ws.name}</span>
+                        <Badge variant="outline" className="text-xs shrink-0">
                           {getWorkstationModules(ws.id).length} 模块
                         </Badge>
                       </label>
                     ))}
-                    {scope === 'modules' && projectWorkstations.map(ws => (
+                    {scope === 'modules' && projectModules.length === 0 && (
+                      <div className="p-4 text-center text-sm text-muted-foreground">当前项目暂无模块</div>
+                    )}
+                    {scope === 'modules' && projectWorkstations.map(ws => {
+                      const wsModules = getWorkstationModules(ws.id);
+                      if (wsModules.length === 0) return null;
+                      return (
                       <div key={ws.id}>
                         <div className="text-xs text-muted-foreground px-2 py-1 font-medium">{ws.name}</div>
-                        {getWorkstationModules(ws.id).map(mod => (
+                        {wsModules.map(mod => (
                           <label key={mod.id} className="flex items-center gap-2 p-2 pl-6 rounded hover:bg-muted cursor-pointer">
                             <Checkbox 
                               checked={selectedModules.includes(mod.id)} 
                               onCheckedChange={() => toggleModule(mod.id)} 
                             />
-                            <Cpu className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm flex-1">{mod.name}</span>
+                            <Cpu className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="text-sm flex-1 min-w-0 truncate">{mod.name}</span>
                           </label>
                         ))}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </ScrollArea>
+                {!hasRequiredSelection && (
+                  <p className="border-t px-3 py-2 text-xs text-destructive">{selectionPrompt}</p>
+                )}
               </div>
             )}
 
@@ -1780,7 +1822,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                 <div className="space-y-1">
                   <div className="flex items-center justify-center gap-1">
                     <Camera className="h-4 w-4 text-chart-4" />
-                    <span className="text-lg font-bold">1</span>
+                    <span className="text-lg font-bold">{generationPreview.hardwareCount}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">硬件清单</p>
                 </div>
@@ -1788,7 +1830,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2">
+            <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 border-t bg-background/95 px-1 pt-3 pb-1 backdrop-blur">
               <Button variant="outline" onClick={() => setImagePreviewOpen(true)} className="gap-1 mr-auto">
                 <Eye className="h-4 w-4" />
                 查看已保存图片
@@ -1799,6 +1841,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                 disabled={
                   !draftReady || 
                   (mode === 'final' && !finalReady) ||
+                  !hasRequiredSelection ||
                   isGenerating
                 }
               >
@@ -1807,6 +1850,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     生成中...
                   </>
+                ) : !hasRequiredSelection ? (
+                  selectionPrompt
                 ) : mode === 'final' && !finalReady ? (
                   '请先补齐缺失项'
                 ) : (
