@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import { useData } from '@/contexts/DataContext';
+﻿﻿﻿﻿﻿﻿import { useData } from '@/contexts/DataContext';
 import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHardware';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
