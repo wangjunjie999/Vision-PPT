@@ -203,6 +203,7 @@ export function ModuleForm() {
         signalDefinition: cfg.signalDefinition || '',
         dataRetentionDays: cfg.dataRetentionDays?.toString() || '',
         cameraTaktTime: stripCameraTaktTimeUnit(cfg.cameraTaktTime),
+        shotCount: cfg.shotCount != null && cfg.shotCount !== '' ? String(cfg.shotCount) : '',
       } : {};
       const isLoaded3DCamera = isModule3DCamera(module, legacyProjectUses3D);
       const loadedLightItems = isLoaded3DCamera ? [] : normalizeModuleLightItems(cfg?.imaging?.lightItems, {
@@ -507,6 +508,7 @@ export function ModuleForm() {
         signalDefinition: formForSave.signalDefinition || null,
         dataRetentionDays: formForSave.dataRetentionDays ? parseInt(formForSave.dataRetentionDays) : null,
         cameraTaktTime: stripCameraTaktTimeUnit(formForSave.cameraTaktTime) || null,
+        shotCount: formForSave.shotCount ? parseInt(formForSave.shotCount, 10) : null,
       };
 
       const normalizedLightItems = normalizeModuleLightItems(formForSave.lightItems, {
