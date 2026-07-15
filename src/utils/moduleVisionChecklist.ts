@@ -114,9 +114,9 @@ export function buildModuleVisionChecklist(input: ModuleVisionChecklistInput): M
   ) || '-';
 
   const shotCountValue = firstPresent(
-    input.workstation?.shot_count,
     config?.shotCount,
     config?.shot_count,
+    input.workstation?.shot_count,
     cameraCount,
   );
   const taktValue = firstPresent(
