@@ -72,6 +72,7 @@ const mechanismConstraints: Partial<Record<Mechanism, MechanismConstraint>> = {
 const createDefaultWorkstationForm = () => ({
   code: '',
   name: '',
+  design_responsible: '',
   type: 'line' as WorkstationType,
   cycleTime: '',
   length: '',
@@ -171,6 +172,7 @@ const workstationToForm = (workstation: WorkstationFormSource): WorkstationFormS
   return {
     code: workstation.code || '',
     name: workstation.name || '',
+    design_responsible: (workstation as any).design_responsible || '',
     type: workstation.type || 'line',
     cycleTime: workstation.cycle_time?.toString() || '',
     length: dims?.length?.toString() || '100',
@@ -533,10 +535,17 @@ export function WorkstationForm() {
     try {
       setSaving(true);
       
+      if (!wsForm.design_responsible.trim()) {
+        toast.error('请填写工位设计负责人');
+        setSaving(false);
+        return;
+      }
+
       // Update workstation using DataContext to sync state
       await updateWorkstation(workstation.id, { 
         code: wsForm.code,
         name: wsForm.name,
+        design_responsible: wsForm.design_responsible.trim(),
         type: wsForm.type,
         cycle_time: parseWorkstationCycleTimeSeconds(wsForm.acceptance_cycle_time), 
         product_dimensions: { 
