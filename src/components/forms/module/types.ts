@@ -431,6 +431,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   triggerType: 'io',
   processingTimeLimit: '200',
   cameraTaktTime: '',
+  shotCount: '',
   
   selectedCamera: '',
   selectedLens: '',
