@@ -123,6 +123,7 @@ interface WorkstationDraftPayload {
 interface WorkstationFormSource {
   code?: string | null;
   name?: string | null;
+  design_responsible?: string | null;
   type?: WorkstationType | null;
   cycle_time?: number | null;
   product_dimensions?: { length?: number; width?: number; height?: number } | null;
