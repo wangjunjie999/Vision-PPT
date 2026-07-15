@@ -193,6 +193,7 @@ export interface ModuleFormState {
   triggerType: TriggerType;
   processingTimeLimit: string;
   cameraTaktTime: string; // 相机节拍，表单中不限制格式，展示时统一补 s
+  shotCount: string; // 拍照次数（模块级），单位次
   
   // Hardware
   selectedCamera: string;
@@ -430,6 +431,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   triggerType: 'io',
   processingTimeLimit: '200',
   cameraTaktTime: '',
+  shotCount: '',
   
   selectedCamera: '',
   selectedLens: '',
