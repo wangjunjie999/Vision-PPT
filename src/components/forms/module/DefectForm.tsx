@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { DefectItem, ModuleFormState, MissTolerance, ConveyorType } from './types';
+import type { DefectCameraCount, DefectItem, ModuleFormState, MissTolerance, ConveyorType } from './types';
 
 interface DefectFormProps {
   form: ModuleFormState;
@@ -25,6 +25,9 @@ const conveyorTypeOptions: { value: ConveyorType; label: string }[] = [
   { value: 'other', label: '其他' },
 ];
 
+const defectCameraCountOptions: DefectCameraCount[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+const customDefectCameraCountValue = 'custom';
+
 const quickDefectClasses = ['划痕', '凹坑', '异物', '变色', '气泡', '裂纹', '缺损', '披锋'];
 
 export function DefectForm({ form, setForm }: DefectFormProps) {
@@ -33,6 +36,10 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
   const defectItems = form.defectItems.length > 0
     ? form.defectItems
     : form.defectClasses.map(cls => ({ name: cls, minSize: form.minDefectSize || '' }));
+  const isCustomDefectCameraCount = !defectCameraCountOptions.includes(form.defectCameraCount);
+  const defectCameraCountSelectValue = isCustomDefectCameraCount
+    ? customDefectCameraCountValue
+    : form.defectCameraCount;
 
   const syncDefectItems = (items: DefectItem[]) => {
     const cleanedItems = items.map(item => ({
@@ -236,16 +243,36 @@ export function DefectForm({ form, setForm }: DefectFormProps) {
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">相机数量</Label>
           <Select 
-            value={form.defectCameraCount} 
-            onValueChange={v => setForm(p => ({ ...p, defectCameraCount: v as '1' | '2' | '3' }))}
+            value={defectCameraCountSelectValue}
+            onValueChange={v => setForm(p => ({
+              ...p,
+              defectCameraCount: v === customDefectCameraCountValue
+                ? (isCustomDefectCameraCount ? p.defectCameraCount : '')
+                : v,
+            }))}
           >
             <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="1">1台</SelectItem>
-              <SelectItem value="2">2台</SelectItem>
-              <SelectItem value="3">3台</SelectItem>
+              {defectCameraCountOptions.map(count => (
+                <SelectItem key={count} value={count}>{count}台</SelectItem>
+              ))}
+              <SelectItem value={customDefectCameraCountValue}>自定义</SelectItem>
             </SelectContent>
           </Select>
+          {isCustomDefectCameraCount && (
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={form.defectCameraCount}
+              onChange={e => {
+                const value = e.target.value.replace(/\D/g, '');
+                setForm(p => ({ ...p, defectCameraCount: value }));
+              }}
+              placeholder="输入自定义数量"
+              className="h-9 w-32"
+            />
+          )}
         </div>
 
         {/* 工业级参数 */}

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import type { Json } from '@/integrations/supabase/types';
+import { getSafeFileExtension } from '@/utils/storageFileNames';
 
 // 幻灯片映射配置
 export interface SlideMapping {
@@ -279,7 +280,7 @@ export function usePPTTemplates() {
   const uploadTemplateFile = async (file: File, templateId: string): Promise<string> => {
     if (!user?.id) throw new Error('未登录');
 
-    const ext = file.name.split('.').pop();
+    const ext = getSafeFileExtension(file.name, 'pptx');
     const path = `${user.id}/${templateId}.${ext}`;
 
     const { error: uploadError } = await supabase.storage

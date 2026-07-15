@@ -19,6 +19,7 @@ export type OutputType = 'ok_ng' | 'coordinates' | 'defect_class' | 'dimensions'
 export type FailureHandling = 'retry' | 'alarm' | 'pass';
 export type CalibrationMethod = 'plane' | 'multipoint' | 'fixture' | 'hand_eye' | 'none';
 export type ConveyorType = 'belt' | 'roller' | 'step' | 'other';
+export type DefectCameraCount = string;
 
 // Positioning module types
 export type PositionTargetType = 'hole' | 'edge' | 'corner' | 'qrcode' | 'feature' | 'mark';
@@ -261,7 +262,7 @@ export interface ModuleFormState {
   detectionAreaWidth: string;
   conveyorType: ConveyorType;
   lineSpeed: string;
-  defectCameraCount: '1' | '2' | '3';
+  defectCameraCount: DefectCameraCount;
   defectCamera1Config: DefectCameraConfig;
   defectCamera2Config: DefectCameraConfig;
   defectCamera3Config: DefectCameraConfig;

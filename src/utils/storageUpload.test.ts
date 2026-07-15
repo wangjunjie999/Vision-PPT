@@ -111,6 +111,20 @@ describe('uploadStorageFile', () => {
     );
   });
 
+  it('URL-encodes non-ASCII path segments for the local upload proxy', async () => {
+    const file = new Blob(['image'], { type: 'image/png' });
+
+    await uploadStorageFile('product-models', 'ws-1/测试 图片.png', file);
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/storage-proxy-upload/product-models/ws-1/%E6%B5%8B%E8%AF%95%20%E5%9B%BE%E7%89%87.png',
+      expect.objectContaining({
+        method: 'POST',
+        body: file,
+      })
+    );
+  });
+
   it('throws when a required remote upload fails', async () => {
     mocks.upload.mockResolvedValueOnce({ error: { message: 'new row violates row-level security policy' } });
 

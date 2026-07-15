@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import { uploadGLBFile, deleteGLBFile } from '@/utils/glbUpload';
 import { validateImageFile } from '@/utils/fileValidation';
 import { processHardwareImageForUpload } from '@/utils/processHardwareImage';
+import { getSafeFileExtension } from '@/utils/storageFileNames';
 
 interface Props {
   type: 'cameras' | 'lenses' | 'lights' | 'controllers';
@@ -420,6 +421,7 @@ export function HardwareResourceManager({ type }: Props) {
                 </Label>
                 <Input
                   type={field.type || 'text'}
+                  step={field.key === 'frame_rate' ? 'any' : undefined}
                   placeholder={field.placeholder}
                   value={formData[field.key] || ''}
                   onChange={(e) =>
@@ -549,7 +551,7 @@ export function HardwareResourceManager({ type }: Props) {
                           });
                           if (!isValid) return;
                           const uploadFile = await processHardwareImageForUpload(file);
-                          const fileExt = uploadFile.name.split('.').pop() || 'png';
+                          const fileExt = getSafeFileExtension(uploadFile.name, 'png');
                           const path = `${type}/front-view/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
                           const { error } = await supabase.storage.from('hardware-images').upload(path, uploadFile, {
                             contentType: uploadFile.type || 'image/png',
@@ -577,7 +579,7 @@ export function HardwareResourceManager({ type }: Props) {
                             });
                             if (!isValid) return;
                             const uploadFile = await processHardwareImageForUpload(file);
-                            const fileExt = uploadFile.name.split('.').pop() || 'png';
+                            const fileExt = getSafeFileExtension(uploadFile.name, 'png');
                             const path = `${type}/front-view/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
                             const { error } = await supabase.storage.from('hardware-images').upload(path, uploadFile, {
                               contentType: uploadFile.type || 'image/png',
@@ -633,7 +635,7 @@ export function HardwareResourceManager({ type }: Props) {
                           });
                           if (!isValid) return;
                           const uploadFile = await processHardwareImageForUpload(file);
-                          const fileExt = uploadFile.name.split('.').pop() || 'png';
+                          const fileExt = getSafeFileExtension(uploadFile.name, 'png');
                           const path = `lights/top-view/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
                           const { error } = await supabase.storage.from('hardware-images').upload(path, uploadFile, {
                             contentType: uploadFile.type || 'image/png',
@@ -661,7 +663,7 @@ export function HardwareResourceManager({ type }: Props) {
                             });
                             if (!isValid) return;
                             const uploadFile = await processHardwareImageForUpload(file);
-                            const fileExt = uploadFile.name.split('.').pop() || 'png';
+                            const fileExt = getSafeFileExtension(uploadFile.name, 'png');
                             const path = `lights/top-view/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
                             const { error } = await supabase.storage.from('hardware-images').upload(path, uploadFile, {
                               contentType: uploadFile.type || 'image/png',

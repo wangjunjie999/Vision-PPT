@@ -19,6 +19,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SlideLayoutMapping } from './SlideLayoutMapping';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
+import { getSafeFileExtension } from '@/utils/storageFileNames';
 
 // 动态页面结构选项 - 将根据模板解析结果动态更新
 const DEFAULT_SECTION_OPTIONS = [
@@ -326,7 +327,7 @@ export function PPTTemplateManager() {
   };
 
   const uploadBackgroundImage = async (file: File, templateId: string): Promise<string> => {
-    const ext = file.name.split('.').pop();
+    const ext = getSafeFileExtension(file.name, 'png');
     const path = `backgrounds/${templateId}.${ext}`;
 
     const { error: uploadError } = await supabase.storage

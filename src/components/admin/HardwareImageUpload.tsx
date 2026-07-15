@@ -5,6 +5,7 @@ import { DragDropUpload } from '@/components/upload/DragDropUpload';
 import { toast } from 'sonner';
 import { validateImageFile } from '@/utils/fileValidation';
 import { processHardwareImageForUpload } from '@/utils/processHardwareImage';
+import { getSafeFileExtension } from '@/utils/storageFileNames';
 
 interface ImageUploadProps {
   currentUrl: string | null;
@@ -43,7 +44,7 @@ export function HardwareImageUpload({
 
     try {
       const uploadFile = await processHardwareImageForUpload(file);
-      const fileExt = uploadFile.name.split('.').pop() || 'png';
+      const fileExt = getSafeFileExtension(uploadFile.name, 'png');
       const fileName = `${type}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
       const { data, error } = await supabase.storage

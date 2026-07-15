@@ -10,6 +10,7 @@
 
 import JSZip from 'jszip';
 import { supabase } from '@/integrations/supabase/client';
+import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 
 const EMU_PER_INCH = 914400;
 
@@ -248,7 +249,10 @@ export async function parseTemplate(options: ParseTemplateOptions): Promise<Pars
     let body: Record<string, unknown>;
 
     if (options.file) {
-      const tempPath = `temp/${session.user.id}/${Date.now()}_${options.file.name}`;
+      const tempPath = `temp/${session.user.id}/${createSafeStorageObjectName(options.file.name, {
+        fallbackBase: 'template',
+        fallbackExtension: 'pptx',
+      })}`;
       const { error: uploadError } = await supabase.storage
         .from('ppt-templates')
         .upload(tempPath, options.file, { upsert: true });
