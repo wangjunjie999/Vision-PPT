@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => {
       output: {
         manualChunks: {
           'three-vendor': ['three', '@react-three/fiber', '@react-three/drei'],
-          'report-vendor': ['pptxgenjs', 'jspdf', 'docx', 'xlsx'],
+          'report-vendor': ['pptxgenjs', 'jspdf', 'docx', 'exceljs'],
           'chart-vendor': ['recharts'],
         },
       },
