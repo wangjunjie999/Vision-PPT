@@ -1071,6 +1071,7 @@ export type Database = {
           created_at: string
           cycle_time: number | null
           description: string | null
+          design_responsible: string | null
           enclosed: boolean | null
           environment_description: string | null
           id: string
@@ -1098,6 +1099,7 @@ export type Database = {
           created_at?: string
           cycle_time?: number | null
           description?: string | null
+          design_responsible?: string | null
           enclosed?: boolean | null
           environment_description?: string | null
           id?: string
@@ -1125,6 +1127,7 @@ export type Database = {
           created_at?: string
           cycle_time?: number | null
           description?: string | null
+          design_responsible?: string | null
           enclosed?: boolean | null
           environment_description?: string | null
           id?: string

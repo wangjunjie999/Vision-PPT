@@ -1,43 +1,89 @@
-## 背景
-光学方案图（`VisionSystemDiagram.tsx`）中：
-- SVG `viewBox="0 0 800 540"`，产品默认 Y=420、最大 Y=430，产品下方仅剩 ~110px 空间且光源高度本身约 32px，导致无法在产品下方有效摆放背光光源（看上去"拖不动"）。
-- 多光源的 `pointermove` / `pointerup` 监听挂在每个光源 `<g>` 上（`src/components/canvas/VisionSystemDiagram.tsx:1147-1152`），快速拖动或脱离光源命中区时事件丢失，加剧"拖不到产品下方"的体感。
-- 现有 `handleDiagramLightPointerMove` 不做任何 Y 轴 clamp（750-767 行），所以问题不在限制，而在**可用画布空间不足 + 事件绑定位置**。
+# 工位设计负责人 全链路改造
 
-## 目标
-让用户可以把光源拖动到产品下方，从而呈现背光（透射）方案；同时不破坏已有的 2D 方案布局、距离标注、PPT 导出。
+## 1. 数据库
+- 新增迁移：`ALTER TABLE public.workstations ADD COLUMN design_responsible text;`（可空，兼容历史）
+- 迁移完成后由系统重新生成 `src/integrations/supabase/types.ts`，本次不手改。
+- 同步：
+  - `docs/migration-schema.sql`：新增字段声明
+  - `docs/DATA_MIGRATION.md`：记录字段
+  - `docs/scripts/setup-local-supabase.*`：如有 workstations 建表逻辑一并追加
 
-## 修改范围（仅前端 / 表现层）
-全部改动集中在 `src/components/canvas/VisionSystemDiagram.tsx`：
+## 2. 类型 / 领域层
+- `src/types/index.ts` `Workstation`：新增 `designResponsible?: string`
+- `src/services/reportDataBuilder.ts`：将 `design_responsible` 透传到工位报告数据
+- `src/utils/hardwareSerialization.ts` / 项目模板序列化：显式包含该字段（复制/模板路径）
+- 显示名称映射（若存在字段中文名字典）：`design_responsible → 设计负责人`
 
-1. **扩大画布纵向空间，给产品下方留出"背光区"**
-   - `viewBox` 由 `0 0 800 540` 改为 `0 0 800 640`（加 100px 高度）。
-   - 右侧标注 `<foreignObject>`（x=500, y=20, width=290, height=500）同步调整为 height=600，避免右侧面板与新区域错位。
-   - `min-h-[500px]` 提升到 `min-h-[560px]`，保持宽高比。
+## 3. 新建工位弹窗
+文件：`src/components/dialogs/NewWorkstationDialog.tsx`
+- 在"工位名称"行下方新增必填输入"工位设计负责人"，maxLength 50，自由文本
+- `handleCreate`：`design_responsible = form.designResponsible.trim()`，为空则 `toast.error('请输入工位设计负责人')` 并 return
+- 创建按钮 `disabled` 条件加上负责人非空
+- 传入 `addWorkstation(...)` 载荷
 
-2. **新增"背光区"提示（仅当 interactive 时）**
-   - 在产品下方绘制一条虚线矩形 + 文字「背光区（可放置光源）」，宽度与画布主区一致（x≈40–490），y 从 `productY + 产品高度 + 10` 到 `viewBox` 底部 `-20`。
-   - 颜色用 systematic cartography 现有 amber/cyan token 风格（`hsl(...)`），透明度低，不抢戏。
+## 4. 工位编辑向导
+文件：`src/components/forms/WorkstationForm.tsx`（基本信息步骤）
+- 表单 state 增加 `designResponsible`，初始化从数据库值
+- 与草稿 hook `useEntityFormDraft` 整合：旧草稿缺字段时用默认 `''` 合并，不升 schemaVersion（保持兼容）
+- 提交前校验：空值时聚焦第一步并 `toast.error`；阻止保存
+- 更新 payload 中 `design_responsible`
 
-3. **修复多光源拖动事件绑定**
-   - 把 `onPointerMove` / `onPointerUp` 从每个光源 `<g>` 上移到根 `<svg>` 元素上（与 `useSvgDrag` 的做法一致）。
-   - `<g>` 上只保留 `onPointerDown`。
-   - 这样即使拖到产品下方或快速移动，事件也不会丢失。
+## 5. 复制 / 缓存 / 导出
+- 整行复制路径（工位复制、项目复制、离线缓存、SQL 导出）自动携带字段，无需改动
+- 项目模板显式序列化（若列举字段白名单）：追加 `design_responsible`
+- 复查：`useWorkstations.duplicateWorkstation`、项目复制服务、`offlineCache`、`dataMigrationService`
 
-4. **取消对光源 Y 的隐性限制**
-   - 当前没有显式 clamp，但确认 `handleDiagramLightPointerMove` 不要加范围限制；只在写回时做软边界（`y` 范围 `[10, viewBoxHeight-20]`、`x` 范围 `[10, 490]`），防止拖出画布或跑到右侧面板下面。
+## 6. PPT — 默认模板
+文件：`src/services/pptxGenerator.ts` + `src/services/pptx/workstationSlides.ts`
 
-5. **距离标注兼容**
-   - `legacyDiagramLightDistanceMM` 使用 `Math.abs(productY - lightPos.y)`，本身已支持光源在产品上方或下方，无需改动。
-   - 仅校验：当 `light.y > productY` 时，标签位置（文字 / 引线）应仍可读，必要时把光源标签 `text` 的 Y 偏移由 `position.y - 10` 改成根据相对产品位置动态切换（在产品上方 → 标签在光源上方；在产品下方 → 标签在光源下方）。
+### 6.1 工位清单表
+- 列顺序：编号｜工站号｜名称｜**设计负责人**｜类型｜工位节拍(s)｜模块数
+- 列宽：`[0.6, 1.3, 2.55, 1.4, 1.25, 1.2, 0.9]`
+- 缺失显示 `-`
+- 长姓名：单元格 `shrinkText` / `autoFit` 缩放，禁止换行撑高
+- 表头、行高保持既有（沿用之前均分行高逻辑）
 
-## 不在范围内
-- 数据库 schema、表单字段、PPT 测量方法页文案 —— 都不动。
-- 2D 计算公式（视场角、工作距离、像素精度）—— 不动。
-- 3D 相机分支（`is3DCamera`）—— 不动。
+### 6.2 技术要求页左侧基本信息表
+- "工位名称"行之后插入"设计负责人"行
+- 由 6 行 → 7 行；行高 0.30 → 0.28
+- 保持 2in 左区、备注框、下方检测项位置不变
+- 缺失显示 `-`
 
-## 验收
-- 多光源模式下可以把任意 LIGHT 拖到产品下方，距离标注随之刷新（显示正数 mm）。
-- 单光源模式不变（仍使用 `useSvgDrag` + `RotationHandle`）。
-- 右侧硬件信息面板布局不错位。
-- PPT 导出/卡片预览（同一组件 `interactive=false` 分支）渲染正常，新增的"背光区"提示仅在 `interactive=true` 时显示。
+### 6.3 其他槽位
+- 工位标题页 / 幻灯片数据：将原"项目负责人"引用改为工位级 `design_responsible`（若该处应显示工位负责人）
+- 未启用工位的封面同步
+
+## 7. 上传模板链路
+- 占位符：`{{design_responsible}}`（模块级上下文别名 `{{ws_design_responsible}}`）
+- 客户端/服务端模板解析器字段列表增加映射
+- 更新示例上传模板注释 / 字段清单文档
+- `supabase/functions/generate-ppt-from-user-template`：注入新占位符
+
+## 8. AI 相关
+- `ai-form-assist` / `ai-form-command`：
+  - AI 补全禁止虚构姓名（在 prompt 中显式声明"人员字段不得推测"）
+  - 允许用户显式指定：`设置设计负责人为张三` → 更新字段
+  - 项目上下文读取现有值传给模型
+
+## 9. 生成前校验（PPT Readiness）
+文件：`src/services/pptReadiness.ts`
+- 草稿版：缺失 → warning，允许生成，PPT 显示 `-`
+- 正式版：缺失 → block，返回缺失工位列表，UI 导航到对应工位第一步
+- 模块单独生成路径不受影响
+
+## 10. 测试
+新增 / 扩展：
+- `NewWorkstationDialog` 测试：空负责人无法创建；trim 后提交
+- `WorkstationForm` 测试：DB 值回显、修改保存、旧草稿缺字段兼容、无受控输入警告
+- `reportDataBuilder` 测试：字段透传
+- `workstationSlides` 测试：清单新增列顺序、技术要求表"设计负责人"紧跟"工位名称"、空值回退 `-`
+- `pptReadiness` 测试：草稿 warn / 正式 block / 补齐通过
+- 用多工位 + 长姓名样例端到端渲染 PPT，逐页视觉检查
+
+基线：33 files / 151 tests 全绿；本次不得引入新的 TS/ESLint 错误（现有 2 个节拍类型错误与既存债务不属本需求）。
+
+## 假设
+- 字段展示名固定为"设计负责人"（不含书名号）
+- DB 保持 nullable，仅在 UI/校验层强制必填
+- Word / PDF 本次不新增展示位，仅在共享报告数据中携带
+- 保留当前工作区未提交改动，做增量修改
