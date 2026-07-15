@@ -74,6 +74,7 @@ interface WorkstationData {
   code: string;
   name: string;
   type: string;
+  design_responsible?: string | null;
   cycle_time: number | null;
   product_dimensions: { length: number; width: number; height: number } | null;
   enclosed: boolean | null;
@@ -991,6 +992,7 @@ export async function generatePPTX(
         id: ws.id,
         name: ws.name,
         type: ws.type,
+        design_responsible: ws.design_responsible ?? null,
         cycle_time: ws.cycle_time,
         product_dimensions: ws.product_dimensions,
         enclosed: ws.enclosed,
