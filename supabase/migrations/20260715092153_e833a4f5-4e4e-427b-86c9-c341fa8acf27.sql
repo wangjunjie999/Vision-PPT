@@ -1,0 +1,1 @@
+ALTER TABLE public.workstations ADD COLUMN IF NOT EXISTS design_responsible text;

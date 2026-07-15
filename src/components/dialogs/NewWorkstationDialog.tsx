@@ -13,7 +13,7 @@ type WorkstationType = 'line' | 'turntable' | 'robot' | 'platform';
 
 export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: boolean; onOpenChange: (open: boolean) => void; projectId: string | null }) {
   const { addWorkstation, selectWorkstation, addLayout, projects, getProjectWorkstations } = useData();
-  const [form, setForm] = useState({ code: '', name: '', type: 'line' as WorkstationType, cycleTime: '' });
+  const [form, setForm] = useState({ code: '', name: '', designResponsible: '', type: 'line' as WorkstationType, cycleTime: '' });
   const [loading, setLoading] = useState(false);
   
   // Generate workstation code based on project code and existing workstations
@@ -60,6 +60,10 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
       toast.error('请输入工位名称');
       return;
     }
+    if (!form.designResponsible.trim()) {
+      toast.error('请输入工位设计负责人');
+      return;
+    }
     
     try {
       setLoading(true);
@@ -67,6 +71,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
         project_id: projectId, 
         code: form.code.trim(), 
         name: form.name.trim(), 
+        design_responsible: form.designResponsible.trim(),
         type: form.type, 
         cycle_time: parseWorkstationCycleTimeSeconds(form.cycleTime), 
         acceptance_criteria: {
@@ -74,7 +79,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
         },
         product_dimensions: { length: 100, width: 100, height: 50 }, 
         status: 'draft' 
-      });
+      } as any);
       
       // Automatically create an empty layout for the workstation
       try {
@@ -97,7 +102,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
       
       selectWorkstation(ws.id);
       handleOpenChange(false);
-      setForm({ code: generateWorkstationCode(), name: '', type: 'line', cycleTime: '' });
+      setForm({ code: generateWorkstationCode(), name: '', designResponsible: '', type: 'line', cycleTime: '' });
     } catch (error) {
       console.error('Failed to create workstation:', error);
       toast.error('创建工位失败');
@@ -141,6 +146,16 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
             />
           </div>
           <div className="space-y-1.5">
+            <Label className="text-xs font-medium">工位设计负责人 <span className="text-destructive ml-0.5">*</span></Label>
+            <Input
+              value={form.designResponsible}
+              onChange={e => setForm(p => ({ ...p, designResponsible: e.target.value }))}
+              placeholder="请输入设计负责人姓名"
+              className="h-9"
+              maxLength={50}
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium">工位类型</Label>
             <Select value={form.type} onValueChange={v => setForm(p => ({ ...p, type: v as WorkstationType }))}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -155,7 +170,7 @@ export function NewWorkstationDialog({ open, onOpenChange, projectId }: { open: 
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>取消</Button>
-          <Button onClick={handleCreate} disabled={loading || !form.code.trim() || !form.name.trim()}>
+          <Button onClick={handleCreate} disabled={loading || !form.code.trim() || !form.name.trim() || !form.designResponsible.trim()}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             创建
           </Button>

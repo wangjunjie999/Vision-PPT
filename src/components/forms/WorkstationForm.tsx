@@ -72,6 +72,7 @@ const mechanismConstraints: Partial<Record<Mechanism, MechanismConstraint>> = {
 const createDefaultWorkstationForm = () => ({
   code: '',
   name: '',
+  design_responsible: '',
   type: 'line' as WorkstationType,
   cycleTime: '',
   length: '',
@@ -122,6 +123,7 @@ interface WorkstationDraftPayload {
 interface WorkstationFormSource {
   code?: string | null;
   name?: string | null;
+  design_responsible?: string | null;
   type?: WorkstationType | null;
   cycle_time?: number | null;
   product_dimensions?: { length?: number; width?: number; height?: number } | null;
@@ -171,6 +173,7 @@ const workstationToForm = (workstation: WorkstationFormSource): WorkstationFormS
   return {
     code: workstation.code || '',
     name: workstation.name || '',
+    design_responsible: (workstation as any).design_responsible || '',
     type: workstation.type || 'line',
     cycleTime: workstation.cycle_time?.toString() || '',
     length: dims?.length?.toString() || '100',
@@ -533,10 +536,17 @@ export function WorkstationForm() {
     try {
       setSaving(true);
       
+      if (!wsForm.design_responsible.trim()) {
+        toast.error('请填写工位设计负责人');
+        setSaving(false);
+        return;
+      }
+
       // Update workstation using DataContext to sync state
       await updateWorkstation(workstation.id, { 
         code: wsForm.code,
         name: wsForm.name,
+        design_responsible: wsForm.design_responsible.trim(),
         type: wsForm.type,
         cycle_time: parseWorkstationCycleTimeSeconds(wsForm.acceptance_cycle_time), 
         product_dimensions: { 
@@ -777,6 +787,16 @@ export function WorkstationForm() {
           onChange={e => setWsForm(p => ({ ...p, name: e.target.value }))} 
           className="h-9"
           maxLength={100}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium">工位设计负责人 <span className="text-destructive ml-0.5">*</span></Label>
+        <Input
+          value={wsForm.design_responsible}
+          onChange={e => setWsForm(p => ({ ...p, design_responsible: e.target.value }))}
+          placeholder="请输入设计负责人姓名"
+          className="h-9"
+          maxLength={50}
         />
       </div>
       <div className="space-y-1.5">

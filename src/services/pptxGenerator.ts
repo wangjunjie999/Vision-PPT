@@ -74,6 +74,7 @@ interface WorkstationData {
   code: string;
   name: string;
   type: string;
+  design_responsible?: string | null;
   cycle_time: number | null;
   product_dimensions: { length: number; width: number; height: number } | null;
   enclosed: boolean | null;
@@ -991,6 +992,7 @@ export async function generatePPTX(
         id: ws.id,
         name: ws.name,
         type: ws.type,
+        design_responsible: ws.design_responsible ?? null,
         cycle_time: ws.cycle_time,
         product_dimensions: ws.product_dimensions,
         enclosed: ws.enclosed,
@@ -1087,7 +1089,7 @@ export async function generatePPTX(
         isZh,
         wsCode,
         wsName: ws.name,
-        responsible: project.responsible,
+        responsible: ws.design_responsible || project.responsible,
       };
       const slideData = buildWorkstationSlideData(ws, wsLayout, wsModules);
 
@@ -1275,6 +1277,7 @@ export async function generatePPTX(
     isZh ? '编号' : 'No.',
     isZh ? '工站号' : 'Station No.',
     isZh ? '名称' : 'Name',
+    isZh ? '设计负责人' : 'Design Resp.',
     isZh ? '类型' : 'Type',
     isZh ? '工位节拍(s)' : 'Station Cycle(s)',
     isZh ? '模块数' : 'Modules',
@@ -1284,6 +1287,7 @@ export async function generatePPTX(
     String(index + 1),
     getWorkstationCode(project.code, index, ws.code),
     ws.name,
+    ws.design_responsible || '-',
     WS_TYPE_LABELS[ws.type]?.[options.language] || ws.type,
     formatWorkstationCycleTimePlain(ws),
     modules.filter(m => m.workstation_id === ws.id).length.toString(),
@@ -1317,7 +1321,7 @@ export async function generatePPTX(
       x: SLIDE_LAYOUT.contentLeft, y: tableY, w: SLIDE_LAYOUT.contentWidth,
       fontFace: FONTS.body,
       fontSize: 8,
-      colW: [0.6, 1.3, 3.35, 1.55, 1.35, 1.05],
+      colW: [0.5, 1.2, 2.55, 1.25, 1.3, 1.15, 0.95],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
       valign: 'middle',
@@ -1536,7 +1540,7 @@ export async function generatePPTX(
       isZh,
       wsCode,
       wsName: ws.name,
-      responsible: project.responsible,
+      responsible: ws.design_responsible || project.responsible,
     };
 
     const slideData = {
@@ -1544,6 +1548,7 @@ export async function generatePPTX(
         id: ws.id,
         name: ws.name,
         type: ws.type,
+        design_responsible: ws.design_responsible ?? null,
         cycle_time: ws.cycle_time,
         product_dimensions: ws.product_dimensions,
         enclosed: ws.enclosed,

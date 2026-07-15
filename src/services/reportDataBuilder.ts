@@ -161,6 +161,7 @@ export interface ReportWorkstationData {
   name: string;
   type: string;
   type_label: string;
+  design_responsible: string | null;
   cycle_time: number | null;
   product_dimensions: { length: number; width: number; height: number } | null;
   product_dimensions_label: string;
@@ -325,7 +326,7 @@ const PROJECT_DISPLAYED_FIELDS = new Set([
 ]);
 
 const WORKSTATION_DISPLAYED_FIELDS = new Set([
-  'id', 'code', 'name', 'type', 'cycle_time', 'product_dimensions',
+  'id', 'code', 'name', 'type', 'design_responsible', 'cycle_time', 'product_dimensions',
   'enclosed', 'process_stage', 'observation_target', 'motion_description',
   'risk_notes', 'notes', 'shot_count', 'acceptance_criteria', 'action_script',
   'description', 'install_space', 'status',
@@ -596,6 +597,7 @@ export function buildReportData(input: BuilderInput): ReportData {
       name: ws.name,
       type: ws.type || '',
       type_label: getLabel(ws.type, WS_TYPE_LABELS, lang),
+      design_responsible: ((ws as unknown) as { design_responsible?: string | null }).design_responsible ?? null,
       cycle_time: ws.cycle_time,
       product_dimensions: productDims,
       product_dimensions_label: formatDimensions(productDims),
