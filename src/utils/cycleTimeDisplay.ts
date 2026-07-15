@@ -1,14 +1,16 @@
 export interface WorkstationCycleTimeSource {
   cycle_time?: number | string | null;
-  acceptance_criteria?: {
-    cycle_time?: string | null;
-  } | null;
+  acceptance_criteria?: unknown;
 }
 
 const CYCLE_UNIT_RE = /(s\s*\/\s*pcs|s\s*\/\s*pc|秒\s*\/\s*件|秒|s\s*\/\s*次)$/i;
 
 export function getWorkstationCycleTimeValue(workstation: WorkstationCycleTimeSource | null | undefined): string | number | null {
-  const acceptanceCycle = workstation?.acceptance_criteria?.cycle_time;
+  const ac = workstation?.acceptance_criteria;
+  const acceptanceCycle =
+    ac && typeof ac === 'object' && !Array.isArray(ac)
+      ? (ac as { cycle_time?: unknown }).cycle_time
+      : undefined;
   if (typeof acceptanceCycle === 'string' && acceptanceCycle.trim()) return acceptanceCycle.trim();
   return workstation?.cycle_time ?? null;
 }
