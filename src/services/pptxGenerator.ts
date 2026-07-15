@@ -1538,7 +1538,7 @@ export async function generatePPTX(
       isZh,
       wsCode,
       wsName: ws.name,
-      responsible: project.responsible,
+      responsible: ws.design_responsible || project.responsible,
     };
 
     const slideData = {
@@ -1546,6 +1546,7 @@ export async function generatePPTX(
         id: ws.id,
         name: ws.name,
         type: ws.type,
+        design_responsible: ws.design_responsible ?? null,
         cycle_time: ws.cycle_time,
         product_dimensions: ws.product_dimensions,
         enclosed: ws.enclosed,
