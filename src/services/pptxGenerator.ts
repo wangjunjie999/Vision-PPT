@@ -1089,7 +1089,7 @@ export async function generatePPTX(
         isZh,
         wsCode,
         wsName: ws.name,
-        responsible: project.responsible,
+        responsible: ws.design_responsible || project.responsible,
       };
       const slideData = buildWorkstationSlideData(ws, wsLayout, wsModules);
 
