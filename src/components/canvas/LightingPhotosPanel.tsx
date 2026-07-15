@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { X, Eye, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { getSafeFileExtension } from '@/utils/storageFileNames';
 
 interface LightingPhoto {
   url: string;
@@ -47,7 +48,7 @@ export function LightingPhotosPanel({ moduleId, moduleName, initialPhotos, onSav
       const newPhotos: LightingPhoto[] = [];
 
       for (const file of filesToUpload) {
-        const fileName = `lighting-${moduleId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${file.name.split('.').pop()}`;
+        const fileName = `lighting-${moduleId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${getSafeFileExtension(file.name, 'png')}`;
         
         const { error: uploadError } = await supabase.storage
           .from('module-schematics')

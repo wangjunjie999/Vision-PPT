@@ -50,6 +50,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { getSupportedProductModelHint, type ProductViewerDisplayMode } from '@/utils/productViewer';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
+import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductModelItem {
@@ -254,7 +255,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         fileUrl = url;
       } else {
         const bucket = 'product-models';
-        const path = `${workstationId}/${Date.now()}_${file.name}`;
+        const path = `${workstationId}/${createSafeStorageObjectName(file.name, {
+          fallbackBase: isModel ? 'model' : 'image',
+          fallbackExtension: isModel ? 'gltf' : 'png',
+        })}`;
         const { publicUrl } = await uploadStorageFile(bucket, path, file, {
           contentType: file.type || undefined,
         });

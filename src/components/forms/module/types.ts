@@ -19,6 +19,7 @@ export type OutputType = 'ok_ng' | 'coordinates' | 'defect_class' | 'dimensions'
 export type FailureHandling = 'retry' | 'alarm' | 'pass';
 export type CalibrationMethod = 'plane' | 'multipoint' | 'fixture' | 'hand_eye' | 'none';
 export type ConveyorType = 'belt' | 'roller' | 'step' | 'other';
+export type DefectCameraCount = string;
 
 // Positioning module types
 export type PositionTargetType = 'hole' | 'edge' | 'corner' | 'qrcode' | 'feature' | 'mark';
@@ -187,10 +188,11 @@ export interface OtherConfig {
 export interface ModuleFormState {
   // Basic info
   name: string;
-  description: string;
+  description: string; // 检测步骤
   type: ModuleType;
   triggerType: TriggerType;
   processingTimeLimit: string;
+  cameraTaktTime: string; // 相机节拍，表单中不限制格式，展示时统一补 s
   
   // Hardware
   selectedCamera: string;
@@ -211,7 +213,6 @@ export interface ModuleFormState {
   remarks: string;
   
   // Industrial common parameters
-  detectionObject: string; // 检测对象/检测内容描述
   judgmentStrategy: 'no_miss' | 'balanced' | 'allow_pass'; // 判定策略
   outputAction: string[]; // 输出动作：报警/停机/剔除/标记/上传MES/存图
   communicationMethod: string; // 通讯方式：IO/PLC/TCP/串口
@@ -261,7 +262,7 @@ export interface ModuleFormState {
   detectionAreaWidth: string;
   conveyorType: ConveyorType;
   lineSpeed: string;
-  defectCameraCount: '1' | '2' | '3';
+  defectCameraCount: DefectCameraCount;
   defectCamera1Config: DefectCameraConfig;
   defectCamera2Config: DefectCameraConfig;
   defectCamera3Config: DefectCameraConfig;
@@ -387,12 +388,16 @@ export interface ModuleFormState {
 
   // ============ 3D 相机检测专属字段（is3DCamera === true 时启用） ============
   threeDModel: string;                   // 3D 相机型号，如 "LJ-S080"
+  threeDOrderModel: string;              // 下单型号
   threeDDetectionMethod: string;         // 检测方式，如 "3D 相机垂直固定"
   threeDMountType: string;               // 安装方式
   threeDReferenceDistance: string;       // 基准距离 (mm)
   threeDZRange: string;                  // Z 量程，如 "FS±23mm"
   threeDXRange: string;                  // X 测量范围，如 "66–78mm"
   threeDYRange: string;                  // Y 扫描范围，如 "160mm"
+  threeDStandardRange: string;           // 标准范围
+  threeDNearRange: string;               // 近端范围
+  threeDFarRange: string;                // 远端范围
   threeDXYPrecision: string;             // XY 像素精度 (mm)
   threeDZPrecision: string;              // Z 线性精度 (mm)
   threeDScanLineWidth: string;           // 扫描线宽 (mm)
@@ -424,6 +429,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   type: 'defect',
   triggerType: 'io',
   processingTimeLimit: '200',
+  cameraTaktTime: '',
   
   selectedCamera: '',
   selectedLens: '',
@@ -442,7 +448,6 @@ export const getDefaultFormState = (): ModuleFormState => ({
   remarks: '',
   
   // Industrial common parameters defaults
-  detectionObject: '',
   judgmentStrategy: 'balanced',
   outputAction: [],
   communicationMethod: '',
@@ -569,7 +574,7 @@ export const getDefaultFormState = (): ModuleFormState => ({
   measurementCalibrationMethod: 'plane',
   calibrationPlateSpec: '',
   targetAccuracy: '',
-  systemAccuracy: '0.02',
+  systemAccuracy: '',
   measurementOutputFormat: ['value', 'ok_ng'],
   measurementDatum: '',
   samplingStrategy: 'single',
@@ -611,12 +616,16 @@ export const getDefaultFormState = (): ModuleFormState => ({
 
   // 3D camera defaults
   threeDModel: '',
+  threeDOrderModel: '',
   threeDDetectionMethod: '',
   threeDMountType: '',
   threeDReferenceDistance: '',
   threeDZRange: '',
   threeDXRange: '',
   threeDYRange: '',
+  threeDStandardRange: '',
+  threeDNearRange: '',
+  threeDFarRange: '',
   threeDXYPrecision: '',
   threeDZPrecision: '',
   threeDScanLineWidth: '',

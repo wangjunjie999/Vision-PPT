@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useCanvasHistory } from '@/hooks/useCanvasHistory';
 import { toPng } from 'html-to-image';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useMechanisms, type Mechanism } from '@/hooks/useMechanisms';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
@@ -651,7 +651,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     if (isDragging && selectedId) {
       const currentObj = objects.find(o => o.id === selectedId);
 
-      // Camera → mechanism snapping
+      // Camera -> mechanism snapping
       if (currentObj?.type === 'camera') {
         const nearestMount = findNearestMountPoint(currentObj.x, currentObj.y, objects, currentView as StandardViewType, 70);
         if (nearestMount) {
@@ -688,7 +688,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         }
       }
 
-      // Product → mechanism snapping
+      // Product -> mechanism snapping
       if (currentObj?.type === 'product') {
         const nearestProductMount = findNearestProductMountPoint(currentObj.x, currentObj.y, objects, currentView as StandardViewType, 80);
         if (nearestProductMount) {
@@ -744,7 +744,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     // If click hit an interactive object, stopPropagation already prevented reaching here
-    // So any event that arrives is a background/grid click → deselect
+    // So any event that arrives is a background/grid click -> deselect
     if (panMode) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
@@ -874,7 +874,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       // If currently in isometric (3D) mode, switch to 2D first so SVG renders
       const wasIsometric = originalView === 'isometric';
       if (wasIsometric) {
-        // Clear stale refs before switching away from isometric — the 3D component will unmount
+        // Clear stale refs before switching away from isometric; the 3D component will unmount
         isometricScreenshotFnRef.current = null;
         fitAllFnRef.current = null;
         isometricSceneStatusRef.current = { ready: false, pendingModelCount: 0, failedModelCount: 0 };
@@ -900,7 +900,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           setSaveProgress(10 + Math.round(((i + 1) / views.length) * 35));
         }
 
-        // Capture isometric (3D) screenshot — poll for 3D scene readiness
+        // Capture isometric (3D) screenshot and poll for 3D scene readiness
         isometricScreenshotFnRef.current = null;
         fitAllFnRef.current = null;
         isometricSceneStatusRef.current = { ready: false, pendingModelCount: 0, failedModelCount: 0 };
@@ -983,11 +983,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
       setSaveProgress(100);
       if (isometricSkipReason === 'model-failed' || isometricSkipReason === 'model-timeout') {
-        toast.warning('布局视图已保存，等轴测图因3D模型未加载完成已跳过，请稍后重试');
+        toast.warning('布局视图已保存，等轴测图 3D 模型未加载完成，已跳过，请稍后重试');
         return;
       }
       if (isometricSkipReason === 'invalid-image') {
-        toast.warning('布局视图已保存，等轴测图生成失败已跳过，请稍后重试');
+        toast.warning('布局视图已保存，等轴测图生成失败，已跳过，请稍后重试');
         return;
       }
       toast.success('布局和视图（含等轴测）已保存');
@@ -1004,7 +1004,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   };
 
   const resetLayout = () => {
-    if (!confirm('确定要重置布局吗？所有对象将被清除。')) return;
+    if (!confirm('确定要重置布局吗？所有对象将被清除')) return;
     setObjects([]);
     setSelectedIds([]);
     setShowPropertyPanel(false);
@@ -1196,9 +1196,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
               <g transform={`translate(${centerX}, 40)`}>
                 <rect x={-120} y={-16} width={240} height={32} rx={8} fill="rgba(30, 41, 59, 0.95)" />
                 <text x={0} y={6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="600">
-                  {currentView === 'front' ? '🎯 正视图 | X↔ Z↕'
-                    : currentView === 'side' ? '📐 左视图 | Y↔ Z↕'
-                    : '🔍 俯视图 | X↔ Y↕'}
+                  {currentView === 'front' ? '正视图 | X / Z'
+                    : currentView === 'side' ? '左视图 | Y / Z'
+                    : '俯视图 | X / Y'}
                 </text>
               </g>
 
@@ -1370,3 +1370,4 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     </div>
   );
 }
+

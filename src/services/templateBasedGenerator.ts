@@ -391,7 +391,7 @@ export const MODULE_PLACEHOLDERS = {
   mod_index: '模块序号',
   mod_type: '模块分类代码',
   mod_type_label: '模块分类中文名',
-  mod_description: '模块描述',
+  mod_description: '检测步骤',
   mod_trigger_label: '触发方式',
   mod_roi_strategy: 'ROI策略',
   mod_processing_time: '处理时限(ms)',

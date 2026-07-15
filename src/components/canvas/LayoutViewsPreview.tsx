@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { Button } from '@/components/ui/button';
 import { ImageOff, Camera, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,7 +16,7 @@ const VIEW_LABELS: Record<ViewType, string> = {
   front: '正视图',
   side: '侧视图',
   top: '俯视图',
-  isometric: '等轴测',
+  isometric: '等轴图',
 };
 
 export function LayoutViewsPreview({ workstationId, className, onOpenCanvas }: LayoutViewsPreviewProps) {
@@ -113,7 +113,7 @@ export function LayoutViewsPreview({ workstationId, className, onOpenCanvas }: L
       {/* Isometric 3D view */}
       {isometricUrl && (
         <div>
-          {renderImage(isometricUrl, '等轴测 3D 视图')}
+          {renderImage(isometricUrl, '等轴图 3D 视图')}
         </div>
       )}
 
@@ -142,7 +142,7 @@ export function LayoutViewsPreview({ workstationId, className, onOpenCanvas }: L
         <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
           <Camera className="h-4 w-4 text-amber-500 flex-shrink-0" />
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            布局视图未保存。请在右侧布局画布中点击「保存视图」按钮来生成截图。
+            布局视图未保存。请在右侧布局画布中点击“保存视图”按钮来生成截图。
           </p>
         </div>
       )}
@@ -158,3 +158,4 @@ export function LayoutViewsPreview({ workstationId, className, onOpenCanvas }: L
     </div>
   );
 }
+

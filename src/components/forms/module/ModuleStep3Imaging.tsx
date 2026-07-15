@@ -18,13 +18,15 @@ import {
 } from '@/utils/moduleLightItems';
 import {
   DISTANCE_UNITS,
+  convertDistanceInputUnit,
   type DistanceUnit,
   fromMillimeters,
   formatDistanceInput,
   normalizeDistanceUnit,
-  signedToMillimeters,
   toMillimeters,
 } from '@/utils/distanceUnits';
+import { ThreeDCameraForm } from './ThreeDCameraForm';
+import { strip3DOpticsFromForm } from './threeDCamera';
 
 interface ModuleStep3ImagingProps {
   form: ModuleFormState;
@@ -75,9 +77,7 @@ function convertDistanceForUnit(
   toUnit: DistanceUnit,
   signed = false,
 ): string {
-  const mm = signed ? signedToMillimeters(value, fromUnit) : toMillimeters(value, fromUnit);
-  if (mm === null) return value;
-  return formatDistanceInput(mm, toUnit);
+  return convertDistanceInputUnit(value, fromUnit, toUnit, signed);
 }
 
 const redundancyStrategyOptions = [
@@ -222,9 +222,70 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
 
   const calculationResult = calcResult.imaging;
   const selectedFocalLength = calcResult.parsed.focalLength;
+  const oneClickCalculation = useMemo(() => {
+    const cameraParsed = calculationResult.cameraParsed;
+    if (!cameraParsed || cameraParsed.width <= 0 || cameraParsed.height <= 0) return null;
+
+    const widthMm = toMillimeters(form.fieldOfViewWidth, distanceUnit);
+    const heightMm = toMillimeters(form.fieldOfViewHeight, distanceUnit);
+
+    if (widthMm !== null && heightMm !== null) {
+      const resolutionPerPixel = formatResolutionPerPixel(
+        calculateResolutionPerPixel({ width: widthMm, height: heightMm }, cameraParsed)
+      );
+      if (!resolutionPerPixel) return null;
+      return {
+        fieldOfViewWidth: form.fieldOfViewWidth,
+        fieldOfViewHeight: form.fieldOfViewHeight,
+        resolutionPerPixel,
+      };
+    }
+
+    if (widthMm !== null) {
+      const inferredHeightMm = widthMm * (cameraParsed.height / cameraParsed.width);
+      const resolutionPerPixel = formatResolutionPerPixel(
+        calculateResolutionPerPixel({ width: widthMm, height: inferredHeightMm }, cameraParsed)
+      );
+      if (!resolutionPerPixel) return null;
+      return {
+        fieldOfViewWidth: form.fieldOfViewWidth,
+        fieldOfViewHeight: formatFovInput(inferredHeightMm, distanceUnit),
+        resolutionPerPixel,
+      };
+    }
+
+    if (heightMm !== null) {
+      const inferredWidthMm = heightMm * (cameraParsed.width / cameraParsed.height);
+      const resolutionPerPixel = formatResolutionPerPixel(
+        calculateResolutionPerPixel({ width: inferredWidthMm, height: heightMm }, cameraParsed)
+      );
+      if (!resolutionPerPixel) return null;
+      return {
+        fieldOfViewWidth: formatFovInput(inferredWidthMm, distanceUnit),
+        fieldOfViewHeight: form.fieldOfViewHeight,
+        resolutionPerPixel,
+      };
+    }
+
+    return null;
+  }, [
+    calculationResult.cameraParsed,
+    distanceUnit,
+    form.fieldOfViewHeight,
+    form.fieldOfViewWidth,
+  ]);
+
   const handleCalculateResolution = () => {
-    if (!calculationResult.resolutionPerPixel) return;
-    setForm(p => ({ ...p, resolutionPerPixel: calculationResult.resolutionPerPixel || p.resolutionPerPixel }));
+    if (!oneClickCalculation) return;
+    const combined = `${oneClickCalculation.fieldOfViewWidth}×${oneClickCalculation.fieldOfViewHeight}`;
+    setForm(p => ({
+      ...p,
+      fieldOfViewWidth: oneClickCalculation.fieldOfViewWidth,
+      fieldOfViewHeight: oneClickCalculation.fieldOfViewHeight,
+      fieldOfView: p.type === 'positioning' ? combined : p.fieldOfView,
+      fieldOfViewCommon: p.type === 'positioning' ? p.fieldOfViewCommon : combined,
+      resolutionPerPixel: oneClickCalculation.resolutionPerPixel || p.resolutionPerPixel,
+    }));
   };
 
   const fovRecon = calculationResult.fovReconciliation;
@@ -270,8 +331,59 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
     });
   };
 
+  const toggle3DCamera = () => {
+    setForm(prev => (
+      prev.is3DCamera
+        ? { ...prev, is3DCamera: false }
+        : strip3DOpticsFromForm(prev)
+    ));
+  };
+
+  const threeDCameraToggle = (
+    <div
+      data-testid="imaging-3d-camera-toggle"
+      className="rounded-lg border border-border/60 bg-muted/30 p-3"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-2.5">
+          <ScanEye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="space-y-1">
+            <div className="text-sm font-semibold">是否使用 3D 相机</div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {form.is3DCamera
+                ? '当前模块使用 3D 成像流程，可在下方填写 3D 光学方案和测量方法。'
+                : '开启后将切换为 3D 专属表单，并清空镜头、光源和 2D 光学参数。'}
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant={form.is3DCamera ? 'default' : 'outline'}
+          onClick={toggle3DCamera}
+          className="shrink-0"
+        >
+          {form.is3DCamera ? '已启用 3D 相机' : '是否使用 3D 相机'}
+        </Button>
+      </div>
+    </div>
+  );
+
+  if (form.is3DCamera) {
+    return (
+      <div className="space-y-6">
+        {threeDCameraToggle}
+        <div data-testid="three-d-imaging-form">
+          <ThreeDCameraForm form={form} setForm={setForm} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {threeDCameraToggle}
+
       {/* Auto-calculation status banner */}
       {selectedCameraResolution && (
         <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
@@ -548,7 +660,7 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                   size="sm"
                   className="h-9 shrink-0 gap-1.5 px-3"
                   onClick={handleCalculateResolution}
-                  disabled={!calculationResult.resolutionPerPixel}
+                  disabled={!oneClickCalculation}
                 >
                   <Calculator className="h-3.5 w-3.5" />
                   一键计算
@@ -587,12 +699,12 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                       fieldOfViewCommon: p.type !== 'positioning' && combinedFov ? combinedFov : p.fieldOfViewCommon,
                       lightDistance: convertDistanceForUnit(p.lightDistance, currentUnit, nextUnit),
                       lightDistanceHorizontal: convertDistanceForUnit(p.lightDistanceHorizontal, currentUnit, nextUnit, true),
-                      lightDistanceVertical: convertDistanceForUnit(p.lightDistanceVertical, currentUnit, nextUnit),
+                      lightDistanceVertical: convertDistanceForUnit(p.lightDistanceVertical, currentUnit, nextUnit, true),
                       lightItems: p.lightItems.map(item => ({
                         ...item,
                         lightDistance: convertDistanceForUnit(item.lightDistance, currentUnit, nextUnit),
                         lightDistanceHorizontal: convertDistanceForUnit(item.lightDistanceHorizontal, currentUnit, nextUnit, true),
-                        lightDistanceVertical: convertDistanceForUnit(item.lightDistanceVertical, currentUnit, nextUnit),
+                        lightDistanceVertical: convertDistanceForUnit(item.lightDistanceVertical, currentUnit, nextUnit, true),
                       })),
                       workingDistanceTolerance: convertDistanceForUnit(p.workingDistanceTolerance, currentUnit, nextUnit),
                     };
@@ -619,7 +731,16 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                 placeholder="选择策略"
                 customLabel="自定义像素数..."
                 inputPlaceholder="输入自定义像素数，例如 7 或 7px"
-                inputHint="自定义可填 7 或 7px"
+                inputHint="示例： 7 或 7px"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">工作距离公差 (±{distanceUnit})</Label>
+              <Input
+                value={form.workingDistanceTolerance || ''}
+                onChange={e => setForm(p => ({ ...p, workingDistanceTolerance: e.target.value }))}
+                placeholder="例如: 15"
+                className="h-9"
               />
             </div>
           </div>
@@ -808,7 +929,7 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
           {/* Lens parameters */}
           <div className="space-y-3">
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">镜头参数</h4>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">光圈 (F值)</Label>
                 <Input 
@@ -824,15 +945,6 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                   value={form.depthOfField || ''} 
                   onChange={e => setForm(p => ({ ...p, depthOfField: e.target.value }))} 
                   placeholder='例如: 2/3"'
-                  className="h-9" 
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">工作距离公差 (±{distanceUnit})</Label>
-                <Input 
-                  value={form.workingDistanceTolerance || ''} 
-                  onChange={e => setForm(p => ({ ...p, workingDistanceTolerance: e.target.value }))} 
-                  placeholder="20"
                   className="h-9" 
                 />
               </div>

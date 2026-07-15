@@ -193,7 +193,7 @@ CREATE TABLE public.cameras (
   brand text NOT NULL,
   model text NOT NULL,
   resolution text NOT NULL,
-  frame_rate integer NOT NULL,
+  frame_rate numeric NOT NULL,
   interface text NOT NULL,
   sensor_size text NOT NULL,
   enabled boolean DEFAULT true,

@@ -1,4 +1,4 @@
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { usePPTTemplates } from '@/hooks/usePPTTemplates';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -89,7 +89,7 @@ export function ProjectDashboard() {
   const missingItems: string[] = [];
   if (workstationCount === 0) missingItems.push('至少添加一个工位');
   if (layoutsComplete < workstationCount) missingItems.push(`完成工位布局配置 (${layoutsComplete}/${workstationCount})`);
-  if (schematicsComplete < moduleCount) missingItems.push(`完成视觉系统示意图 (${schematicsComplete}/${moduleCount})`);
+  if (schematicsComplete < moduleCount) missingItems.push(`完成视觉系统示意图(${schematicsComplete}/${moduleCount})`);
 
   // Find selected template from database templates
   const selectedTemplate = templates.find(t => t.id === project.template_id);
@@ -293,7 +293,7 @@ export function ProjectDashboard() {
                         </span>
                       ) : (
                         <span className="text-muted-foreground">
-                          待完成 {workstationCount - layoutsComplete} 个
+                          待完成 {workstationCount - layoutsComplete} 项
                         </span>
                       )}
                     </p>
@@ -327,7 +327,7 @@ export function ProjectDashboard() {
                         </span>
                       ) : (
                         <span className="text-muted-foreground">
-                          待完成 {moduleCount - schematicsComplete} 个
+                          待完成 {moduleCount - schematicsComplete} 项
                         </span>
                       )}
                     </p>
@@ -383,7 +383,7 @@ export function ProjectDashboard() {
             </CardHeader>
             {!canGenerate && (
               <CardContent>
-                <p className="text-sm text-muted-foreground mb-3">请完成以下事项后方可生成PPT：</p>
+                <p className="text-sm text-muted-foreground mb-3">请完成以下事项后方可生成PPT</p>
                 <ul className="space-y-2">
                   {missingItems.map((item, i) => (
                     <motion.li 
@@ -587,3 +587,4 @@ export function ProjectDashboard() {
     </div>
   );
 }
+

@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { 
   saveViewToStorage,
   saveSchematicToStorage,
@@ -44,6 +44,9 @@ import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/moduleLightItems';
 import { createSchematicImageSignature, hasCurrentSchematicImageSignature } from '@/utils/schematicImageSignature';
 import { normalizeDistanceUnit, signedToMillimeters, toMillimeters } from '@/utils/distanceUnits';
+import { isModule3DCamera } from '@/utils/module3DCamera';
+import { getThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
+import { getWorkstationCycleTimeValue } from '@/utils/cycleTimeDisplay';
 
 interface BatchImageSaveButtonProps {
   projectId: string;
@@ -151,9 +154,7 @@ function getPersistedImaging(module: any): Record<string, any> {
 }
 
 function isBatchModule3DCamera(module: any, projectUses3D = false): boolean {
-  if (projectUses3D) return true;
-  const imaging = getPersistedImaging(module);
-  return imaging.is3DCamera === true || String(imaging.is3DCamera || '') === 'true';
+  return isModule3DCamera(module, projectUses3D);
 }
 
 function getPersistedWorkingDistance(module: any): string {
@@ -223,7 +224,7 @@ function getBatchDiagramLightItems(
     const resolved = resolveModuleHardwareSelection(item.selectedLight, layout, 'light', lights);
     const saved = schematicLayout.lights?.find(lightItem => lightItem.id === item.id);
     const horizontalMm = signedToMillimeters(item.lightDistanceHorizontal, distanceUnit) ?? 0;
-    const verticalMm = toMillimeters(item.lightDistanceVertical, distanceUnit);
+    const verticalMm = signedToMillimeters(item.lightDistanceVertical, distanceUnit);
     const distanceMm = toMillimeters(item.lightDistance, distanceUnit)
       ?? (verticalMm !== null ? Math.sqrt(horizontalMm * horizontalMm + verticalMm * verticalMm) : null);
     const angle = Number.parseFloat(item.lightAngle);
@@ -254,11 +255,14 @@ function createBatchSchematicImageSignature(
   const moduleLightItems = getModuleLightItemsForBatch(module, projectUses3D);
   const firstLightItem = getFirstModuleLightItem(moduleLightItems);
   const is3DCamera = isBatchModule3DCamera(module, projectUses3D);
+  const threeDConfig = is3DCamera ? (getModuleConfig(module)?.three_d ?? null) : null;
   const selectedCameraId = module?.selected_camera || module?.camera_id || null;
   const selectedLensId = is3DCamera ? null : (module?.selected_lens || module?.lens_id || null);
   const selectedLightId = is3DCamera ? null : (firstLightItem?.selectedLight || module?.selected_light || module?.light_id || null);
   const selectedControllerId = module?.selected_controller || module?.controller_id || null;
-  const workingDistanceMm = toMillimeters(getPersistedWorkingDistance(module), distanceUnit);
+  const workingDistanceInput = getPersistedWorkingDistance(module);
+  const workingDistanceMm = toMillimeters(workingDistanceInput, distanceUnit);
+  const workingDistanceToleranceInput = String(imaging.workingDistanceTolerance ?? '');
   const fovInput = getPersistedFov(module);
   const fovWidthMm = imaging.fieldOfViewWidth
     ? toMillimeters(imaging.fieldOfViewWidth, distanceUnit)
@@ -267,8 +271,9 @@ function createBatchSchematicImageSignature(
       return parsed === null ? null : parsed * (distanceUnit === 'm' ? 1000 : distanceUnit === 'cm' ? 10 : 1);
     })();
   const lightDistanceHorizontalMm = signedToMillimeters(firstLightItem?.lightDistanceHorizontal, distanceUnit) ?? 0;
-  const lightDistanceVerticalMm = toMillimeters(firstLightItem?.lightDistanceVertical, distanceUnit);
-  const diagramLightDistanceMm = toMillimeters(firstLightItem?.lightDistance, distanceUnit)
+  const lightDistanceVerticalMm = signedToMillimeters(firstLightItem?.lightDistanceVertical, distanceUnit);
+  const diagramLightDistanceInput = firstLightItem?.lightDistance || '';
+  const diagramLightDistanceMm = toMillimeters(diagramLightDistanceInput, distanceUnit)
     ?? (lightDistanceVerticalMm !== null
       ? Math.sqrt(lightDistanceHorizontalMm * lightDistanceHorizontalMm + lightDistanceVerticalMm * lightDistanceVerticalMm)
       : null);
@@ -286,8 +291,11 @@ function createBatchSchematicImageSignature(
     lightRotation: schematicLayout.lightRotation,
     fovAngle: schematicLayout.fovAngle,
     lightDistance: schematicLayout.lightDistance,
+    workingDistanceInput,
     workingDistanceMm,
+    workingDistanceToleranceInput,
     fovWidthMm,
+    diagramLightDistanceInput,
     diagramLightDistanceMm,
     lightDistanceHorizontalMm,
     lightDistanceVerticalMm,
@@ -297,6 +305,7 @@ function createBatchSchematicImageSignature(
       hardwareId: item.light?.id || null,
       position: item.position,
       rotation: item.rotation,
+      distanceInput: item.distanceInput,
       distanceMm: item.distanceMm,
       horizontalMm: item.horizontalMm,
       verticalMm: item.verticalMm,
@@ -304,6 +313,7 @@ function createBatchSchematicImageSignature(
     })),
     is3DCamera,
     distanceUnit,
+    threeDConfig,
   });
 }
 
@@ -564,8 +574,33 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
     () => resolveSchematicLayout(currentModuleData?.schematic_layout),
     [currentModuleData?.schematic_layout]
   );
-  const currentDistanceUnit = normalizeDistanceUnit(getPersistedImaging(currentModuleData).distanceUnit);
+  const currentImaging = getPersistedImaging(currentModuleData);
+  const currentDistanceUnit = normalizeDistanceUnit(currentImaging.distanceUnit);
   const currentIs3DCamera = currentModuleData ? isBatchModule3DCamera(currentModuleData, projectUses3D) : false;
+  const currentThreeDInfo = getThreeDDisplayInfo(
+    currentIs3DCamera ? (getModuleConfig(currentModuleData)?.three_d || {}) : {},
+  );
+  const currentModuleLightItems = currentModuleData
+    ? getModuleLightItemsForBatch(currentModuleData, projectUses3D)
+    : [];
+  const currentFirstLightItem = getFirstModuleLightItem(currentModuleLightItems);
+  const currentWorkingDistanceInput = currentModuleData ? getPersistedWorkingDistance(currentModuleData) : '';
+  const currentWorkingDistanceMm = toMillimeters(currentWorkingDistanceInput, currentDistanceUnit);
+  const currentWorkingDistanceToleranceInput = String(currentImaging.workingDistanceTolerance ?? '');
+  const currentFovInput = currentModuleData ? getPersistedFov(currentModuleData) : '';
+  const currentFovWidthMm = currentImaging.fieldOfViewWidth
+    ? toMillimeters(currentImaging.fieldOfViewWidth, currentDistanceUnit)
+    : (() => {
+      const parsed = parseFovWidth(currentFovInput);
+      return parsed === null ? null : parsed * (currentDistanceUnit === 'm' ? 1000 : currentDistanceUnit === 'cm' ? 10 : 1);
+    })();
+  const currentDiagramLightDistanceInput = currentFirstLightItem?.lightDistance || '';
+  const currentLightDistanceHorizontalMm = signedToMillimeters(currentFirstLightItem?.lightDistanceHorizontal, currentDistanceUnit) ?? 0;
+  const currentLightDistanceVerticalMm = signedToMillimeters(currentFirstLightItem?.lightDistanceVertical, currentDistanceUnit);
+  const currentDiagramLightDistanceMm = toMillimeters(currentDiagramLightDistanceInput, currentDistanceUnit)
+    ?? (currentLightDistanceVerticalMm !== null
+      ? Math.sqrt(currentLightDistanceHorizontalMm * currentLightDistanceHorizontalMm + currentLightDistanceVerticalMm * currentLightDistanceVerticalMm)
+      : null);
   const currentDiagramLightItems = currentModuleData
     ? getBatchDiagramLightItems(currentModuleData, currentModuleLayout, currentSchematicLayout, lights, projectUses3D)
     : [];
@@ -664,7 +699,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
             {!isSaving && missingImages.total === 0 && (
               <div className="flex items-center justify-center gap-2 py-8 text-success">
                 <CheckCircle2 className="h-8 w-8" />
-                <span className="text-lg font-medium">所有图片已保存完成！</span>
+                <span className="text-lg font-medium">所有图片已保存完成</span>
               </div>
             )}
 
@@ -705,8 +740,15 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
                       onControllerSelect={() => {}}
                       lightDistance={currentSchematicLayout.lightDistance}
                       lightCount={currentIs3DCamera ? 0 : currentDiagramLightItems.length || 1}
+                      threeDInfo={currentThreeDInfo}
                       fovAngle={currentSchematicLayout.fovAngle}
                       distanceUnit={currentDistanceUnit}
+                      workingDistanceInput={currentWorkingDistanceInput}
+                      workingDistanceMm={currentWorkingDistanceMm}
+                      workingDistanceToleranceInput={currentWorkingDistanceToleranceInput}
+                      fovWidthMm={currentFovWidthMm}
+                      lightDistanceInput={currentDiagramLightDistanceInput}
+                      lightDistanceMm={currentDiagramLightDistanceMm}
                       onFovAngleChange={() => {}}
                       onLightDistanceChange={() => {}}
                       roiStrategy={currentModuleData.roi_strategy || 'full'}
@@ -749,6 +791,7 @@ function OffscreenSimpleLayout({
   controllers: any[];
   projectUses3D?: boolean;
 }) {
+  void projectUses3D;
   const { 
     workstations, 
     layouts,
@@ -777,8 +820,8 @@ function OffscreenSimpleLayout({
   const cameraMounts = Array.isArray(layout?.camera_mounts) ? layout.camera_mounts : [];
 
   const selectedCameras = safeHardwareArray(layout?.selected_cameras);
-  const selectedLenses = projectUses3D ? [] : safeHardwareArray(layout?.selected_lenses);
-  const selectedLights = projectUses3D ? [] : safeHardwareArray(layout?.selected_lights);
+  const selectedLenses = safeHardwareArray(layout?.selected_lenses);
+  const selectedLights = safeHardwareArray(layout?.selected_lights);
   const selectedController = safeController(layout?.selected_controller);
 
   const hardwareSummary = {
@@ -807,7 +850,7 @@ function OffscreenSimpleLayout({
       cameraMounts={cameraMounts}
       cameraCount={layout?.camera_count || wsModules.length}
       workstationName={workstation.name}
-      cycleTime={workstation.cycle_time}
+      cycleTime={getWorkstationCycleTimeValue(workstation)}
       shotCount={workstation.shot_count}
       modules={wsModules.map((m: any) => ({
         name: m.name,
@@ -821,3 +864,4 @@ function OffscreenSimpleLayout({
     />
   );
 }
+

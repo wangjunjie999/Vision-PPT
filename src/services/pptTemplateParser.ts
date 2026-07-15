@@ -10,6 +10,7 @@
 
 import JSZip from 'jszip';
 import { supabase } from '@/integrations/supabase/client';
+import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 
 const EMU_PER_INCH = 914400;
 
@@ -174,7 +175,7 @@ export const SYSTEM_FIELDS = {
     { field: 'mod_trigger_label', label: '触发方式', example: 'IO触发' },
     { field: 'mod_roi_strategy', label: '模块 ROI 策略', example: '固定 ROI' },
     { field: 'mod_processing_time', label: '处理时限(ms)', example: '100' },
-    { field: 'mod_description', label: '模块描述', example: '定位孔检测' },
+    { field: 'mod_description', label: '检测步骤', example: '1. 产品到位触发拍照\n2. 图像处理并输出结果' },
     { field: 'mod_detection_method', label: '检测方式', example: '2D*1' },
     { field: 'mod_field_of_view', label: '视野范围', example: '380*253mm' },
     { field: 'mod_pixel_accuracy', label: '像素精度', example: '0.07mm/pixel' },
@@ -248,7 +249,10 @@ export async function parseTemplate(options: ParseTemplateOptions): Promise<Pars
     let body: Record<string, unknown>;
 
     if (options.file) {
-      const tempPath = `temp/${session.user.id}/${Date.now()}_${options.file.name}`;
+      const tempPath = `temp/${session.user.id}/${createSafeStorageObjectName(options.file.name, {
+        fallbackBase: 'template',
+        fallbackExtension: 'pptx',
+      })}`;
       const { error: uploadError } = await supabase.storage
         .from('ppt-templates')
         .upload(tempPath, options.file, { upsert: true });

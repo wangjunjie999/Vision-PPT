@@ -9,10 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useChatHistory } from '@/hooks/useChatHistory';
 import { useAppStore } from '@/store/useAppStore';
 import { supabase } from '@/integrations/supabase/client';
+import { formatWorkstationCycleTime } from '@/utils/cycleTimeDisplay';
 
 type Message = { role: 'user' | 'assistant'; content: string; provider?: string; isAction?: boolean };
 
@@ -150,7 +151,7 @@ function buildProjectContext(data: ReturnType<typeof useData>): string {
 
   const project = projects.find(p => p.id === selectedProjectId);
   if (project) {
-    parts.push(`【当前项目】${project.name}（编号: ${project.code || '无'}）`);
+    parts.push(`【当前项目】${project.name}（编号: ${project.code || '-' }）`);
     if (project.customer) parts.push(`客户: ${project.customer}`);
     if (project.product_process) parts.push(`工艺: ${project.product_process}`);
     if (project.cycle_time_target) parts.push(`整线目标节拍: ${project.cycle_time_target}s/pcs`);
@@ -168,9 +169,10 @@ function buildProjectContext(data: ReturnType<typeof useData>): string {
     parts.push(`工位数量: ${pws.length}`);
 
     pws.forEach((ws, wi) => {
-      parts.push(`\n  工位${wi + 1}: ${ws.name}（编号: ${ws.code || '无'}, 类型: ${ws.type || '未知'}）`);
+      parts.push(`\n  工位${wi + 1}: ${ws.name}（编号: ${ws.code || '-'}, 类型: ${ws.type || '未知'}）`);
       if (ws.observation_target) parts.push(`    观测目标: ${ws.observation_target}`);
-      if (ws.cycle_time) parts.push(`    工位节拍: ${ws.cycle_time}s/pcs`);
+      const cycleTimeDisplay = formatWorkstationCycleTime(ws, 's/pcs', '');
+      if (cycleTimeDisplay) parts.push(`    工位节拍: ${cycleTimeDisplay}`);
       if (ws.process_stage) parts.push(`    工序: ${ws.process_stage}`);
       if (ws.motion_description) parts.push(`    运动描述: ${ws.motion_description}`);
       if (ws.risk_notes) parts.push(`    风险提示: ${ws.risk_notes}`);
@@ -204,7 +206,7 @@ function buildProjectContext(data: ReturnType<typeof useData>): string {
       const wsMods = getWorkstationModules(ws.id);
       wsMods.forEach((mod, mi) => {
         parts.push(`    模块${mi + 1}: ${mod.name}（类型: ${mod.type || '未知'}, 状态: ${mod.status || '未知'}）`);
-        if (mod.description) parts.push(`      描述: ${mod.description}`);
+        if (mod.description) parts.push(`      检测步骤: ${mod.description}`);
         if (mod.selected_camera) parts.push(`      相机: ${mod.selected_camera}`);
         if (mod.selected_lens) parts.push(`      镜头: ${mod.selected_lens}`);
         if (mod.selected_light) parts.push(`      光源: ${mod.selected_light}`);
@@ -322,7 +324,7 @@ export function AIChatPanel() {
 
   // Detect if message looks like a form fill command
   const isFormFillIntent = useCallback((text: string): boolean => {
-    const keywords = ['填写', '完成', '补充', '填好', '填入', '写好', '帮我填', '自动填', '环境说明', '风险说明', '备注'];
+    const keywords = ['填写', '完成', '补充', '填好', '填入', '写好', '帮我', '自动', '环境说明', '风险说明', '备注'];
     const targetKeywords = ['项目', '工位', '模块', '工站'];
     const hasKeyword = keywords.some(k => text.includes(k));
     const hasTarget = targetKeywords.some(k => text.includes(k));
@@ -346,7 +348,7 @@ export function AIChatPanel() {
       if (error || data?.error) {
         setMessages(prev => {
           const copy = [...prev];
-          copy[copy.length - 1] = { role: 'assistant', content: `❌ ${data?.error || '指令解析失败，请重试'}` };
+          copy[copy.length - 1] = { role: 'assistant', content: `错误：${data?.error || '指令解析失败，请重试'}` };
           return copy;
         });
         return true;
@@ -357,7 +359,7 @@ export function AIChatPanel() {
       if (!targetId || !fields || Object.keys(fields).length === 0) {
         setMessages(prev => {
           const copy = [...prev];
-          copy[copy.length - 1] = { role: 'assistant', content: '❌ 未能匹配到目标或生成内容，请提供更多细节' };
+          copy[copy.length - 1] = { role: 'assistant', content: '未能匹配到目标或生成内容，请提供更多细节' };
           return copy;
         });
         return true;
@@ -367,7 +369,7 @@ export function AIChatPanel() {
       const label = targetLabel || targetId;
       setMessages(prev => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: 'assistant', content: `📍 已定位到 **${label}**\n\n${explanation || ''}\n\n⏳ 正在自动填写中...` };
+        copy[copy.length - 1] = { role: 'assistant', content: `📍 已定位到 **${label}**\n\n${explanation || ''}\n\n正在自动填写...` };
         return copy;
       });
 
@@ -396,7 +398,7 @@ export function AIChatPanel() {
           if (lastAssistant >= 0) {
             copy[lastAssistant] = {
               role: 'assistant',
-              content: `✅ 已定位到 **${label}** 并开始填写\n\n${explanation || ''}\n\n填写字段：${Object.keys(fields).join('、')}`,
+              content: `已定位到 **${label}** 并开始填写\n\n${explanation || ''}\n\n填写字段：${Object.keys(fields).join('、')}`,
             };
           }
           return copy;
@@ -782,3 +784,4 @@ export function AIChatPanel() {
     </>
   );
 }
+

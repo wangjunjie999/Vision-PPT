@@ -5,10 +5,13 @@ import { ProjectTree } from './ProjectTree';
 const mockReorderProjects = vi.fn();
 const mockReorderWorkstations = vi.fn();
 const mockReorderModules = vi.fn();
+const mockMoveWorkstation = vi.fn();
+const mockMoveModule = vi.fn();
 
 const mockData = {
   projects: [
     { id: 'project-1', code: 'PRJ', name: '项目A', status: 'draft' },
+    { id: 'project-2', code: 'PRK', name: '项目B', status: 'draft' },
   ],
   workstations: [
     {
@@ -18,10 +21,18 @@ const mockData = {
       name: '磁钢漏插检测',
       status: 'complete',
     },
+    {
+      id: 'ws-2',
+      project_id: 'project-2',
+      code: 'DM2602000.402',
+      name: '端盖检测',
+      status: 'draft',
+    },
   ],
   modules: [
     { id: 'module-a', workstation_id: 'ws-1', name: '模块A', type: 'defect', status: 'draft' },
     { id: 'module-b', workstation_id: 'ws-1', name: '模块B', type: 'ocr', status: 'draft' },
+    { id: 'module-c', workstation_id: 'ws-2', name: '模块C', type: 'measurement', status: 'draft' },
   ],
   layouts: [
     { id: 'layout-1', workstation_id: 'ws-1' },
@@ -42,6 +53,8 @@ const mockData = {
   reorderProjects: mockReorderProjects,
   reorderWorkstations: mockReorderWorkstations,
   reorderModules: mockReorderModules,
+  moveWorkstation: mockMoveWorkstation,
+  moveModule: mockMoveModule,
   updateProject: vi.fn(),
   updateWorkstation: vi.fn(),
   updateModule: vi.fn(),
@@ -117,5 +130,36 @@ describe('ProjectTree', () => {
     fireEvent.drop(moduleARow, { dataTransfer, clientY: 1 });
 
     expect(mockReorderModules).toHaveBeenCalledWith('ws-1', ['module-b', 'module-a']);
+  });
+
+  it('moves a workstation into another project by drag and drop', () => {
+    render(<ProjectTree />);
+
+    const sourceRow = screen.getByText('磁钢漏插检测').closest('.group') as HTMLElement;
+    const targetRow = screen.getByText('项目B').closest('.group') as HTMLElement;
+    const sourceHandle = within(sourceRow).getByLabelText('拖拽调整顺序');
+    const dataTransfer = dataTransferMock();
+
+    fireEvent.dragStart(sourceHandle, { dataTransfer });
+    fireEvent.dragOver(targetRow, { dataTransfer, clientY: 18 });
+    fireEvent.drop(targetRow, { dataTransfer, clientY: 18 });
+
+    expect(mockMoveWorkstation).toHaveBeenCalledWith('ws-1', 'project-2', ['ws-2', 'ws-1']);
+  });
+
+  it('moves a module into another workstation by drag and drop', () => {
+    render(<ProjectTree />);
+
+    fireEvent.click(screen.getByText('磁钢漏插检测'));
+    const sourceRow = screen.getByText('模块A').closest('.group') as HTMLElement;
+    const targetRow = screen.getByText('端盖检测').closest('.group') as HTMLElement;
+    const sourceHandle = within(sourceRow).getByLabelText('拖拽调整顺序');
+    const dataTransfer = dataTransferMock();
+
+    fireEvent.dragStart(sourceHandle, { dataTransfer });
+    fireEvent.dragOver(targetRow, { dataTransfer, clientY: 18 });
+    fireEvent.drop(targetRow, { dataTransfer, clientY: 18 });
+
+    expect(mockMoveModule).toHaveBeenCalledWith('module-a', 'ws-2', ['module-c', 'module-a']);
   });
 });

@@ -37,6 +37,15 @@ describe('module light item helpers', () => {
     expect(patch.lightDistance).toBe('100');
   });
 
+  it('keeps shortest light distance positive when vertical component is below the product', () => {
+    const patch = getModuleLightGeometryPatch(
+      { lightDistance: '', lightDistanceHorizontal: '', lightDistanceVertical: '' },
+      { lightDistanceHorizontal: '60', lightDistanceVertical: '-80' },
+    );
+
+    expect(patch.lightDistance).toBe('100');
+  });
+
   it('recalculates vertical component when shortest distance changes', () => {
     const patch = getModuleLightGeometryPatch(
       { lightDistance: '100', lightDistanceHorizontal: '60', lightDistanceVertical: '80' },
@@ -44,5 +53,14 @@ describe('module light item helpers', () => {
     );
 
     expect(patch.lightDistanceVertical).toBe('115.326');
+  });
+
+  it('preserves vertical direction when shortest distance changes', () => {
+    const patch = getModuleLightGeometryPatch(
+      { lightDistance: '100', lightDistanceHorizontal: '60', lightDistanceVertical: '-80' },
+      { lightDistance: '130' },
+    );
+
+    expect(patch.lightDistanceVertical).toBe('-115.326');
   });
 });

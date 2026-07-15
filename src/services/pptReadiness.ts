@@ -1,5 +1,6 @@
 import type { Database } from '@/integrations/supabase/types';
 import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
+import { isModule3DCamera as isModule3DCameraWithLegacy } from '@/utils/module3DCamera';
 
 type DbProject = Database['public']['Tables']['projects']['Row'];
 type DbWorkstation = Database['public']['Tables']['workstations']['Row'];
@@ -8,6 +9,7 @@ type DbModule = Database['public']['Tables']['function_modules']['Row'];
 
 export type OutputFormat = 'ppt' | 'pdf' | 'word';
 export type GenerationMode = 'draft' | 'final';
+export type GenerationScope = 'full' | 'workstations' | 'modules';
 
 export interface MissingItem {
   level: 'project' | 'workstation' | 'module' | 'layout';
@@ -46,6 +48,9 @@ interface CheckInput {
   selectedProjectId: string | null;
   outputFormat?: OutputFormat;
   mode?: GenerationMode;
+  scope?: GenerationScope;
+  selectedWorkstationIds?: string[];
+  selectedModuleIds?: string[];
 }
 
 /**
@@ -54,7 +59,17 @@ interface CheckInput {
  * @returns 就绪状态检查结果
  */
 export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
-  const { projects, workstations, layouts, modules, selectedProjectId, mode = 'draft' } = input;
+  const {
+    projects,
+    workstations,
+    layouts,
+    modules,
+    selectedProjectId,
+    mode = 'draft',
+    scope = 'full',
+    selectedWorkstationIds = [],
+    selectedModuleIds = [],
+  } = input;
   const isFinal = mode === 'final';
   
   const missing: MissingItem[] = [];
@@ -133,18 +148,50 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   }
   
   // 3. 获取项目下的工位和模块
-  const projectWorkstations = workstations.filter(ws => ws.project_id === selectedProjectId);
-  const projectModuleIds = new Set(
-    modules.filter(m => projectWorkstations.some(ws => ws.id === m.workstation_id)).map(m => m.id)
-  );
-  const projectModules = modules.filter(m => projectModuleIds.has(m.id));
+  const allProjectWorkstations = workstations.filter(ws => ws.project_id === selectedProjectId);
+  const allProjectWorkstationIds = new Set(allProjectWorkstations.map(ws => ws.id));
+  const allProjectModules = modules.filter(m => allProjectWorkstationIds.has(m.workstation_id));
+
+  let projectWorkstations = allProjectWorkstations;
+  let projectModules = allProjectModules;
+  let scopeSelectionMissing = false;
+
+  if (scope === 'workstations') {
+    scopeSelectionMissing = selectedWorkstationIds.length === 0;
+    const selectedWsIds = new Set(selectedWorkstationIds);
+    projectWorkstations = allProjectWorkstations.filter(ws => selectedWsIds.has(ws.id));
+    const scopedWsIds = new Set(projectWorkstations.map(ws => ws.id));
+    projectModules = allProjectModules.filter(m => scopedWsIds.has(m.workstation_id));
+  } else if (scope === 'modules') {
+    scopeSelectionMissing = selectedModuleIds.length === 0;
+    const selectedModIds = new Set(selectedModuleIds);
+    projectModules = allProjectModules.filter(m => selectedModIds.has(m.id));
+    const parentWsIds = new Set(projectModules.map(m => m.workstation_id));
+    projectWorkstations = allProjectWorkstations.filter(ws => parentWsIds.has(ws.id));
+  }
+
+  if (scopeSelectionMissing) {
+    missing.push({
+      level: 'project',
+      id: project.id,
+      name: project.name || '未命名项目',
+      missing: [scope === 'workstations' ? '请选择至少一个工位' : '请选择至少一个模块'],
+      required: true,
+      actionType: 'selectProject',
+      targetId: project.id,
+    });
+  }
   
   // 4. 草案版检查：至少需要1个工位
-  const draftReady = projectMissing.length === 0 && projectWorkstations.length > 0;
+  const hasScopedContent = scope === 'modules' ? projectModules.length > 0 : projectWorkstations.length > 0;
+  const draftReady = projectMissing.length === 0 && hasScopedContent && !scopeSelectionMissing;
   
   // 5. 检查工位布局配置和三视图
-  projectWorkstations.forEach(ws => {
+  if (scope !== 'modules') projectWorkstations.forEach(ws => {
     const layout = layouts.find(l => l.workstation_id === ws.id);
+    const workstationModules = projectModules.filter(mod => mod.workstation_id === ws.id);
+    const workstationNeeds2DOptics = workstationModules.length === 0
+      || workstationModules.some(mod => !isModule3DCameraWithLegacy(mod, projectUses3D));
     
     if (!layout) {
       missing.push({
@@ -193,7 +240,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
           warning: '未配置相机',
         });
       }
-      if (!projectUses3D && (!selectedLens || selectedLens.length === 0)) {
+      if (workstationNeeds2DOptics && (!selectedLens || selectedLens.length === 0)) {
         warnings.push({
           level: 'workstation',
           id: ws.id,
@@ -201,7 +248,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
           warning: '未配置镜头',
         });
       }
-      if (!projectUses3D && (!selectedLights || selectedLights.length === 0)) {
+      if (workstationNeeds2DOptics && (!selectedLights || selectedLights.length === 0)) {
         warnings.push({
           level: 'workstation',
           id: ws.id,
@@ -232,14 +279,17 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     // 检查成像参数（FOV、工作距离等）
     const config = getModuleConfig(mod);
     if (config) {
-      const missingImaging = getMissingImagingParams(config);
+      const moduleUses3D = isModule3DCameraWithLegacy(mod, projectUses3D);
+      const missingImaging = moduleUses3D ? getMissingThreeDParams(config) : getMissingImagingParams(config);
       
       if (missingImaging.length > 0) {
         warnings.push({
           level: 'module',
           id: mod.id,
           name: mod.name,
-          warning: `建议补充成像参数：${missingImaging.join('、')}`,
+          warning: moduleUses3D
+            ? `建议补充3D参数：${missingImaging.join('、')}`
+            : `建议补充成像参数：${missingImaging.join('、')}`,
         });
       }
     }
@@ -264,9 +314,12 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   }
   
   // 8. final模式额外检查：布局视图和硬件必须完整
-  if (isFinal) {
+  if (isFinal && scope !== 'modules') {
     projectWorkstations.forEach(ws => {
       const layout = layouts.find(l => l.workstation_id === ws.id);
+      const workstationModules = projectModules.filter(mod => mod.workstation_id === ws.id);
+      const workstationNeeds2DOptics = workstationModules.length === 0
+        || workstationModules.some(mod => !isModule3DCameraWithLegacy(mod, projectUses3D));
       if (layout) {
         const primaryView = (layout as any).primary_view || 'front';
         const primaryUrl = (layout as any)?.[`${primaryView}_view_image_url`];
@@ -295,7 +348,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
             targetId: ws.id,
           });
         }
-        if (!projectUses3D && (!selectedLens || selectedLens.length === 0)) {
+        if (workstationNeeds2DOptics && (!selectedLens || selectedLens.length === 0)) {
           missing.push({
             level: 'workstation',
             id: ws.id,
@@ -319,7 +372,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     !hasBlockingMissing;
   
   // 10. 如果没有模块，添加警告
-  if (projectModules.length === 0 && projectWorkstations.length > 0) {
+  if (scope !== 'modules' && projectModules.length === 0 && projectWorkstations.length > 0) {
     warnings.push({
       level: 'project',
       id: project.id,
@@ -331,7 +384,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   // 11. 检查模块关键参数缺失（警告级别）
   projectModules.forEach(mod => {
     const modWarnings: string[] = [];
-    const moduleUses3D = isModule3DCamera(mod, projectUses3D);
+    const moduleUses3D = isModule3DCameraWithLegacy(mod, projectUses3D);
     
     // 检查硬件配置
     if (!mod.selected_camera) {
@@ -396,21 +449,6 @@ function getModuleConfig(module: DbModule): Record<string, unknown> | null {
     || null;
 }
 
-function isModule3DCamera(module: DbModule, projectUses3D: boolean): boolean {
-  if (projectUses3D) return true;
-  const config = getModuleConfig(module);
-  const imaging = getObject(config?.imaging);
-  return toBoolean(imaging?.is3DCamera);
-}
-
-function toBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-  if (typeof value !== 'string') return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === 'true' || normalized === '1' || normalized === 'yes';
-}
-
 function getMissingImagingParams(config: Record<string, unknown>): string[] {
   const imaging = getObject(config.imaging);
   const missingImaging: string[] = [];
@@ -420,6 +458,17 @@ function getMissingImagingParams(config: Record<string, unknown>): string[] {
   if (!hasPixelAccuracy(config, imaging)) missingImaging.push('像素精度');
 
   return missingImaging;
+}
+
+function getMissingThreeDParams(config: Record<string, unknown>): string[] {
+  const threeD = getObject(config.three_d);
+  const imaging = getObject(config.imaging);
+  const missing: string[] = [];
+  if (!firstPresent(threeD?.model)) missing.push('3D相机型号');
+  if (!firstPresent(imaging?.workingDistance, threeD?.workingDistance)) missing.push('工作距离');
+  if (!firstPresent(threeD?.referenceDistance, threeD?.standardRange)) missing.push('测量范围/基准距离');
+  if (!firstPresent(threeD?.xyPrecision, threeD?.zPrecision)) missing.push('精度');
+  return missing;
 }
 
 function hasFieldOfView(

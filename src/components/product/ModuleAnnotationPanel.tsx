@@ -40,6 +40,7 @@ import { useAppStore } from '@/store/useAppStore';
 import type { ProductViewerDisplayMode } from '@/utils/productViewer';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
+import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
 
 interface ProductAsset {
@@ -216,7 +217,10 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       }
 
       const bucket = 'product-models';
-      const path = `modules/${moduleId}/${Date.now()}_${file.name}`;
+      const path = `modules/${moduleId}/${createSafeStorageObjectName(file.name, {
+        fallbackBase: 'module-image',
+        fallbackExtension: 'png',
+      })}`;
       const { publicUrl: fileUrl } = await uploadStorageFile(bucket, path, file, {
         contentType: file.type || undefined,
       });

@@ -4,6 +4,7 @@ export interface StorageUploadOptions {
   contentType?: string;
   cacheControl?: string;
   upsert?: boolean;
+  requireRemote?: boolean;
 }
 
 export interface StorageUploadResult {
@@ -34,7 +35,7 @@ export async function uploadStorageFile(
 ): Promise<StorageUploadResult> {
   const contentType = options.contentType || file.type || 'application/octet-stream';
 
-  if (isDevProxyEnabled()) {
+  if (isDevProxyEnabled() && !options.requireRemote) {
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
 
@@ -71,7 +72,9 @@ export async function uploadStorageFile(
     cacheControl: options.cacheControl,
     upsert: options.upsert,
   });
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message || '远端存储上传失败');
+  }
 
   return { path, publicUrl: publicUrlFor(bucket, path) };
 }

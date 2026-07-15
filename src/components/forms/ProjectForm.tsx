@@ -1,4 +1,4 @@
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/utils';
 import { usePPTTemplates } from '@/hooks/usePPTTemplates';
@@ -339,7 +339,7 @@ export function ProjectForm() {
                   id="responsible" 
                   value={formData.responsible}
                   onChange={e => setFormData(prev => ({ ...prev, responsible: e.target.value }))}
-                  placeholder="请输入"
+                  placeholder="请输入负责人姓名"
                   className="h-9"
                   maxLength={50}
                 />
@@ -353,7 +353,7 @@ export function ProjectForm() {
                   id="sales_responsible" 
                   value={formData.sales_responsible}
                   onChange={e => setFormData(prev => ({ ...prev, sales_responsible: e.target.value }))}
-                  placeholder="请输入"
+                  placeholder="请输入销售负责人姓名"
                   className="h-9"
                   maxLength={50}
                 />
@@ -364,7 +364,7 @@ export function ProjectForm() {
                   id="vision_responsible" 
                   value={formData.vision_responsible}
                   onChange={e => setFormData(prev => ({ ...prev, vision_responsible: e.target.value }))}
-                  placeholder="请输入"
+                  placeholder="请输入视觉负责人姓名"
                   className="h-9"
                   maxLength={50}
                 />
@@ -465,7 +465,7 @@ export function ProjectForm() {
             </div>
             
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">现场环境 (多选)</Label>
+              <Label className="text-xs font-medium">现场环境（多选）</Label>
               <div className="flex flex-wrap gap-2 mt-1">
                 {environmentOptions.map(env => (
                   <label 
@@ -538,3 +538,4 @@ export function ProjectForm() {
     </div>
   );
 }
+

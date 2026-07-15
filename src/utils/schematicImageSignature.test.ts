@@ -37,6 +37,30 @@ describe('createSchematicImageSignature', () => {
     expect(moved).not.toBe(original);
   });
 
+  it('includes distance display inputs that affect rendered schematic labels', () => {
+    const original = createSchematicImageSignature({
+      ...baseSignatureInput,
+      workingDistanceInput: '200~250',
+      workingDistanceToleranceInput: '15',
+      diagramLightDistanceInput: '180~220',
+      lightItems: [{ id: 'light-1', distanceInput: '180~220', distanceMm: 200 }],
+    });
+    const changedLabel = createSchematicImageSignature({
+      ...baseSignatureInput,
+      workingDistanceInput: '210~240',
+      workingDistanceToleranceInput: '10',
+      diagramLightDistanceInput: '180~220',
+      lightItems: [{ id: 'light-1', distanceInput: '180~220', distanceMm: 200 }],
+    });
+
+    const parsed = JSON.parse(original);
+    expect(parsed.workingDistanceInput).toBe('200~250');
+    expect(parsed.workingDistanceToleranceInput).toBe('15');
+    expect(parsed.diagramLightDistanceInput).toBe('180~220');
+    expect(parsed.lightItems[0].distanceInput).toBe('180~220');
+    expect(changedLabel).not.toBe(original);
+  });
+
   it('canonicalizes lens and light data away in 3D mode', () => {
     const original = createSchematicImageSignature({
       ...baseSignatureInput,
@@ -83,5 +107,56 @@ describe('createSchematicImageSignature', () => {
     expect(parsed.lightCount).toBe(0);
     expect(parsed.lightItems).toEqual([]);
     expect(movedLegacyLight).toBe(original);
+  });
+
+  it('includes only 3D optical form fields in the 3D schematic signature', () => {
+    const original = createSchematicImageSignature({
+      ...baseSignatureInput,
+      is3DCamera: true,
+      threeDConfig: {
+        model: 'LJ-S080',
+        orderModel: '3D-APS-2',
+        scanLineWidth: '35',
+        dataPoints: '3200×6400',
+        detectionMethod: '3D相机垂直固定',
+        referenceDistance: '160',
+        detectionSteps: ['固定相机'],
+      },
+    });
+    const changedMeasurementMethod = createSchematicImageSignature({
+      ...baseSignatureInput,
+      is3DCamera: true,
+      threeDConfig: {
+        model: 'LJ-S080',
+        orderModel: '3D-APS-2',
+        scanLineWidth: '35',
+        dataPoints: '3200×6400',
+        detectionMethod: '3D相机固定在三轴上',
+        referenceDistance: '500',
+        detectionSteps: ['固定相机'],
+      },
+    });
+    const changedOpticalModel = createSchematicImageSignature({
+      ...baseSignatureInput,
+      is3DCamera: true,
+      threeDConfig: {
+        model: '3D-M051280',
+        orderModel: '3D-APS-2',
+        scanLineWidth: '35',
+        dataPoints: '3200×6400',
+      },
+    });
+
+    expect(JSON.parse(original).threeDConfig).toMatchObject({
+      model: 'LJ-S080',
+      orderModel: '3D-APS-2',
+      scanLineWidth: '35',
+      dataPoints: '3200×6400',
+    });
+    expect(JSON.parse(original).threeDConfig.detectionMethod).toBeUndefined();
+    expect(JSON.parse(original).threeDConfig.referenceDistance).toBeUndefined();
+    expect(JSON.parse(original).threeDConfig.detectionSteps).toBeUndefined();
+    expect(changedMeasurementMethod).toBe(original);
+    expect(changedOpticalModel).not.toBe(original);
   });
 });

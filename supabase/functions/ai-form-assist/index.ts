@@ -48,8 +48,7 @@ const formSchemas: Record<string, object> = {
     type: "object",
     properties: {
       name: { type: "string", description: "模块名称" },
-      description: { type: "string", description: "模块描述" },
-      detectionObject: { type: "string", description: "检测对象" },
+      description: { type: "string", description: "检测步骤" },
       workingDistance: { type: "string", description: "工作距离(mm)" },
       fieldOfViewCommon: { type: "string", description: "视场(mm)，格式如 100×80" },
       resolutionPerPixel: { type: "string", description: "每像素分辨率(mm)" },

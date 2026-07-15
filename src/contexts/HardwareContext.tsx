@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getSafeFileExtension } from '@/utils/storageFileNames';
 
 // Types
 export interface Camera {
@@ -377,7 +378,7 @@ export function useControllers() {
 // Keep image upload utility
 export function useHardwareImageUpload() {
   const uploadImage = async (file: File, type: 'cameras' | 'lenses' | 'lights' | 'controllers'): Promise<string> => {
-    const fileExt = file.name.split('.').pop();
+    const fileExt = getSafeFileExtension(file.name, 'png');
     const fileName = `${type}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
     const { data, error } = await supabase.storage

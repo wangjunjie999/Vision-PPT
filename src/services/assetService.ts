@@ -3,6 +3,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { Database, Json } from '@/integrations/supabase/types';
+import { getSafeFileExtension, sanitizeStorageSegment } from '@/utils/storageFileNames';
 
 export type AssetType = 
   | 'workstation_product'
@@ -115,7 +116,7 @@ export async function uploadAsset(
   }
   
   const userId = userData.user.id;
-  const extension = getFileExtension(file.name);
+  const extension = getSafeFileExtension(file.name);
   
   // Get current version for this asset
   const currentVersion = await getCurrentVersion(userId, info.assetType, info.relatedId);
@@ -355,14 +356,7 @@ async function getCurrentVersion(
 }
 
 function sanitizeName(name: string): string {
-  return name
-    .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '')
-    .substring(0, 20);
-}
-
-function getFileExtension(filename: string): string {
-  const parts = filename.split('.');
-  return parts.length > 1 ? parts.pop()!.toLowerCase() : 'bin';
+  return sanitizeStorageSegment(name, 'item').substring(0, 20);
 }
 
 function getAssetTypeSuffix(type: AssetType): string {

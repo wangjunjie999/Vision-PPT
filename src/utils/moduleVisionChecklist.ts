@@ -1,4 +1,5 @@
 import { resolveModuleHardwareSelection } from './moduleHardwareSlots';
+import { formatCameraTaktTime } from './cameraTaktTime';
 
 type Language = 'zh' | 'en';
 
@@ -77,6 +78,8 @@ const CAMERA_MOUNT_LABELS: Record<string, { zh: string; en: string }> = {
   '45deg': { zh: '45°安装', en: '45° Mount' },
   overhead: { zh: '顶置安装', en: 'Overhead' },
 };
+const TAKT_RANGE_RE = /\d+(?:\.\d+)?\s*(?:~|～|至|–|—|-)\s*\d+(?:\.\d+)?/;
+const TAKT_UNIT_RE = /(s\s*\/\s*pcs|s\s*\/\s*pc|秒\s*\/\s*件|秒|s\s*\/\s*次)$/i;
 
 export function buildModuleVisionChecklist(input: ModuleVisionChecklistInput): ModuleVisionChecklist {
   const language = input.language ?? 'zh';
@@ -117,10 +120,11 @@ export function buildModuleVisionChecklist(input: ModuleVisionChecklistInput): M
     cameraCount,
   );
   const taktValue = firstPresent(
-    input.workstation?.cycle_time,
-    input.workstation?.acceptance_criteria?.cycle_time,
+    config?.cameraTaktTime,
     config?.taktTime,
     config?.cycleTime,
+    input.workstation?.acceptance_criteria?.cycle_time,
+    input.workstation?.cycle_time,
     input.module.processing_time_limit ? input.module.processing_time_limit / 1000 : undefined,
   );
 
@@ -271,12 +275,16 @@ function formatShotCount(value: unknown, language: Language): string {
 }
 
 function formatTaktTime(value: unknown, language: Language): string {
+  const text = value === null || value === undefined ? '' : String(value).trim();
+  if (text && (TAKT_RANGE_RE.test(text) || TAKT_UNIT_RE.test(text))) {
+    return formatCameraTaktTime(text, language === 'zh' ? '待定' : 'TBD');
+  }
+
   const seconds = parsePositiveNumber(value);
   if (seconds) {
-    return language === 'zh' ? `${formatNumber(seconds, 3)}S/次` : `${formatNumber(seconds, 3)}s/shot`;
+    return formatCameraTaktTime(formatNumber(seconds, 3), language === 'zh' ? '待定' : 'TBD');
   }
-  const text = value === null || value === undefined ? '' : String(value).trim();
-  return text || (language === 'zh' ? '待定' : 'TBD');
+  return formatCameraTaktTime(text, language === 'zh' ? '待定' : 'TBD');
 }
 
 function parsePositiveNumber(value: unknown): number | null {

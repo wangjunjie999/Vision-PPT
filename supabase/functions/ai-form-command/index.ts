@@ -38,7 +38,8 @@ code, name, cycleTime, length, width, height, process_stage, observation_target,
 - acceptance_accuracy, acceptance_cycle_time, acceptance_compatible_sizes（验收标准相关）
 
 ### 模块通用字段
-name, description, type, detectionObject, workingDistance, fieldOfViewCommon, resolutionPerPixel, exposure, lightMode, lightAngle, communicationMethod, signalDefinition, dataRetentionDays
+name, description, type, workingDistance, fieldOfViewCommon, resolutionPerPixel, exposure, lightMode, lightAngle, communicationMethod, signalDefinition, dataRetentionDays
+- description 表示检测步骤
 
 ### 模块类型专用字段
 
@@ -89,6 +90,7 @@ name, description, type, detectionObject, workingDistance, fieldOfViewCommon, re
 - "测量方法" → 填写 measurementCalibrationMethod, measurementObjectDescription, edgeExtractionMethod, measurementItems 等测量相关字段
 - "环境说明"/"现场环境" → 填写 risk_notes
 - "检测参数" → 根据模块类型填写对应配置字段
+- "检测步骤"/"功能说明" → 填写 description
 - "验收标准" → 填写 acceptance_accuracy, acceptance_cycle_time 等
 - "标定方法" → 填写 measurementCalibrationMethod 或 calibrationMethod
 - "缺陷类型" → 填写 defectClasses, minDefectSize 等

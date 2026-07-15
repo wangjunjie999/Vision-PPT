@@ -2,8 +2,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuth } from '@/contexts/AuthContext';
-import { useData } from '@/contexts/DataContext';
-import { useGuide } from '@/contexts/GuideContext';
+import { useData } from '@/contexts/useData';
+import { useGuide } from '@/contexts/useGuide';
 import { useTheme } from 'next-themes';
 import { useAdminRole } from '@/hooks/useAdminRole';
 import { 
@@ -146,7 +146,7 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
                     "rounded-xl overflow-hidden shadow-lg group-hover:shadow-primary/25 transition-all duration-300 group-active:scale-95",
                     isMobile ? "h-9 w-auto" : "h-12 w-auto"
                   )}>
-                    <img src="/ppt-covers/tech-shine-logo.png" alt="德星云" className="w-full h-full object-contain" />
+                    <img src="/ppt-covers/tech-shine-logo.png" alt="德星" className="w-full h-full object-contain" />
                   </div>
                   <div className="absolute inset-0 rounded-xl bg-primary/30 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </div>
@@ -210,10 +210,10 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
                     <AlertCircle className="h-4 w-4 text-warning animate-pulse shrink-0" />
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="font-medium mb-1">可生成草案版，但缺少交付项:</p>
+                    <p className="font-medium mb-1">可生成草案版，但缺少交付项</p>
                     <ul className="text-xs space-y-0.5">
                       {missingItemsText.slice(0, 3).map((item, i) => (
-                        <li key={i}>• {item}</li>
+                        <li key={i}>- {item}</li>
                       ))}
                       {missingItemsText.length > 3 && (
                         <li className="text-muted-foreground">...还有 {missingItemsText.length - 3} 项</li>
@@ -227,10 +227,10 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
                     <AlertCircle className="h-4 w-4 text-destructive animate-pulse shrink-0" />
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="font-medium mb-1">无法生成PPT，缺少:</p>
+                    <p className="font-medium mb-1">无法生成PPT，缺少配置项</p>
                     <ul className="text-xs space-y-0.5">
                       {missingItemsText.slice(0, 3).map((item, i) => (
-                        <li key={i}>• {item}</li>
+                        <li key={i}>- {item}</li>
                       ))}
                       {missingItemsText.length > 3 && (
                         <li className="text-muted-foreground">...还有 {missingItemsText.length - 3} 项</li>
@@ -272,10 +272,10 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
               </TooltipTrigger>
               {!draftReady && (
                 <TooltipContent side="bottom" className="max-w-xs">
-                  <p className="font-medium mb-1">无法生成PPT，缺少:</p>
+                  <p className="font-medium mb-1">无法生成PPT，缺少配置项</p>
                   <ul className="text-xs space-y-0.5">
                     {missingItemsText.slice(0, 3).map((item, i) => (
-                      <li key={i}>• {item}</li>
+                      <li key={i}>- {item}</li>
                     ))}
                     {missingItemsText.length > 3 && (
                       <li className="text-muted-foreground">...还有 {missingItemsText.length - 3} 项</li>
@@ -355,7 +355,7 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-3 py-2.5 border-b border-border">
-                <div className="text-xs text-muted-foreground mb-0.5">已登录账户</div>
+                <div className="text-xs text-muted-foreground mb-0.5">已登录账号</div>
                 <div className="text-sm font-medium truncate">{user?.email}</div>
               </div>
               <DropdownMenuItem onClick={resetGuide}>
@@ -389,3 +389,4 @@ export function TopToolbar({ onAdminClick, showBackButton, isMobile, onOpenLeftD
     </>
   );
 }
+

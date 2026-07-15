@@ -39,7 +39,6 @@ interface ModuleHardwareSelectionProps {
   lights: HardwareItem[];
   controllers: HardwareItem[];
   workstationLayout?: unknown;
-  isProject3D?: boolean;
 }
 
 const kindMeta: Record<ModuleHardwareKind, { title: string; Icon: typeof Camera; emptyText: string; hint: string }> = {
@@ -163,7 +162,6 @@ export function ModuleHardwareSelection({
   lights,
   controllers,
   workstationLayout,
-  isProject3D = false,
 }: ModuleHardwareSelectionProps) {
   const cameraSlots = useMemo(
     () => getModuleHardwareSlots<HardwareItem>(workstationLayout, 'camera', cameras),
@@ -182,7 +180,7 @@ export function ModuleHardwareSelection({
     [workstationLayout, controllers],
   );
 
-  const is3DMode = isProject3D || form.is3DCamera;
+  const is3DMode = form.is3DCamera;
   const hasStationHardware = cameraSlots.length > 0
     || (!is3DMode && lensSlots.length > 0)
     || (!is3DMode && lightSlots.length > 0)

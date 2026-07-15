@@ -1,4 +1,4 @@
-import { useData } from '@/contexts/DataContext';
+import { useData } from '@/contexts/useData';
 import { Textarea } from '@/components/ui/textarea';
 import { useControllers } from '@/contexts/HardwareContext';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ import { AIFillButton, getFieldHighlightClass } from './AIFillButton';
 import { stringifyFormDraft, useEntityFormDraft } from '@/hooks/useEntityFormDraft';
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { sanitizeController, sanitizeHardwareArray } from '@/utils/hardwareSerialization';
+import { parseWorkstationCycleTimeSeconds } from '@/utils/cycleTimeDisplay';
 
 
 
@@ -55,7 +56,7 @@ const mechanismConstraints: Partial<Record<Mechanism, MechanismConstraint>> = {
   robot_pick: {
     maxCameras: 2,
     disabledMounts: ['angled'],
-    reason: '机械手取放需预留运动空间，最多2台相机，不支持斜视'
+    reason: '机械手取放需预留运动空间，最多2台相机，不支持斜视安装'
   },
   lift: {
     disabledMounts: ['side'],
@@ -82,6 +83,7 @@ const createDefaultWorkstationForm = () => ({
   environment_description: '',
   notes: '',
   acceptance_accuracy: '',
+  acceptance_detection_content: '',
   acceptance_cycle_time: '',
   acceptance_compatible_sizes: '',
   motion_description: '',
@@ -111,23 +113,6 @@ const createDefaultLayoutForm = () => ({
 
 type LayoutFormState = ReturnType<typeof createDefaultLayoutForm>;
 
-function strip3DWorkstationLayout(form: LayoutFormState): LayoutFormState {
-  return {
-    ...form,
-    lensCount: 0,
-    lightCount: 0,
-    selectedLenses: [],
-    selectedLights: [],
-  };
-}
-
-function needs3DWorkstationLayoutStrip(form: LayoutFormState) {
-  return form.lensCount !== 0
-    || form.lightCount !== 0
-    || safeHardwareArray(form.selectedLenses).length > 0
-    || safeHardwareArray(form.selectedLights).length > 0;
-}
-
 interface WorkstationDraftPayload {
   wsForm: WorkstationFormState;
   layoutForm: LayoutFormState;
@@ -145,7 +130,12 @@ interface WorkstationFormSource {
   observation_target?: string | null;
   environment_description?: string | null;
   notes?: string | null;
-  acceptance_criteria?: { accuracy?: string | null; cycle_time?: string | null; compatible_sizes?: string | null } | null;
+  acceptance_criteria?: {
+    accuracy?: string | null;
+    detection_content?: string | null;
+    cycle_time?: string | null;
+    compatible_sizes?: string | null;
+  } | null;
   motion_description?: string | null;
   shot_count?: number | null;
   action_script?: string | null;
@@ -171,7 +161,12 @@ interface LayoutFormSource {
 
 const workstationToForm = (workstation: WorkstationFormSource): WorkstationFormState => {
   const dims = workstation.product_dimensions as { length: number; width: number; height: number } | null;
-  const acceptanceCriteria = workstation.acceptance_criteria as { accuracy?: string; cycle_time?: string; compatible_sizes?: string } | null;
+  const acceptanceCriteria = workstation.acceptance_criteria as {
+    accuracy?: string;
+    detection_content?: string;
+    cycle_time?: string;
+    compatible_sizes?: string;
+  } | null;
 
   return {
     code: workstation.code || '',
@@ -187,7 +182,8 @@ const workstationToForm = (workstation: WorkstationFormSource): WorkstationFormS
     environment_description: workstation.environment_description || '',
     notes: workstation.notes || '',
     acceptance_accuracy: acceptanceCriteria?.accuracy || '',
-    acceptance_cycle_time: acceptanceCriteria?.cycle_time || '',
+    acceptance_detection_content: acceptanceCriteria?.detection_content || '',
+    acceptance_cycle_time: acceptanceCriteria?.cycle_time || workstation.cycle_time?.toString() || '',
     acceptance_compatible_sizes: acceptanceCriteria?.compatible_sizes || '',
     motion_description: workstation.motion_description || '',
     shot_count: workstation.shot_count?.toString() || '',
@@ -335,17 +331,14 @@ export function WorkstationForm() {
     workstations, 
     updateWorkstation, 
     layouts, 
-    projects,
     upsertLayout,
     getLayoutByWorkstation,
     getWorkstationModules,
   } = useData();
   
   const { controllers } = useControllers();
-  
+
   const workstation = workstations.find(ws => ws.id === selectedWorkstationId);
-  const project = workstation ? projects.find(p => p.id === workstation.project_id) : null;
-  const isProject3D = Boolean(project?.use_3d);
   const layout = getLayoutByWorkstation(selectedWorkstationId || '');
   const wsModules = useMemo(
     () => selectedWorkstationId ? getWorkstationModules(selectedWorkstationId) : [],
@@ -379,7 +372,12 @@ export function WorkstationForm() {
 
   const getWsFormData = useCallback(() => wsForm, [wsForm]);
   const setWsFormField = useCallback((field: string, value: string) => {
-    setWsForm(prev => ({ ...prev, [field]: value }));
+    setWsForm(prev => {
+      if (field === 'cycleTime') {
+        return { ...prev, cycleTime: value, acceptance_cycle_time: value };
+      }
+      return { ...prev, [field]: value };
+    });
   }, []);
 
   const aiFill = useAIFormFill({
@@ -413,15 +411,11 @@ export function WorkstationForm() {
       layoutToForm(layout as any, controllers),
       0,
     );
-    const normalizedPayload = {
-      ...nextPayload,
-      layoutForm: isProject3D ? strip3DWorkstationLayout(nextPayload.layoutForm) : nextPayload.layoutForm,
-    };
 
-    setWsForm(normalizedPayload.wsForm);
-    setLayoutForm(normalizedPayload.layoutForm);
-    setCurrentStep(normalizedPayload.currentStep || 0);
-    baselineSnapshotRef.current = stringifyFormDraft(normalizedPayload);
+    setWsForm(nextPayload.wsForm);
+    setLayoutForm(nextPayload.layoutForm);
+    setCurrentStep(nextPayload.currentStep || 0);
+    baselineSnapshotRef.current = stringifyFormDraft(nextPayload);
     setDraftDirty(Boolean(draft));
     setDraftReady(true);
     initializedWorkstationIdRef.current = workstation.id;
@@ -429,12 +423,7 @@ export function WorkstationForm() {
     if (draft) {
       toast.info('已恢复未保存草稿');
     }
-  }, [controllers, isProject3D, layout, readDraft, workstation]);
-
-  useEffect(() => {
-    if (!draftReady || !workstation || !isProject3D) return;
-    setLayoutForm(prev => needs3DWorkstationLayoutStrip(prev) ? strip3DWorkstationLayout(prev) : prev);
-  }, [draftReady, isProject3D, workstation?.id]);
+  }, [controllers, layout, readDraft, workstation]);
 
   useEffect(() => {
     if (!draftReady || !workstation) return;
@@ -524,8 +513,8 @@ export function WorkstationForm() {
 
   // Step completion checks
   const isStep1Complete = useMemo(() => 
-    Boolean(wsForm.code && wsForm.name && wsForm.cycleTime),
-    [wsForm.code, wsForm.name, wsForm.cycleTime]
+    Boolean(wsForm.code && wsForm.name && wsForm.acceptance_cycle_time),
+    [wsForm.code, wsForm.name, wsForm.acceptance_cycle_time]
   );
   
   const isStep2Complete = useMemo(() => 
@@ -549,7 +538,7 @@ export function WorkstationForm() {
         code: wsForm.code,
         name: wsForm.name,
         type: wsForm.type,
-        cycle_time: parseFloat(wsForm.cycleTime) || null, 
+        cycle_time: parseWorkstationCycleTimeSeconds(wsForm.acceptance_cycle_time), 
         product_dimensions: { 
           length: parseFloat(wsForm.length) || 0, 
           width: parseFloat(wsForm.width) || 0, 
@@ -561,6 +550,7 @@ export function WorkstationForm() {
         observation_target: wsForm.observation_target || null,
         acceptance_criteria: {
           accuracy: wsForm.acceptance_accuracy || null,
+          detection_content: wsForm.acceptance_detection_content || null,
           cycle_time: wsForm.acceptance_cycle_time || null,
           compatible_sizes: wsForm.acceptance_compatible_sizes || null,
         },
@@ -572,7 +562,7 @@ export function WorkstationForm() {
         status: 'incomplete' 
       } as any, { silent: true });
       
-      const layoutFormForSave = isProject3D ? strip3DWorkstationLayout(layoutForm) : layoutForm;
+      const layoutFormForSave = layoutForm;
       const selectedCameras = sanitizeHardwareArray(layoutFormForSave.selectedCameras);
       const selectedLenses = sanitizeHardwareArray(layoutFormForSave.selectedLenses);
       const selectedLights = sanitizeHardwareArray(layoutFormForSave.selectedLights);
@@ -659,15 +649,11 @@ export function WorkstationForm() {
       layoutToForm(layout as any, controllers),
       0,
     );
-    const normalizedPayload = {
-      ...nextPayload,
-      layoutForm: isProject3D ? strip3DWorkstationLayout(nextPayload.layoutForm) : nextPayload.layoutForm,
-    };
     clearDraft();
-    setWsForm(normalizedPayload.wsForm);
-    setLayoutForm(normalizedPayload.layoutForm);
-    setCurrentStep(normalizedPayload.currentStep);
-    baselineSnapshotRef.current = stringifyFormDraft(normalizedPayload);
+    setWsForm(nextPayload.wsForm);
+    setLayoutForm(nextPayload.layoutForm);
+    setCurrentStep(nextPayload.currentStep);
+    baselineSnapshotRef.current = stringifyFormDraft(nextPayload);
     setDraftDirty(false);
   };
 
@@ -770,29 +756,19 @@ export function WorkstationForm() {
   };
 
   const hasConstraintForMechanism = (mech: Mechanism) => !!mechanismConstraints[mech];
+  const targetCycleTimeS = parseWorkstationCycleTimeSeconds(wsForm.acceptance_cycle_time);
 
   // Step content components
   const Step1WorkstationInfo = (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">工位编号 <span className="text-destructive ml-0.5">*</span></Label>
-          <Input 
-            value={wsForm.code} 
-            onChange={e => setWsForm(p => ({ ...p, code: e.target.value }))} 
-            className="h-9"
-            maxLength={20}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">工位节拍 (s/pcs) <span className="text-destructive ml-0.5">*</span></Label>
-          <Input 
-            type="number" 
-            value={wsForm.cycleTime} 
-            onChange={e => setWsForm(p => ({ ...p, cycleTime: e.target.value }))} 
-            className="h-9" 
-          />
-        </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium">工位编号 <span className="text-destructive ml-0.5">*</span></Label>
+        <Input 
+          value={wsForm.code} 
+          onChange={e => setWsForm(p => ({ ...p, code: e.target.value }))} 
+          className="h-9"
+          maxLength={20}
+        />
       </div>
       <div className="space-y-1.5">
         <Label className="text-xs font-medium">工位名称 <span className="text-destructive ml-0.5">*</span></Label>
@@ -817,7 +793,7 @@ export function WorkstationForm() {
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">产品长(mm)</Label>
+          <Label className="text-xs font-medium">产品长 (mm)</Label>
           <Input 
             type="number" 
             value={wsForm.length} 
@@ -826,7 +802,7 @@ export function WorkstationForm() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">产品宽(mm)</Label>
+          <Label className="text-xs font-medium">产品宽 (mm)</Label>
           <Input 
             type="number" 
             value={wsForm.width} 
@@ -835,7 +811,7 @@ export function WorkstationForm() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">产品高(mm)</Label>
+          <Label className="text-xs font-medium">产品高 (mm)</Label>
           <Input 
             type="number" 
             value={wsForm.height} 
@@ -854,6 +830,42 @@ export function WorkstationForm() {
         {wsForm.enclosed && (
           <span className="text-xs text-warning ml-2">（限制侧视安装）</span>
         )}
+      </div>
+
+      <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">工位技术要求</div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">精度要求</Label>
+            <Input
+              value={wsForm.acceptance_accuracy}
+              onChange={e => setWsForm(p => ({ ...p, acceptance_accuracy: e.target.value }))}
+              placeholder="例如: ±0.1mm"
+              className="h-9"
+              maxLength={80}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">工位节拍范围/要求 (s/pcs) <span className="text-destructive ml-0.5">*</span></Label>
+            <Input
+              value={wsForm.acceptance_cycle_time}
+              onChange={e => setWsForm(p => ({ ...p, acceptance_cycle_time: e.target.value }))}
+              placeholder="例如: 3~3.5 或 100"
+              className="h-9"
+              maxLength={80}
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">检测内容</Label>
+          <Textarea
+            value={wsForm.acceptance_detection_content}
+            onChange={e => setWsForm(p => ({ ...p, acceptance_detection_content: e.target.value }))}
+            placeholder="例如: 四面尺寸精密测量"
+            className="min-h-[72px] text-sm resize-none"
+            maxLength={500}
+          />
+        </div>
       </div>
       
       <div className="grid grid-cols-2 gap-3">
@@ -902,7 +914,7 @@ export function WorkstationForm() {
       </div>
 
       {/* Cycle Time Analysis Card */}
-      {wsForm.cycleTime && wsModules.length > 0 && (() => {
+      {targetCycleTimeS !== null && wsModules.length > 0 && (() => {
         const processingTimes = wsModules.map((m: any) => m.processing_time_limit || 0);
         const maxExposureUs = Math.max(
           ...wsModules.map((m: any) => {
@@ -918,7 +930,7 @@ export function WorkstationForm() {
         const camFrameRate = firstCam?.frame_rate || 0;
 
         const ctResult = calculateCycleTime({
-          targetCycleTimeS: parseFloat(wsForm.cycleTime) || 0,
+          targetCycleTimeS,
           processingTimesMs: processingTimes,
           shotCount: parseInt(wsForm.shot_count) || 1,
           exposureTimeUs: maxExposureUs > 0 ? maxExposureUs : undefined,
@@ -956,7 +968,7 @@ export function WorkstationForm() {
                 <div className="text-xs text-muted-foreground">
                   瓶颈: <span className="font-medium text-foreground">{ctResult.bottleneck}</span>
                   {' · '}
-                  产能: <span className="font-mono">{ctResult.actualThroughputPerHour}</span> 件/时
+                  产能: <span className="font-mono">{ctResult.actualThroughputPerHour}</span> 件/小时
                   {ctResult.actualThroughputPerHour !== ctResult.throughputPerHour && (
                     <span className="text-muted-foreground"> (目标 {ctResult.throughputPerHour})</span>
                   )}
@@ -1052,7 +1064,7 @@ export function WorkstationForm() {
                   {hasConstraint && (
                     <TooltipContent side="top" className="max-w-xs">
                       <p className="text-xs">
-                        <strong>约束提示：</strong>{mechanismConstraints[m.value]?.reason}
+                        <strong>约束提示:</strong>{mechanismConstraints[m.value]?.reason}
                       </p>
                     </TooltipContent>
                   )}
@@ -1068,7 +1080,7 @@ export function WorkstationForm() {
         <Alert className="bg-warning/10 border-warning">
           <AlertTriangle className="h-4 w-4 text-warning" />
           <AlertDescription className="text-xs">
-            <strong>当前约束：</strong>
+            <strong>当前约束:</strong>
             <ul className="mt-1 space-y-0.5 list-disc list-inside">
               {effectiveLimits.reasons.map((reason, idx) => (
                 <li key={idx}>{reason}</li>
@@ -1100,7 +1112,7 @@ export function WorkstationForm() {
             <Minus className="h-4 w-4" />
           </Button>
           <span className="min-w-14 text-center text-sm font-semibold">
-            {layoutForm.cameraCount}台
+            {layoutForm.cameraCount} 台
           </span>
           <Button
             type="button"
@@ -1215,7 +1227,7 @@ export function WorkstationForm() {
                 <SelectItem value="front">正视图</SelectItem>
                 <SelectItem value="side">侧视图</SelectItem>
                 <SelectItem value="top">俯视图</SelectItem>
-                <SelectItem value="isometric">等轴测</SelectItem>
+                <SelectItem value="isometric">等轴图</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1232,7 +1244,7 @@ export function WorkstationForm() {
                 <SelectItem value="front">正视图</SelectItem>
                 <SelectItem value="side">侧视图</SelectItem>
                 <SelectItem value="top">俯视图</SelectItem>
-                <SelectItem value="isometric">等轴测</SelectItem>
+                <SelectItem value="isometric">等轴图</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1244,7 +1256,7 @@ export function WorkstationForm() {
           <Textarea
             value={layoutForm.layoutDescription}
             onChange={(e) => setLayoutForm(p => ({ ...p, layoutDescription: e.target.value }))}
-            placeholder="描述相机安装位置、角度、工作距离等信息。例如：C1相机顶视安装，工作距离350mm，角度90°垂直拍摄..."
+            placeholder="描述相机安装位置、角度、工作距离等信息。例如：C1 相机顶视安装，工作距离 50mm，角度 0° 垂直拍摄..."
             rows={3}
             className="text-sm"
           />
@@ -1277,12 +1289,11 @@ export function WorkstationForm() {
         initialLenses={layoutForm.selectedLenses}
         initialLights={layoutForm.selectedLights}
         initialController={layoutForm.selectedController}
-        hideLensAndLight={isProject3D}
         onHardwareChange={(config) => setLayoutForm(p => ({
           ...p,
           selectedCameras: config.cameras,
-          selectedLenses: isProject3D ? [] : config.lenses,
-          selectedLights: isProject3D ? [] : config.lights,
+          selectedLenses: config.lenses,
+          selectedLights: config.lights,
           selectedController: config.controller,
         }))}
       />
@@ -1305,8 +1316,8 @@ export function WorkstationForm() {
       content: Step1WorkstationInfo,
       isComplete: isStep1Complete,
       nextHint: isStep1Complete 
-        ? '工位信息已完成，点击"下一步"配置机械布局' 
-        : '请填写工位编号、名称和工位节拍后继续',
+        ? '工位信息已完成，点击“下一步”配置机械布局' 
+        : '请填写工位编号、名称和工位节拍范围/要求后继续',
     },
     {
       id: 'layout',
@@ -1323,14 +1334,14 @@ export function WorkstationForm() {
       id: 'hardware',
       title: '硬件配置',
       shortTitle: '硬件',
-      description: isProject3D ? '选择3D相机和控制器' : '选择相机、镜头、光源和控制器',
+      description: '选择相机、镜头、光源和控制器',
       content: Step3HardwareConfig,
       isComplete: isStep3Complete,
       nextHint: isStep3Complete 
-        ? '配置完成！点击"保存完成"保存所有设置' 
+        ? '配置完成，点击“保存完成”保存所有设置' 
         : '请至少选择一个相机',
     },
-  ], [Step1WorkstationInfo, Step2MechanicalLayout, Step3HardwareConfig, isProject3D, isStep1Complete, isStep2Complete, isStep3Complete]);
+  ], [Step1WorkstationInfo, Step2MechanicalLayout, Step3HardwareConfig, isStep1Complete, isStep2Complete, isStep3Complete]);
 
   return (
     <FormStepWizard
@@ -1355,3 +1366,4 @@ export function WorkstationForm() {
     />
   );
 }
+

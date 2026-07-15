@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ModuleStep3Imaging } from './ModuleStep3Imaging';
@@ -68,6 +68,11 @@ function Harness({ initial }: { initial: ModuleFormState }) {
           fieldOfViewHeight: form.fieldOfViewHeight,
           fieldOfViewCommon: form.fieldOfViewCommon,
           resolutionPerPixel: form.resolutionPerPixel,
+          is3DCamera: form.is3DCamera,
+          selectedLens: form.selectedLens,
+          selectedLight: form.selectedLight,
+          exposure: form.exposure,
+          lightItems: form.lightItems,
         })}
       </pre>
     </>
@@ -81,10 +86,86 @@ function readState() {
     fieldOfViewHeight: string;
     fieldOfViewCommon: string;
     resolutionPerPixel: string;
+    is3DCamera: boolean;
+    selectedLens: string;
+    selectedLight: string;
+    exposure: string;
+    lightItems: unknown[];
   };
 }
 
 describe('ModuleStep3Imaging manual FOV behavior', () => {
+  it('shows the 3D-only imaging form instead of 2D optical controls', () => {
+    render(<Harness initial={makeForm({ is3DCamera: true })} />);
+
+    expect(screen.getByTestId('imaging-3d-camera-toggle')).toBeTruthy();
+    expect(screen.getByTestId('three-d-imaging-form')).toBeTruthy();
+
+    expect(screen.getByText('3D 光学方案图信息')).toBeTruthy();
+    expect(screen.getByPlaceholderText('LJ-S080')).toBeTruthy();
+    expect(screen.getByText('工作距离 WD (mm)')).toBeTruthy();
+    expect(screen.getByText('工作距离公差 (±mm)')).toBeTruthy();
+    expect(screen.queryByText('检测方式')).toBeNull();
+    expect(screen.queryByText('测量步骤')).toBeNull();
+    expect(screen.queryByText('视场 FOV (mm)')).toBeNull();
+    expect(screen.queryByText('曝光控制')).toBeNull();
+    expect(screen.queryByText('光源参数')).toBeNull();
+  });
+
+  it('switches to the 3D form from the imaging step and clears 2D optics', async () => {
+    render(<Harness initial={makeForm({
+      selectedLens: 'lens-1',
+      selectedLight: 'light-1',
+      workingDistance: '730',
+      fieldOfViewWidth: '380',
+      fieldOfViewHeight: '253',
+      fieldOfViewCommon: '380脳253',
+      resolutionPerPixel: '0.0694',
+      exposure: '10ms',
+      lightItems: [{
+        id: 'light-1',
+        selectedLight: 'light-1',
+        lightMode: 'ring',
+        lightAngle: '45',
+        lightDistance: '100',
+        lightDistanceHorizontal: '20',
+        lightDistanceVertical: '98',
+        lightNote: 'side',
+      }],
+    })} />);
+
+    fireEvent.click(within(screen.getByTestId('imaging-3d-camera-toggle')).getByRole('button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('three-d-imaging-form')).toBeTruthy();
+      expect(readState()).toMatchObject({
+        is3DCamera: true,
+        selectedLens: '',
+        selectedLight: '',
+        workingDistance: '730',
+        fieldOfViewWidth: '',
+        fieldOfViewHeight: '',
+        fieldOfViewCommon: '',
+        resolutionPerPixel: '',
+        exposure: '',
+        lightItems: [],
+      });
+    });
+  });
+
+  it('switches back to the 2D imaging form from the imaging step', async () => {
+    render(<Harness initial={makeForm({ is3DCamera: true })} />);
+
+    fireEvent.click(within(screen.getByTestId('imaging-3d-camera-toggle')).getByRole('button'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('three-d-imaging-form')).toBeNull();
+      expect(readState()).toMatchObject({
+        is3DCamera: false,
+      });
+    });
+  });
+
   it('does not auto-fill blank FOV or pixel accuracy from WD and hardware', async () => {
     render(<Harness initial={makeForm()} />);
 
@@ -131,6 +212,23 @@ describe('ModuleStep3Imaging manual FOV behavior', () => {
       expect(readState()).toMatchObject({
         fieldOfViewWidth: '380',
         fieldOfViewHeight: '253',
+        resolutionPerPixel: '0.0694',
+      });
+    });
+  });
+
+  it('derives FOV height and pixel accuracy from width after one-click calculation', async () => {
+    render(<Harness initial={makeForm({
+      fieldOfViewWidth: '380',
+    })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /一键计算/ }));
+
+    await waitFor(() => {
+      expect(readState()).toMatchObject({
+        fieldOfViewWidth: '380',
+        fieldOfViewHeight: '253.33',
+        fieldOfViewCommon: '380×253.33',
         resolutionPerPixel: '0.0694',
       });
     });

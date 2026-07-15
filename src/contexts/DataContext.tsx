@@ -58,6 +58,7 @@ interface DataContextType {
   deleteWorkstation: (id: string) => Promise<void>;
   duplicateWorkstation: (id: string) => Promise<DbWorkstation>;
   reorderWorkstations: (projectId: string, orderedIds: string[]) => Promise<void>;
+  moveWorkstation: (id: string, targetProjectId: string, orderedIds: string[]) => Promise<void>;
   
   // Layout CRUD
   getLayoutByWorkstation: (workstationId: string) => DbLayout | undefined;
@@ -71,6 +72,7 @@ interface DataContextType {
   deleteModule: (id: string) => Promise<void>;
   duplicateModule: (id: string) => Promise<DbModule>;
   reorderModules: (workstationId: string, orderedIds: string[]) => Promise<void>;
+  moveModule: (id: string, targetWorkstationId: string, orderedIds: string[]) => Promise<void>;
   
   // Helpers
   getProjectWorkstations: (projectId: string) => DbWorkstation[];
@@ -495,6 +497,85 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const moveWorkstation = async (id: string, targetProjectId: string, orderedIds: string[]) => {
+    const original = workstations.find(ws => ws.id === id);
+    if (!original) throw new Error('Workstation not found');
+    if (original.project_id === targetProjectId) {
+      return reorderWorkstations(targetProjectId, orderedIds);
+    }
+
+    const sourceProjectId = original.project_id;
+    const sourceIds = sortByEntityOrder(
+      workstations.filter(ws => ws.project_id === sourceProjectId && ws.id !== id),
+      'code'
+    ).map(ws => ws.id);
+    const targetIdsWithoutSource = sortByEntityOrder(
+      workstations.filter(ws => ws.project_id === targetProjectId && ws.id !== id),
+      'code'
+    ).map(ws => ws.id);
+
+    const expectedTargetIds = [...targetIdsWithoutSource, id].sort().join('|');
+    const actualTargetIds = [...new Set(orderedIds)].sort().join('|');
+    if (expectedTargetIds !== actualTargetIds) {
+      throw new Error('目标项目工位顺序无效');
+    }
+
+    const previousWorkstations = workstations;
+    const sourceOrderMap = new Map(sourceIds.map((wsId, index) => [wsId, index]));
+    const targetOrderMap = new Map(orderedIds.map((wsId, index) => [wsId, index]));
+
+    setWorkstations(prev => sortByEntityOrder(prev.map(ws => {
+      if (ws.id === id) {
+        return {
+          ...ws,
+          project_id: targetProjectId,
+          sort_order: targetOrderMap.get(id) ?? ws.sort_order ?? 0,
+        };
+      }
+      if (ws.project_id === sourceProjectId) {
+        const sortOrder = sourceOrderMap.get(ws.id);
+        return sortOrder === undefined ? ws : { ...ws, sort_order: sortOrder };
+      }
+      if (ws.project_id === targetProjectId) {
+        const sortOrder = targetOrderMap.get(ws.id);
+        return sortOrder === undefined ? ws : { ...ws, sort_order: sortOrder };
+      }
+      return ws;
+    }), 'code'));
+
+    try {
+      const movedResult = await supabase
+        .from('workstations')
+        .update({
+          project_id: targetProjectId,
+          sort_order: targetOrderMap.get(id) ?? orderedIds.length - 1,
+        })
+        .eq('id', id);
+
+      const [sourceResults, targetResults] = await Promise.all([
+        Promise.all(
+          sourceIds.map((wsId, index) =>
+            supabase.from('workstations').update({ sort_order: index }).eq('id', wsId)
+          )
+        ),
+        Promise.all(
+          orderedIds
+            .filter(wsId => wsId !== id)
+            .map((wsId, index) =>
+              supabase.from('workstations').update({ sort_order: targetOrderMap.get(wsId) ?? index }).eq('id', wsId)
+            )
+        ),
+      ]);
+
+      await assertNoSupabaseErrors([movedResult, ...sourceResults, ...targetResults]);
+    } catch (error) {
+      setWorkstations(previousWorkstations);
+      console.error('Failed to move workstation:', error);
+      toast.error('工位移动保存失败');
+      throw error;
+    }
+  };
+
   // Layout CRUD
   const getLayoutByWorkstation = useCallback((workstationId: string) => {
     return layouts.find(l => l.workstation_id === workstationId);
@@ -584,6 +665,85 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const moveModule = async (id: string, targetWorkstationId: string, orderedIds: string[]) => {
+    const original = modules.find(mod => mod.id === id);
+    if (!original) throw new Error('Module not found');
+    if (original.workstation_id === targetWorkstationId) {
+      return reorderModules(targetWorkstationId, orderedIds);
+    }
+
+    const sourceWorkstationId = original.workstation_id;
+    const sourceIds = sortByEntityOrder(
+      modules.filter(mod => mod.workstation_id === sourceWorkstationId && mod.id !== id),
+      'createdAsc'
+    ).map(mod => mod.id);
+    const targetIdsWithoutSource = sortByEntityOrder(
+      modules.filter(mod => mod.workstation_id === targetWorkstationId && mod.id !== id),
+      'createdAsc'
+    ).map(mod => mod.id);
+
+    const expectedTargetIds = [...targetIdsWithoutSource, id].sort().join('|');
+    const actualTargetIds = [...new Set(orderedIds)].sort().join('|');
+    if (expectedTargetIds !== actualTargetIds) {
+      throw new Error('目标工位模块顺序无效');
+    }
+
+    const previousModules = modules;
+    const sourceOrderMap = new Map(sourceIds.map((modId, index) => [modId, index]));
+    const targetOrderMap = new Map(orderedIds.map((modId, index) => [modId, index]));
+
+    setModules(prev => sortByEntityOrder(prev.map(mod => {
+      if (mod.id === id) {
+        return {
+          ...mod,
+          workstation_id: targetWorkstationId,
+          sort_order: targetOrderMap.get(id) ?? mod.sort_order ?? 0,
+        };
+      }
+      if (mod.workstation_id === sourceWorkstationId) {
+        const sortOrder = sourceOrderMap.get(mod.id);
+        return sortOrder === undefined ? mod : { ...mod, sort_order: sortOrder };
+      }
+      if (mod.workstation_id === targetWorkstationId) {
+        const sortOrder = targetOrderMap.get(mod.id);
+        return sortOrder === undefined ? mod : { ...mod, sort_order: sortOrder };
+      }
+      return mod;
+    }), 'createdAsc'));
+
+    try {
+      const movedResult = await supabase
+        .from('function_modules')
+        .update({
+          workstation_id: targetWorkstationId,
+          sort_order: targetOrderMap.get(id) ?? orderedIds.length - 1,
+        })
+        .eq('id', id);
+
+      const [sourceResults, targetResults] = await Promise.all([
+        Promise.all(
+          sourceIds.map((modId, index) =>
+            supabase.from('function_modules').update({ sort_order: index }).eq('id', modId)
+          )
+        ),
+        Promise.all(
+          orderedIds
+            .filter(modId => modId !== id)
+            .map((modId, index) =>
+              supabase.from('function_modules').update({ sort_order: targetOrderMap.get(modId) ?? index }).eq('id', modId)
+            )
+        ),
+      ]);
+
+      await assertNoSupabaseErrors([movedResult, ...sourceResults, ...targetResults]);
+    } catch (error) {
+      setModules(previousModules);
+      console.error('Failed to move module:', error);
+      toast.error('模块移动保存失败');
+      throw error;
+    }
+  };
+
   // Helpers
   const getProjectWorkstations = useCallback((projectId: string) => {
     const filtered = workstations.filter(ws => ws.project_id === projectId);
@@ -617,6 +777,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       deleteWorkstation,
       duplicateWorkstation,
       reorderWorkstations,
+      moveWorkstation,
       getLayoutByWorkstation,
       addLayout,
       updateLayout,
@@ -626,6 +787,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       deleteModule,
       duplicateModule,
       reorderModules,
+      moveModule,
       getProjectWorkstations,
       getWorkstationModules,
       refetch: fetchAll,
