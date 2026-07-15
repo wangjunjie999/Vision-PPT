@@ -790,6 +790,16 @@ export function WorkstationForm() {
         />
       </div>
       <div className="space-y-1.5">
+        <Label className="text-xs font-medium">工位设计负责人 <span className="text-destructive ml-0.5">*</span></Label>
+        <Input
+          value={wsForm.design_responsible}
+          onChange={e => setWsForm(p => ({ ...p, design_responsible: e.target.value }))}
+          placeholder="请输入设计负责人姓名"
+          className="h-9"
+          maxLength={50}
+        />
+      </div>
+      <div className="space-y-1.5">
         <Label className="text-xs font-medium">工位类型 <span className="text-destructive ml-0.5">*</span></Label>
         <Select value={wsForm.type} onValueChange={v => setWsForm(p => ({ ...p, type: v as WorkstationType }))}>
           <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
