@@ -98,6 +98,22 @@ export function ModuleStep1Basic({
             </span>
           </div>
         </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">拍照次数</Label>
+          <div className="relative">
+            <Input
+              type="number"
+              min={1}
+              value={form.shotCount}
+              onChange={e => setForm(p => ({ ...p, shotCount: e.target.value }))}
+              placeholder="1"
+              className="h-9 pr-8"
+            />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+              次
+            </span>
+          </div>
+        </div>
       </div>
 
       {(form.triggerType === 'encoder' || form.triggerType === 'continuous') && (
