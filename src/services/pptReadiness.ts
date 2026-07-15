@@ -188,6 +188,15 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   
   // 5. 检查工位布局配置和三视图
   if (scope !== 'modules') projectWorkstations.forEach(ws => {
+    const designResponsible = ((ws as unknown) as { design_responsible?: string | null }).design_responsible;
+    if (!designResponsible || String(designResponsible).trim() === '') {
+      warnings.push({
+        level: 'workstation',
+        id: ws.id,
+        name: ws.name,
+        warning: '未填写工位设计负责人',
+      });
+    }
     const layout = layouts.find(l => l.workstation_id === ws.id);
     const workstationModules = projectModules.filter(mod => mod.workstation_id === ws.id);
     const workstationNeeds2DOptics = workstationModules.length === 0
