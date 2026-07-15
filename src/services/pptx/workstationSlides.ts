@@ -295,6 +295,7 @@ interface WorkstationSlideData {
     id: string;
     name: string;
     type: string;
+    design_responsible?: string | null;
     cycle_time: number | null;
     product_dimensions: { length: number; width: number; height: number } | null;
     enclosed: boolean | null;
@@ -425,6 +426,7 @@ export function buildWorkstationTechnicalRequirementTables({
   const basicInfoRows = [
     [isZh ? '工位编号' : 'Code', filledOrDash(wsCode)],
     [isZh ? '工位名称' : 'Name', filledOrDash(wsName)],
+    [isZh ? '设计负责人' : 'Design Responsible', filledOrDash(ws.design_responsible)],
     [isZh ? '工位类型' : 'Type', filledOrDash(wsTypeLabel)],
     [isZh ? '工位节拍' : 'Station Cycle Time', formatWorkstationCycleTime(ws)],
     [isZh ? '精度要求' : 'Accuracy', filledOrDash(acceptance.accuracy)],
