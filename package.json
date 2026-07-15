@@ -52,6 +52,7 @@
     "date-fns": "^3.6.0",
     "docx": "^9.5.1",
     "embla-carousel-react": "^8.6.0",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.23.26",
     "html-to-image": "^1.11.13",
     "input-otp": "^1.4.2",
@@ -74,7 +75,6 @@
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.169.0",
     "vaul": "^0.9.9",
-    "xlsx": "^0.18.5",
     "zod": "^3.25.76",
     "zustand": "^5.0.9"
   },

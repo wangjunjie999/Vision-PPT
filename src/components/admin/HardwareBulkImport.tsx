@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -163,14 +163,36 @@ export function HardwareBulkImport({ type, open, onOpenChange, onImport }: Hardw
       });
     } else if (ext === 'xlsx' || ext === 'xls') {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
-          const parsed = jsonData.map((row: any) => validateRow(row));
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.load(data.buffer as ArrayBuffer);
+          const worksheet = workbook.worksheets[0];
+          if (!worksheet) {
+            toast.error('Excel 文件为空');
+            return;
+          }
+          const headers: string[] = [];
+          const jsonData: Record<string, any>[] = [];
+          worksheet.eachRow((row, rowNumber) => {
+            const values = row.values as any[];
+            if (rowNumber === 1) {
+              for (let i = 1; i < values.length; i++) {
+                headers[i] = String(values[i] ?? '').trim();
+              }
+            } else {
+              const obj: Record<string, any> = {};
+              for (let i = 1; i < Math.max(values.length, headers.length); i++) {
+                const key = headers[i];
+                if (!key) continue;
+                const v = values[i];
+                obj[key] = v && typeof v === 'object' && 'text' in v ? (v as any).text : v ?? '';
+              }
+              jsonData.push(obj);
+            }
+          });
+          const parsed = jsonData.map((row) => validateRow(row));
           setParsedData(parsed);
         } catch {
           toast.error('Excel 文件解析失败');
@@ -189,7 +211,7 @@ export function HardwareBulkImport({ type, open, onOpenChange, onImport }: Hardw
     }
   };
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     const headers = fields.map((f) => f.label);
     const exampleRow = fields.map((f) => {
       if (f.key === 'tags') return '标签1, 标签2';
@@ -197,10 +219,20 @@ export function HardwareBulkImport({ type, open, onOpenChange, onImport }: Hardw
       return `示例${f.label}`;
     });
 
-    const ws = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, typeLabels[type]);
-    XLSX.writeFile(wb, `${typeLabels[type]}导入模板.xlsx`);
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(typeLabels[type]);
+    ws.addRow(headers);
+    ws.addRow(exampleRow);
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${typeLabels[type]}导入模板.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleImport = async () => {
