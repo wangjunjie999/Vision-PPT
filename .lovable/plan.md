@@ -1,19 +1,26 @@
-## 问题定位
+# 修复:工控机 BOM 备注误显示"含GPU"
 
-数据库里 `DB2602500.201 电芯上料` 的 `design_responsible` 已保存为 `汪坡`,但 PPT 里显示 `-`。
+## 问题
+`src/services/pptx/workstationSlides.ts:1390` 生成 BOM 表时,工控机行的"备注"列被硬编码为 `含GPU` / `w/ GPU`,与实际的 `selected_controller.gpu` 字段无关。所以即使管理中心里 GPU 为空,PPT 里也会显示"含GPU"。
 
-原因:`PPTGenerationDialog.tsx` 第 715-739 行把 `reportData.workstations` 映射成传给 `generatePPTX` 的 `workstationData` 时,**漏掉了 `design_responsible` 字段**。下游 `pptxGenerator.ts` / `workstationSlides.ts` 读到的 `ws.design_responsible` 永远是 `undefined`,于是全部走 `|| '-'` 兜底。
-
-## 修复
-
-在 `src/components/dialogs/PPTGenerationDialog.tsx` 第 715 行的 map 里补上一行:
+## 修改
+只改这一行:根据 `selected_controller.gpu` 动态生成备注。
 
 ```ts
-design_responsible: ws.design_responsible,
+const ipc = layout.selected_controller;
+const gpu = typeof ipc.gpu === 'string' ? ipc.gpu.trim() : '';
+const remark = gpu ? (ctx.isZh ? `含GPU: ${gpu}` : `w/ GPU: ${gpu}`) : '';
+bomRows.push(row([
+  String(bomIdx++),
+  ctx.isZh ? '工控机' : 'IPC',
+  `${ipc.brand} ${ipc.model}`,
+  '1', 'TBD',
+  remark,
+]));
 ```
 
-放在 `type_label` 之后 / `cycle_time` 之前即可,和 `reportDataBuilder.ts` 已经导出的字段对齐。
+## 效果
+- GPU 字段为空 → 备注列留空
+- GPU 字段有值(如 `RTX 3060`)→ 备注显示 `含GPU: RTX 3060`
 
-## 验证
-
-修复后重新生成 PPT,工位技术要求页 "设计负责人" 行与工位概览表的 "设计负责人" 列应显示 `汪坡`,标题页 `responsible` 也会正确回退到该值。
+范围仅限该文件的这一处,不影响其他 BOM/幻灯片逻辑。

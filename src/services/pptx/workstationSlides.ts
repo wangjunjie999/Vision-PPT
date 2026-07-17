@@ -1387,7 +1387,10 @@ export function generateBOMSlide(
 
   // Controller
   if (layout?.selected_controller) {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工控机' : 'IPC', `${layout.selected_controller.brand} ${layout.selected_controller.model}`, '1', 'TBD', ctx.isZh ? '含GPU' : 'w/ GPU']));
+    const ipc = layout.selected_controller;
+    const gpu = typeof ipc.gpu === 'string' ? ipc.gpu.trim() : '';
+    const remark = gpu ? (ctx.isZh ? `含GPU: ${gpu}` : `w/ GPU: ${gpu}`) : '';
+    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工控机' : 'IPC', `${ipc.brand} ${ipc.model}`, '1', 'TBD', remark]));
   }
 
   if (bomRows.length === 0) {
