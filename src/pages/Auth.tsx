@@ -71,7 +71,7 @@ export default function Auth() {
         title: '登录成功',
         description: '欢迎回来！',
       });
-      navigate('/');
+      navigate(nextPath, { replace: true });
     }
   };
 
@@ -107,7 +107,7 @@ export default function Auth() {
         title: '注册成功',
         description: '欢迎加入！',
       });
-      navigate('/');
+      navigate(nextPath, { replace: true });
     }
   };
 
