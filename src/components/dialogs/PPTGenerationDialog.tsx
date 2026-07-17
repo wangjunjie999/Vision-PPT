@@ -718,6 +718,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         name: ws.name,
         type: ws.type,
         type_label: ws.type_label,
+        design_responsible: ws.design_responsible,
         cycle_time: ws.cycle_time,
         product_dimensions: ws.product_dimensions,
         product_dimensions_label: ws.product_dimensions_label,
