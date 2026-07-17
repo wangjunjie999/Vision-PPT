@@ -57,6 +57,7 @@ export interface ModuleVisionChecklist {
   cameraInstall: string;
   shotCount: string;
   taktTime: string;
+  cameraType: 'area_scan' | 'line_scan';
 }
 
 export interface ModuleVisionChecklistTemplateFields {
@@ -135,7 +136,47 @@ export function buildModuleVisionChecklist(input: ModuleVisionChecklistInput): M
     cameraInstall: String(cameraInstall),
     shotCount: formatShotCount(shotCountValue, language),
     taktTime: formatTaktTime(taktValue, language),
+    cameraType: normalizeCameraTypeValue(imaging?.twoDCameraType),
   };
+}
+
+function normalizeCameraTypeValue(value: unknown): 'area_scan' | 'line_scan' {
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase().replace(/[\s-]/g, '_');
+    if (v === 'line_scan' || v === 'linescan' || v === 'line') return 'line_scan';
+  }
+  return 'area_scan';
+}
+
+export function buildModuleVisionChecklistLines(
+  checklist: ModuleVisionChecklist,
+  language: Language = 'zh',
+): string[] {
+  const L = language === 'zh'
+    ? {
+        method: '检测方式',
+        fov: '视野范围(FOV)',
+        accuracy: '像素精度',
+        install: '相机安装',
+        shots: '拍照次数',
+        takt: '节拍',
+      }
+    : {
+        method: 'Detection Method',
+        fov: 'Field of View (FOV)',
+        accuracy: 'Pixel Accuracy',
+        install: 'Camera Install',
+        shots: 'Shot Count',
+        takt: 'Takt Time',
+      };
+  return [
+    `${L.method}: ${checklist.detectionMethod}`,
+    `${L.fov}: ${checklist.fieldOfView}`,
+    `${L.accuracy}: ${checklist.pixelAccuracy}`,
+    `${L.install}: ${checklist.cameraInstall}`,
+    `${L.shots}: ${checklist.shotCount}`,
+    `${L.takt}: ${checklist.taktTime}`,
+  ];
 }
 
 export function buildModuleVisionChecklistTemplateFields(
