@@ -16,6 +16,7 @@ import { supabaseRuntimeConfig } from "@/integrations/supabase/client";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import OAuthConsent from "./pages/OAuthConsent";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,6 +102,7 @@ function AnimatedRoutes() {
             </ProtectedRoute>
           } 
         />
+        <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
         <Route 
           path="*" 
           element={
