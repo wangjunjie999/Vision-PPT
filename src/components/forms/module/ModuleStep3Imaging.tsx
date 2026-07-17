@@ -26,6 +26,7 @@ import {
   toMillimeters,
 } from '@/utils/distanceUnits';
 import { ThreeDCameraForm } from './ThreeDCameraForm';
+import { LineScanCameraForm } from './LineScanCameraForm';
 import { strip3DOpticsFromForm } from './threeDCamera';
 
 interface ModuleStep3ImagingProps {
@@ -331,12 +332,20 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
     });
   };
 
-  const toggle3DCamera = () => {
-    setForm(prev => (
-      prev.is3DCamera
-        ? { ...prev, is3DCamera: false }
-        : strip3DOpticsFromForm(prev)
-    ));
+  const select2DCamera = () => {
+    setForm(prev => ({
+      ...prev,
+      is3DCamera: false,
+      twoDCameraType: prev.twoDCameraType === 'line_scan' ? 'line_scan' : 'area_scan',
+    }));
+  };
+
+  const select3DCamera = () => {
+    setForm(prev => prev.is3DCamera ? prev : strip3DOpticsFromForm(prev));
+  };
+
+  const selectTwoDCameraType = (twoDCameraType: ModuleFormState['twoDCameraType']) => {
+    setForm(prev => ({ ...prev, is3DCamera: false, twoDCameraType }));
   };
 
   const threeDCameraToggle = (
@@ -344,27 +353,50 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
       data-testid="imaging-3d-camera-toggle"
       className="rounded-lg border border-border/60 bg-muted/30 p-3"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-2.5">
           <ScanEye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="space-y-1">
-            <div className="text-sm font-semibold">是否使用 3D 相机</div>
+            <div className="text-sm font-semibold">相机成像类型</div>
             <p className="text-xs leading-5 text-muted-foreground">
               {form.is3DCamera
                 ? '当前模块使用 3D 成像流程，可在下方填写 3D 光学方案和测量方法。'
-                : '开启后将切换为 3D 专属表单，并清空镜头、光源和 2D 光学参数。'}
+                : form.twoDCameraType === 'line_scan'
+                  ? '当前使用 2D 线扫相机，填写单值视野、像素精度和机械扫描速度。'
+                  : '当前使用 2D 面扫相机，原有视野、节拍和拍照次数配置保持不变。'}
             </p>
           </div>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant={form.is3DCamera ? 'default' : 'outline'}
-          onClick={toggle3DCamera}
-          className="shrink-0"
-        >
-          {form.is3DCamera ? '已启用 3D 相机' : '是否使用 3D 相机'}
-        </Button>
+        <div className="flex shrink-0 flex-col gap-2">
+          <div className="grid grid-cols-2 gap-2" data-testid="camera-dimension-selector">
+            <Button type="button" size="sm" variant={!form.is3DCamera ? 'default' : 'outline'} onClick={select2DCamera}>
+              2D 相机
+            </Button>
+            <Button type="button" size="sm" variant={form.is3DCamera ? 'default' : 'outline'} onClick={select3DCamera}>
+              3D 相机
+            </Button>
+          </div>
+          {!form.is3DCamera && (
+            <div className="grid grid-cols-2 gap-2" data-testid="two-d-camera-type-selector">
+              <Button
+                type="button"
+                size="sm"
+                variant={form.twoDCameraType !== 'line_scan' ? 'default' : 'outline'}
+                onClick={() => selectTwoDCameraType('area_scan')}
+              >
+                面扫相机
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={form.twoDCameraType === 'line_scan' ? 'default' : 'outline'}
+                onClick={() => selectTwoDCameraType('line_scan')}
+              >
+                线扫相机
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -376,6 +408,15 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
         <div data-testid="three-d-imaging-form">
           <ThreeDCameraForm form={form} setForm={setForm} />
         </div>
+      </div>
+    );
+  }
+
+  if (form.twoDCameraType === 'line_scan') {
+    return (
+      <div className="space-y-6">
+        {threeDCameraToggle}
+        <LineScanCameraForm form={form} setForm={setForm} workstationLayout={workstationLayout} />
       </div>
     );
   }
@@ -697,6 +738,10 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
                       fieldOfViewHeight,
                       fieldOfView: p.type === 'positioning' && combinedFov ? combinedFov : p.fieldOfView,
                       fieldOfViewCommon: p.type !== 'positioning' && combinedFov ? combinedFov : p.fieldOfViewCommon,
+                      lineScan: {
+                        ...p.lineScan,
+                        fieldOfView: convertDistanceForUnit(p.lineScan.fieldOfView, currentUnit, nextUnit),
+                      },
                       lightDistance: convertDistanceForUnit(p.lightDistance, currentUnit, nextUnit),
                       lightDistanceHorizontal: convertDistanceForUnit(p.lightDistanceHorizontal, currentUnit, nextUnit, true),
                       lightDistanceVertical: convertDistanceForUnit(p.lightDistanceVertical, currentUnit, nextUnit, true),

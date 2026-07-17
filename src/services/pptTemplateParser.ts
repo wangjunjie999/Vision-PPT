@@ -182,6 +182,12 @@ export const SYSTEM_FIELDS = {
     { field: 'mod_camera_install', label: '相机安装', example: '相机中心和铁芯中心对齐' },
     { field: 'mod_shot_count', label: '拍照次数', example: '1次' },
     { field: 'mod_takt_time', label: '节拍', example: '1.5S/次' },
+    { field: 'mod_scan_speed', label: '扫描速度', example: '500mm/s' },
+    {
+      field: 'mod_vision_checklist',
+      label: '完整视觉清单（面扫六行/线扫五行）',
+      example: '1. 检测方式: 2D线扫相机*1\n2. 视野范围: 50mm\n3. 像素精度: 0.0122mm/pixel\n4. 相机安装: 相机芯片长边与扫描方向垂直\n5. 扫描速度: 500mm/s',
+    },
     { field: 'mod_schematic_url', label: '模块示意图 URL', example: 'https://...' },
     { field: 'schematic_image', label: '模块示意图', example: 'https://...' },
   ],

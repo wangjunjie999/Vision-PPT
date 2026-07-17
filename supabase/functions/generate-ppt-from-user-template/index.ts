@@ -430,13 +430,21 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
 
 function buildModuleVisionChecklistTemplateFields(input: any) {
   const checklist = buildModuleVisionChecklist(input);
+  const isLineScan = checklist.cameraType === "line_scan";
   return {
     mod_detection_method: firstPresent(input.module?.mod_detection_method, checklist.detectionMethod) || "",
     mod_field_of_view: firstPresent(input.module?.mod_field_of_view, checklist.fieldOfView) || "",
     mod_pixel_accuracy: firstPresent(input.module?.mod_pixel_accuracy, checklist.pixelAccuracy) || "",
     mod_camera_install: firstPresent(input.module?.mod_camera_install, checklist.cameraInstall) || "",
-    mod_shot_count: firstPresent(input.module?.mod_shot_count, checklist.shotCount) || "",
-    mod_takt_time: firstPresent(input.module?.mod_takt_time, checklist.taktTime) || "",
+    mod_shot_count: isLineScan ? "" : firstPresent(input.module?.mod_shot_count, checklist.shotCount) || "",
+    mod_takt_time: isLineScan ? "" : firstPresent(input.module?.mod_takt_time, checklist.taktTime) || "",
+    mod_scan_speed: isLineScan
+      ? firstPresent(input.module?.mod_scan_speed, checklist.scanSpeed) || ""
+      : "",
+    mod_vision_checklist: firstPresent(
+      input.module?.mod_vision_checklist,
+      buildModuleVisionChecklistLines(checklist, input.language || "zh").join("\n"),
+    ) || "",
   };
 }
 
@@ -447,22 +455,37 @@ function buildModuleVisionChecklist(input: any) {
   const layout = input.layout || {};
   const config = getModuleConfig(module);
   const imaging = getPlainObject(config?.imaging) || {};
+  const is3DCamera = toBoolean(imaging.is3DCamera);
+  const twoDCameraType = imaging.twoDCameraType === "line_scan" ? "line_scan" : "area_scan";
+  const cameraType = is3DCamera ? "3d" : twoDCameraType;
+  const isLineScan = cameraType === "line_scan";
+  const lineScan = getPlainObject(imaging.lineScan) || {};
+  const distanceUnit = normalizeDistanceUnit(imaging.distanceUnit);
   const cameraCount = getModuleCameraCount(module, config);
   const selectedCamera = getSelectedCamera(module, layout, input.hardware || {});
 
-  const fieldOfViewRaw = firstPresent(
-    joinFov(imaging.fieldOfViewWidth, imaging.fieldOfViewHeight),
-    imaging.fieldOfView,
-    config?.fieldOfView,
-    config?.fieldOfViewCommon,
-    config?.measurementFieldOfView,
-    config?.ocrCameraFieldOfView,
-    config?.dlFieldOfView,
-  );
-  const fieldOfView = formatFieldOfView(fieldOfViewRaw);
-  const explicitPixelAccuracy = firstPresent(imaging.resolutionPerPixel, config?.resolutionPerPixel);
-  const pixelAccuracy = formatPixelAccuracy(explicitPixelAccuracy)
-    || calculatePixelAccuracy(fieldOfViewRaw || fieldOfView, selectedCamera?.resolution)
+  const fieldOfViewRaw = isLineScan
+    ? firstPresent(lineScan.fieldOfView)
+    : firstPresent(
+      joinFov(imaging.fieldOfViewWidth, imaging.fieldOfViewHeight),
+      imaging.fieldOfView,
+      config?.fieldOfView,
+      config?.fieldOfViewCommon,
+      config?.measurementFieldOfView,
+      config?.ocrCameraFieldOfView,
+      config?.dlFieldOfView,
+    );
+  const fieldOfView = formatFieldOfView(fieldOfViewRaw, isLineScan ? distanceUnit : "mm");
+  const explicitPixelAccuracy = isLineScan
+    ? firstPresent(lineScan.resolutionPerPixel)
+    : firstPresent(imaging.resolutionPerPixel, config?.resolutionPerPixel);
+  const pixelAccuracy = formatPixelAccuracy(explicitPixelAccuracy, isLineScan)
+    || calculatePixelAccuracy(
+      fieldOfViewRaw || fieldOfView,
+      selectedCamera?.resolution,
+      isLineScan,
+      distanceUnit,
+    )
     || "-";
   const cameraInstall = firstPresent(
     imaging.cameraInstallNote,
@@ -473,36 +496,71 @@ function buildModuleVisionChecklist(input: any) {
   ) || "-";
 
   const shotCountValue = firstPresent(
-    workstation.shot_count,
     config?.shotCount,
     config?.shot_count,
+    workstation.shot_count,
     cameraCount,
   );
   const taktValue = firstPresent(
-    workstation.acceptance_criteria?.cycle_time,
-    workstation.cycle_time,
+    config?.cameraTaktTime,
     config?.taktTime,
     config?.cycleTime,
+    workstation.acceptance_criteria?.cycle_time,
+    workstation.cycle_time,
     module.processing_time_limit ? module.processing_time_limit / 1000 : undefined,
   );
 
   return {
-    detectionMethod: `${toBoolean(imaging.is3DCamera) ? "3D" : "2D"}*${cameraCount}`,
+    cameraType,
+    detectionMethod: isLineScan
+      ? `${language === "en" ? "2D Line Scan Camera" : "2D线扫相机"}*${cameraCount}`
+      : `${is3DCamera ? "3D" : "2D"}*${cameraCount}`,
     fieldOfView,
     pixelAccuracy,
     cameraInstall: String(cameraInstall),
     shotCount: formatShotCount(shotCountValue, language),
     taktTime: formatTaktTime(taktValue, language),
+    scanSpeed: isLineScan ? formatScanSpeed(lineScan.scanSpeed) : "",
   };
 }
 
+function buildModuleVisionChecklistLines(checklist: any, language: string) {
+  const isZh = language !== "en";
+  const commonRows = [
+    `1. ${isZh ? "检测方式" : "Detection Method"}: ${checklist.detectionMethod}`,
+    `2. ${isZh ? "视野范围" : "FOV"}: ${checklist.fieldOfView}`,
+    `3. ${isZh ? "像素精度" : "Pixel Accuracy"}: ${checklist.pixelAccuracy}`,
+    `4. ${isZh ? "相机安装" : "Camera Mount"}: ${checklist.cameraInstall}`,
+  ];
+
+  return checklist.cameraType === "line_scan"
+    ? [...commonRows, `5. ${isZh ? "扫描速度" : "Scan Speed"}: ${checklist.scanSpeed}`]
+    : [
+      ...commonRows,
+      `5. ${isZh ? "拍照次数" : "Shot Count"}: ${checklist.shotCount}`,
+      `6. ${isZh ? "节拍" : "Takt"}: ${checklist.taktTime}`,
+    ];
+}
+
 function getModuleConfig(module: any) {
-  return module?.defect_config
-    || module?.measurement_config
-    || module?.positioning_config
-    || module?.ocr_config
-    || module?.deep_learning_config
-    || {};
+  const configKeyByType: Record<string, string> = {
+    defect: "defect_config",
+    positioning: "positioning_config",
+    measurement: "measurement_config",
+    ocr: "ocr_config",
+    deeplearning: "deep_learning_config",
+    deep_learning: "deep_learning_config",
+  };
+  const activeKey = configKeyByType[String(module?.type || "")];
+  const activeConfig = activeKey ? getPlainObject(module?.[activeKey]) : null;
+  if (activeConfig) return activeConfig;
+
+  for (const key of ["defect_config", "positioning_config", "measurement_config", "ocr_config", "deep_learning_config"]) {
+    if (key === activeKey) continue;
+    const legacyConfig = getPlainObject(module?.[key]);
+    if (legacyConfig) return legacyConfig;
+  }
+  return {};
 }
 
 function getPlainObject(value: any) {
@@ -536,31 +594,49 @@ function getModuleCameraCount(module: any, config: any) {
   return module?.selected_camera || module?.selected_camera_info ? 1 : 1;
 }
 
-function formatFieldOfView(value: any) {
+function normalizeDistanceUnit(value: any) {
+  return value === "cm" || value === "m" ? value : "mm";
+}
+
+function formatFieldOfView(value: any, unit = "mm") {
   if (value === null || value === undefined || String(value).trim() === "") return "-";
   const text = String(value)
     .trim()
     .replace(/[×xX]/g, "*")
-    .replace(/\s*mm\b/gi, "")
+    .replace(/\s*(?:mm|cm|m)\b/gi, "")
     .replace(/\s+/g, "");
-  return text ? `${text}mm` : "-";
+  return text ? `${text}${unit}` : "-";
 }
 
-function formatPixelAccuracy(value: any) {
+function formatPixelAccuracy(value: any, preserveLineScanPrecision = false) {
   if (value === null || value === undefined || String(value).trim() === "") return "";
   const text = String(value).trim().replace(/\s+/g, "").replace(/px/gi, "pixel");
   if (/mm\/pixel$/i.test(text)) return text.replace(/mm\/pixel$/i, "mm/pixel");
   const parsed = parsePositiveNumber(text);
-  return parsed ? `${formatNumber(parsed, parsed < 0.01 ? 4 : 3)}mm/pixel` : text;
+  return parsed
+    ? `${formatNumber(parsed, preserveLineScanPrecision || parsed < 0.01 ? 4 : 2)}mm/pixel`
+    : text;
 }
 
-function calculatePixelAccuracy(fieldOfView: any, cameraResolution: any) {
-  const fovWidth = parseFirstNumber(fieldOfView);
-  const resolutionWidth = parseFirstNumber(cameraResolution);
+function calculatePixelAccuracy(fieldOfView: any, cameraResolution: any, useLongResolutionAxis = false, fieldOfViewUnit = "mm") {
+  const fovWidthRaw = parseFirstNumber(fieldOfView);
+  const fovWidth = useLongResolutionAxis && fovWidthRaw
+    ? fovWidthRaw * (fieldOfViewUnit === "m" ? 1000 : fieldOfViewUnit === "cm" ? 10 : 1)
+    : fovWidthRaw;
+  const resolutionWidth = useLongResolutionAxis
+    ? parseLargestNumber(cameraResolution)
+    : parseFirstNumber(cameraResolution);
   if (!fovWidth || !resolutionWidth) return "";
   const value = fovWidth / resolutionWidth;
   if (!Number.isFinite(value) || value <= 0) return "";
-  return `${formatNumber(value, value < 0.01 ? 4 : 2)}mm/pixel`;
+  return `${formatNumber(value, useLongResolutionAxis || value < 0.01 ? 4 : 2)}mm/pixel`;
+}
+
+function formatScanSpeed(value: any) {
+  if (value === null || value === undefined || String(value).trim() === "") return "-";
+  const text = String(value).trim();
+  const parsed = parsePositiveNumber(text);
+  return parsed ? `${formatNumber(parsed, 3)}mm/s` : text;
 }
 
 function getSelectedCamera(module: any, layout: any, hardware: any) {
@@ -642,6 +718,15 @@ function parseFirstNumber(value: any) {
   if (!match) return null;
   const parsed = Number(match[0]);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseLargestNumber(value: any) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (value === null || value === undefined) return null;
+  const values = [...String(value).matchAll(/\d+(?:\.\d+)?/g)]
+    .map((match) => Number(match[0]))
+    .filter(Number.isFinite);
+  return values.length > 0 ? Math.max(...values) : null;
 }
 
 function formatNumber(value: number, decimals: number) {

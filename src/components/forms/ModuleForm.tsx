@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
-import { ModuleFormState, getDefaultFormState } from './module/types';
+import { ModuleFormState, getDefaultFormState, isLineScanConfigComplete } from './module/types';
 import { ModuleAnnotationPanel } from '@/components/product/ModuleAnnotationPanel';
 import { useAppStore } from '@/store/useAppStore';
 import { FormStepWizard, FormStep } from './FormStepWizard';
@@ -24,6 +24,13 @@ import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/modu
 import { deserializeThreeDConfig, serializeThreeDConfig, strip3DOpticsFromForm } from './module/threeDCamera';
 import { isModule3DCamera, shouldRestoreDraftAs3DCamera } from '@/utils/module3DCamera';
 import { stripCameraTaktTimeUnit } from '@/utils/cameraTaktTime';
+import {
+  getActiveModuleConfig,
+  getActiveModuleImaging,
+  getModuleTwoDCameraType,
+  getObjectRecord,
+  normalizeTwoDCameraType,
+} from '@/utils/moduleConfig';
 
 type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'measurement';
 type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
@@ -170,6 +177,11 @@ export function ModuleForm() {
       const restoredForm = {
         ...getDefaultFormState(),
         ...draftForm,
+        twoDCameraType: normalizeTwoDCameraType(draftForm.twoDCameraType),
+        lineScan: {
+          ...getDefaultFormState().lineScan,
+          ...(draftForm.lineScan || {}),
+        },
         is3DCamera: draftShouldUse3D,
         selectedCamera: normalizeModuleHardwareSelection(draftForm.selectedCamera, workstationLayout, 'camera'),
         selectedLens: draftShouldUse3D ? '' : normalizeModuleHardwareSelection(draftForm.selectedLens, workstationLayout, 'lens'),
@@ -188,14 +200,14 @@ export function ModuleForm() {
       return;
     }
 
-      const defectCfg = module.defect_config as any;
-      const posCfg = module.positioning_config as any;
-      const ocrCfg = module.ocr_config as any;
-      const dlCfg = module.deep_learning_config as any;
-      const measureCfg = module.measurement_config as any;
-      
-      // Get common params and imaging params from any config (they should be the same across types)
-      const cfg = defectCfg || posCfg || ocrCfg || dlCfg || measureCfg;
+      // Prefer the config owned by the current module type. Legacy records may
+      // still fall back to another populated config column.
+      const cfg = getActiveModuleConfig(module) as any;
+      const defectCfg = module.type === 'defect' ? cfg : null;
+      const posCfg = module.type === 'positioning' ? cfg : null;
+      const ocrCfg = module.type === 'ocr' ? cfg : null;
+      const dlCfg = module.type === 'deeplearning' ? cfg : null;
+      const measureCfg = module.type === 'measurement' ? cfg : null;
       const commonParams = cfg ? {
         judgmentStrategy: cfg.judgmentStrategy || 'balanced',
         outputAction: cfg.outputAction || [],
@@ -228,6 +240,12 @@ export function ModuleForm() {
       const imagingParams = cfg?.imaging ? {
         distanceUnit: normalizeDistanceUnit(cfg.imaging.distanceUnit),
         is3DCamera: isLoaded3DCamera,
+        twoDCameraType: getModuleTwoDCameraType(module),
+        lineScan: {
+          fieldOfView: cfg.imaging.lineScan?.fieldOfView != null ? String(cfg.imaging.lineScan.fieldOfView) : '',
+          resolutionPerPixel: cfg.imaging.lineScan?.resolutionPerPixel != null ? String(cfg.imaging.lineScan.resolutionPerPixel) : '',
+          scanSpeed: cfg.imaging.lineScan?.scanSpeed != null ? String(cfg.imaging.lineScan.scanSpeed) : '',
+        },
         workingDistance: cfg.imaging.workingDistance || '',
         fieldOfViewCommon: cfg.imaging.fieldOfView || '',
         fieldOfViewWidth: cfg.imaging.fieldOfViewWidth || (() => { const fov = cfg.imaging.fieldOfView || ''; const m = fov.match(/^(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)$/); return m ? m[1] : ''; })(),
@@ -408,11 +426,17 @@ export function ModuleForm() {
         || form.threeDDataPoints,
       );
     }
+    if (form.twoDCameraType === 'line_scan') {
+      return isLineScanConfigComplete(form.lineScan);
+    }
     return Boolean(form.workingDistance || form.fieldOfView || form.fieldOfViewCommon);
   }, [
     form.fieldOfView,
     form.fieldOfViewCommon,
     form.is3DCamera,
+    form.lineScan.fieldOfView,
+    form.lineScan.scanSpeed,
+    form.twoDCameraType,
     form.workingDistance,
     form.workingDistanceTolerance,
     form.threeDDataPoints,
@@ -469,7 +493,9 @@ export function ModuleForm() {
       isComplete: isStep3Complete,
       nextHint: isStep3Complete 
         ? '成像参数已设置，最后配置输出' 
-        : '请至少设置工作距离或视场',
+        : form.twoDCameraType === 'line_scan' && !form.is3DCamera
+          ? '请填写大于 0 的线扫视野和扫描速度'
+          : '请至少设置工作距离或视场',
     },
     {
       id: 'output',
@@ -497,6 +523,10 @@ export function ModuleForm() {
       const formForSave = form.is3DCamera
         ? strip3DOpticsFromForm(form)
         : form;
+      const moduleForActiveConfig = { ...module, type: formForSave.type };
+      const existingConfig = getActiveModuleConfig(moduleForActiveConfig) || {};
+      const existingImaging = getActiveModuleImaging(moduleForActiveConfig) || {};
+      const existingLineScan = getObjectRecord(existingImaging.lineScan) || {};
       
       const configs: any = {};
       
@@ -527,8 +557,16 @@ export function ModuleForm() {
       
       // Imaging parameters (stored in all configs)
       const imagingParams = {
+        ...existingImaging,
         distanceUnit: formForSave.distanceUnit || 'mm',
         is3DCamera: Boolean(formForSave.is3DCamera),
+        twoDCameraType: normalizeTwoDCameraType(formForSave.twoDCameraType),
+        lineScan: {
+          ...existingLineScan,
+          fieldOfView: formForSave.lineScan.fieldOfView || null,
+          resolutionPerPixel: formForSave.lineScan.resolutionPerPixel || null,
+          scanSpeed: formForSave.lineScan.scanSpeed || null,
+        },
         workingDistance: formForSave.workingDistance || null,
         fieldOfViewWidth: formForSave.fieldOfViewWidth || null,
         fieldOfViewHeight: formForSave.fieldOfViewHeight || null,
@@ -570,6 +608,7 @@ export function ModuleForm() {
         );
 
         configs.defect_config = {
+          ...existingConfig,
           ...commonParams,
           imaging: imagingParams,
           three_d: threeDConfig,
@@ -591,6 +630,7 @@ export function ModuleForm() {
         };
       } else if (form.type === 'positioning') {
         configs.positioning_config = {
+          ...existingConfig,
           ...commonParams,
           imaging: imagingParams,
           three_d: threeDConfig,
@@ -614,6 +654,7 @@ export function ModuleForm() {
         };
       } else if (form.type === 'ocr') {
         configs.ocr_config = {
+          ...existingConfig,
           ...commonParams,
           imaging: imagingParams,
           three_d: threeDConfig,
@@ -634,6 +675,7 @@ export function ModuleForm() {
         };
       } else if (form.type === 'deeplearning') {
         configs.deep_learning_config = {
+          ...existingConfig,
           ...commonParams,
           imaging: imagingParams,
           three_d: threeDConfig,
@@ -648,6 +690,7 @@ export function ModuleForm() {
         };
       } else if (form.type === 'measurement') {
         configs.measurement_config = {
+          ...existingConfig,
           ...commonParams,
           imaging: imagingParams,
           three_d: threeDConfig,

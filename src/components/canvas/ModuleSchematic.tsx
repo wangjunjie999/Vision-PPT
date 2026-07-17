@@ -48,7 +48,12 @@ import {
   type ModuleLightItem,
 } from '@/utils/moduleLightItems';
 import { createSchematicImageSignature } from '@/utils/schematicImageSignature';
-import { isModule3DCamera } from '@/utils/module3DCamera';
+import {
+  getActiveModuleConfig,
+  getObjectRecord,
+  isActiveModule3DCamera,
+  normalizeTwoDCameraType,
+} from '@/utils/moduleConfig';
 import { getThreeDDisplayInfo, serializeThreeDConfig } from '@/components/forms/module/threeDCamera';
 
 const moduleTypeIcons = {
@@ -95,14 +100,6 @@ interface SchematicLayoutState {
   savedImageSignature?: string;
 }
 
-const MODULE_CONFIG_KEYS = [
-  'defect_config',
-  'positioning_config',
-  'ocr_config',
-  'deep_learning_config',
-  'measurement_config',
-] as const;
-
 function isSchematicLayout(value: unknown): value is SchematicLayoutState {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -124,11 +121,7 @@ function parsePositiveNumber(value: unknown): number | null {
 }
 
 function getModuleConfig(module: any): any | null {
-  if (!module) return null;
-  for (const key of MODULE_CONFIG_KEYS) {
-    if (module[key]) return module[key];
-  }
-  return null;
+  return getActiveModuleConfig(module);
 }
 
 function getPersistedWorkingDistance(module: any): string {
@@ -334,9 +327,18 @@ export function ModuleSchematic() {
   );
   const is3DCamera = liveForm
     ? Boolean(liveForm.is3DCamera)
-    : isModule3DCamera(module, Boolean(project?.use_3d));
+    : isActiveModule3DCamera(module, Boolean(project?.use_3d));
   const persistedConfig = getModuleConfig(module);
   const persistedImaging = persistedConfig?.imaging || {};
+  const twoDCameraType = normalizeTwoDCameraType(
+    liveForm?.twoDCameraType ?? persistedImaging.twoDCameraType,
+  );
+  const isLineScan = !is3DCamera && twoDCameraType === 'line_scan';
+  const persistedLineScan = getObjectRecord(persistedImaging.lineScan) || {};
+  const liveLineScan = getObjectRecord(liveForm?.lineScan);
+  const effectiveLineScan = liveForm && Object.prototype.hasOwnProperty.call(liveForm, 'lineScan')
+    ? (liveLineScan || {})
+    : persistedLineScan;
   const moduleLightItems = useMemo(() => {
     if (is3DCamera) return [];
     return normalizeModuleLightItems(liveForm?.lightItems ?? persistedImaging.lightItems, {
@@ -393,13 +395,17 @@ export function ModuleSchematic() {
     (resolvedLightVerticalMm !== null
       ? Math.sqrt((resolvedLightHorizontalMm * resolvedLightHorizontalMm) + (resolvedLightVerticalMm * resolvedLightVerticalMm))
       : null);
-  const fovInput = liveForm ? getLiveFov(liveForm) : getPersistedFov(module);
-  const fovWidthMm = liveForm?.fieldOfViewWidth
-    ? toMillimeters(liveForm.fieldOfViewWidth, distanceUnit)
-    : (() => {
-      const parsed = parseFovWidth(fovInput);
-      return parsed === null ? null : parsed * (distanceUnit === 'm' ? 1000 : distanceUnit === 'cm' ? 10 : 1);
-    })();
+  const fovInput = isLineScan
+    ? String(effectiveLineScan.fieldOfView ?? '')
+    : (liveForm ? getLiveFov(liveForm) : getPersistedFov(module));
+  const fovWidthMm = isLineScan
+    ? toMillimeters(fovInput, distanceUnit)
+    : liveForm?.fieldOfViewWidth
+      ? toMillimeters(liveForm.fieldOfViewWidth, distanceUnit)
+      : (() => {
+        const parsed = parseFovWidth(fovInput);
+        return parsed === null ? null : parsed * (distanceUnit === 'm' ? 1000 : distanceUnit === 'cm' ? 10 : 1);
+      })();
   const distanceScale = getAdaptiveDistanceScale([
     workingDistanceMm,
     fovWidthMm,
@@ -515,6 +521,7 @@ export function ModuleSchematic() {
         angle: item.angle,
       })),
       is3DCamera,
+      twoDCameraType,
       distanceUnit,
       threeDConfig: threeDConfigForSignature,
     }),
@@ -531,6 +538,7 @@ export function ModuleSchematic() {
       lightCount,
       resolvedDiagramLightItems,
       is3DCamera,
+      twoDCameraType,
       lightPos,
       lightRotation,
       productPos,

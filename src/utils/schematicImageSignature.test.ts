@@ -61,6 +61,32 @@ describe('createSchematicImageSignature', () => {
     expect(changedLabel).not.toBe(original);
   });
 
+  it('invalidates a 2D schematic when its scan subtype or effective FOV changes', () => {
+    const areaScan = createSchematicImageSignature({
+      ...baseSignatureInput,
+      twoDCameraType: 'area_scan',
+      fovWidthMm: 50,
+    });
+    const lineScan = createSchematicImageSignature({
+      ...baseSignatureInput,
+      twoDCameraType: 'line_scan',
+      fovWidthMm: 50,
+    });
+    const widerLineScan = createSchematicImageSignature({
+      ...baseSignatureInput,
+      twoDCameraType: 'line_scan',
+      fovWidthMm: 75,
+    });
+
+    expect(JSON.parse(areaScan).twoDCameraType).toBe('area_scan');
+    expect(JSON.parse(lineScan)).toMatchObject({
+      twoDCameraType: 'line_scan',
+      fovWidthMm: 50,
+    });
+    expect(lineScan).not.toBe(areaScan);
+    expect(widerLineScan).not.toBe(lineScan);
+  });
+
   it('canonicalizes lens and light data away in 3D mode', () => {
     const original = createSchematicImageSignature({
       ...baseSignatureInput,

@@ -2,7 +2,14 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ModuleStep3Imaging } from './ModuleStep3Imaging';
-import { getDefaultFormState, type ModuleFormState } from './types';
+import { ModuleStep1Basic } from './ModuleStep1Basic';
+import {
+  calculateLineScanResolutionPerPixel,
+  convertLineScanDistanceUnit,
+  getLineScanPixelCount,
+} from './LineScanCameraForm';
+import { getDefaultFormState, isLineScanConfigComplete, type ModuleFormState } from './types';
+import { getActiveModuleConfig } from '@/utils/moduleConfig';
 
 vi.mock('@/hooks/useHardware', () => ({
   useCameras: () => ({
@@ -13,6 +20,25 @@ vi.mock('@/hooks/useHardware', () => ({
       resolution: '5472×3648',
       sensor_size: '1',
       frame_rate: 9,
+      interface: 'GigE',
+      shutter_type: null,
+      tags: [],
+      image_url: null,
+      model_3d_url: null,
+      front_view_url: null,
+      enabled: true,
+      created_at: '',
+      updated_at: '',
+    }, {
+      id: 'cam-line',
+      brand: 'Hikrobot',
+      model: 'MV-CL042-91GC',
+      resolution: '4096×2',
+      sensor_size: '28.67',
+      sensor_width_mm: 28.67,
+      sensor_height_mm: 0.014,
+      pixel_size_um: 7,
+      frame_rate: 9000,
       interface: 'GigE',
       shutter_type: null,
       tags: [],
@@ -69,6 +95,8 @@ function Harness({ initial }: { initial: ModuleFormState }) {
           fieldOfViewCommon: form.fieldOfViewCommon,
           resolutionPerPixel: form.resolutionPerPixel,
           is3DCamera: form.is3DCamera,
+          twoDCameraType: form.twoDCameraType,
+          lineScan: form.lineScan,
           selectedLens: form.selectedLens,
           selectedLight: form.selectedLight,
           exposure: form.exposure,
@@ -87,11 +115,18 @@ function readState() {
     fieldOfViewCommon: string;
     resolutionPerPixel: string;
     is3DCamera: boolean;
+    twoDCameraType: ModuleFormState['twoDCameraType'];
+    lineScan: ModuleFormState['lineScan'];
     selectedLens: string;
     selectedLight: string;
     exposure: string;
     lightItems: unknown[];
   };
+}
+
+function Step1Harness({ initial }: { initial: ModuleFormState }) {
+  const [form, setForm] = useState(initial);
+  return <ModuleStep1Basic form={form} setForm={setForm} />;
 }
 
 describe('ModuleStep3Imaging manual FOV behavior', () => {
@@ -134,7 +169,7 @@ describe('ModuleStep3Imaging manual FOV behavior', () => {
       }],
     })} />);
 
-    fireEvent.click(within(screen.getByTestId('imaging-3d-camera-toggle')).getByRole('button'));
+    fireEvent.click(within(screen.getByTestId('imaging-3d-camera-toggle')).getByRole('button', { name: '3D 相机' }));
 
     await waitFor(() => {
       expect(screen.getByTestId('three-d-imaging-form')).toBeTruthy();
@@ -149,6 +184,11 @@ describe('ModuleStep3Imaging manual FOV behavior', () => {
         resolutionPerPixel: '',
         exposure: '',
         lightItems: [],
+        lineScan: {
+          fieldOfView: '',
+          resolutionPerPixel: '',
+          scanSpeed: '',
+        },
       });
     });
   });
@@ -156,12 +196,102 @@ describe('ModuleStep3Imaging manual FOV behavior', () => {
   it('switches back to the 2D imaging form from the imaging step', async () => {
     render(<Harness initial={makeForm({ is3DCamera: true })} />);
 
-    fireEvent.click(within(screen.getByTestId('imaging-3d-camera-toggle')).getByRole('button'));
+    fireEvent.click(within(screen.getByTestId('imaging-3d-camera-toggle')).getByRole('button', { name: '2D 相机' }));
 
     await waitFor(() => {
       expect(screen.queryByTestId('three-d-imaging-form')).toBeNull();
       expect(readState()).toMatchObject({
         is3DCamera: false,
+      });
+    });
+  });
+
+  it('defaults old 2D data to the unchanged area-scan form', () => {
+    const legacy = makeForm();
+    render(<Harness initial={legacy} />);
+
+    expect(legacy.twoDCameraType).toBe('area_scan');
+    expect(screen.getByTestId('two-d-camera-type-selector')).toBeTruthy();
+    expect(screen.queryByTestId('line-scan-imaging-form')).toBeNull();
+    expect(screen.getByText('视场 FOV (mm)')).toBeTruthy();
+  });
+
+  it('switches between area scan and line scan without clearing either set of values', async () => {
+    render(<Harness initial={makeForm({
+      fieldOfViewWidth: '380',
+      fieldOfViewHeight: '253',
+      fieldOfViewCommon: '380×253',
+      resolutionPerPixel: '0.0694',
+      lineScan: {
+        fieldOfView: '50',
+        resolutionPerPixel: '0.0122',
+        scanSpeed: '500',
+      },
+    })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '线扫相机' }));
+    await waitFor(() => expect(screen.getByTestId('line-scan-imaging-form')).toBeTruthy());
+    expect(readState()).toMatchObject({
+      twoDCameraType: 'line_scan',
+      fieldOfViewWidth: '380',
+      fieldOfViewHeight: '253',
+      resolutionPerPixel: '0.0694',
+      lineScan: { fieldOfView: '50', resolutionPerPixel: '0.0122', scanSpeed: '500' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '面扫相机' }));
+    await waitFor(() => expect(screen.queryByTestId('line-scan-imaging-form')).toBeNull());
+    expect(readState()).toMatchObject({
+      twoDCameraType: 'area_scan',
+      fieldOfViewWidth: '380',
+      fieldOfViewHeight: '253',
+      resolutionPerPixel: '0.0694',
+      lineScan: { fieldOfView: '50', resolutionPerPixel: '0.0122', scanSpeed: '500' },
+    });
+  });
+
+  it('calculates line-scan precision from scalar FOV and the longer resolution axis', async () => {
+    render(<Harness initial={makeForm({
+      selectedCamera: 'cam-line',
+      twoDCameraType: 'line_scan',
+      lineScan: { fieldOfView: '50', resolutionPerPixel: '', scanSpeed: '500' },
+    })} />);
+
+    expect(screen.queryByPlaceholderText('宽')).toBeNull();
+    expect(screen.queryByPlaceholderText('高')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /一键计算/ }));
+
+    await waitFor(() => {
+      expect(readState().lineScan).toEqual({
+        fieldOfView: '50',
+        resolutionPerPixel: '0.0122',
+        scanSpeed: '500',
+      });
+      expect(screen.getByTestId('line-scan-flying-analysis').textContent).toContain('行频');
+      expect(screen.getByTestId('line-scan-flying-analysis').textContent).not.toContain('触发频率');
+    });
+  });
+
+  it('applies the longer-axis sensor FOV to the scalar line-scan field only on request', async () => {
+    render(<Harness initial={makeForm({
+      selectedCamera: 'cam-line',
+      twoDCameraType: 'line_scan',
+      fieldOfViewWidth: '380',
+      fieldOfViewHeight: '253',
+      fieldOfViewCommon: '380×253',
+      lineScan: { fieldOfView: '', resolutionPerPixel: '', scanSpeed: '500' },
+    })} />);
+
+    expect(readState().lineScan.fieldOfView).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '应用推算FOV' }));
+
+    await waitFor(() => {
+      expect(Number(readState().lineScan.fieldOfView)).toBeGreaterThan(0);
+      expect(Number(readState().lineScan.resolutionPerPixel)).toBeGreaterThan(0);
+      expect(readState()).toMatchObject({
+        fieldOfViewWidth: '380',
+        fieldOfViewHeight: '253',
+        fieldOfViewCommon: '380×253',
       });
     });
   });
@@ -247,5 +377,80 @@ describe('ModuleStep3Imaging manual FOV behavior', () => {
         resolutionPerPixel: '0.0683',
       });
     });
+  });
+});
+
+describe('line-scan calculation helpers', () => {
+  it('uses the longer camera resolution axis', () => {
+    expect(getLineScanPixelCount('4096 × 2')).toBe(4096);
+    expect(calculateLineScanResolutionPerPixel('50', 'mm', '4096 × 2')).toBe('0.0122');
+    expect(calculateLineScanResolutionPerPixel('5', 'cm', '4096 × 2')).toBe('0.0122');
+  });
+
+  it('converts line-scan and hidden area-scan FOV values together', () => {
+    const converted = convertLineScanDistanceUnit(makeForm({
+      distanceUnit: 'mm',
+      fieldOfViewWidth: '380',
+      fieldOfViewHeight: '250',
+      fieldOfViewCommon: '380×250',
+      lineScan: { fieldOfView: '50', resolutionPerPixel: '0.0122', scanSpeed: '500' },
+    }), 'cm');
+
+    expect(converted).toMatchObject({
+      distanceUnit: 'cm',
+      fieldOfViewWidth: '38',
+      fieldOfViewHeight: '25',
+      fieldOfViewCommon: '38×25',
+      lineScan: { fieldOfView: '5', resolutionPerPixel: '0.0122', scanSpeed: '500' },
+    });
+  });
+
+  it('requires positive scalar FOV and scan speed for completion', () => {
+    expect(isLineScanConfigComplete({ fieldOfView: '50', resolutionPerPixel: '', scanSpeed: '500' })).toBe(true);
+    expect(isLineScanConfigComplete({ fieldOfView: '0', resolutionPerPixel: '', scanSpeed: '500' })).toBe(false);
+    expect(isLineScanConfigComplete({ fieldOfView: '50', resolutionPerPixel: '', scanSpeed: '-1' })).toBe(false);
+    expect(isLineScanConfigComplete({ fieldOfView: 'abc', resolutionPerPixel: '', scanSpeed: '500' })).toBe(false);
+  });
+});
+
+describe('active module config precedence', () => {
+  it.each([
+    ['defect', 'defect_config'],
+    ['positioning', 'positioning_config'],
+    ['ocr', 'ocr_config'],
+    ['deeplearning', 'deep_learning_config'],
+    ['measurement', 'measurement_config'],
+  ])('loads the %s config before historical residual columns', (type, activeKey) => {
+    const module = {
+      type,
+      defect_config: { marker: 'defect' },
+      positioning_config: { marker: 'positioning' },
+      ocr_config: { marker: 'ocr' },
+      deep_learning_config: { marker: 'deeplearning' },
+      measurement_config: { marker: 'measurement' },
+    } as Record<string, unknown>;
+
+    expect(getActiveModuleConfig(module)).toBe(module[activeKey]);
+  });
+});
+
+describe('ModuleStep1Basic camera-specific timing fields', () => {
+  it('hides area-scan timing fields for line scan and points to the imaging step', () => {
+    render(<Step1Harness initial={makeForm({ twoDCameraType: 'line_scan' })} />);
+
+    expect(screen.queryByText('相机节拍')).toBeNull();
+    expect(screen.queryByText('拍照次数')).toBeNull();
+    expect(screen.getByTestId('line-scan-step1-hint').textContent).toContain('扫描速度');
+  });
+
+  it('keeps the original timing fields for area scan and 3D', () => {
+    const { unmount } = render(<Step1Harness initial={makeForm({ twoDCameraType: 'area_scan' })} />);
+    expect(screen.getByText('相机节拍')).toBeTruthy();
+    expect(screen.getByText('拍照次数')).toBeTruthy();
+    unmount();
+
+    render(<Step1Harness initial={makeForm({ is3DCamera: true, twoDCameraType: 'line_scan' })} />);
+    expect(screen.getByText('相机节拍')).toBeTruthy();
+    expect(screen.getByText('拍照次数')).toBeTruthy();
   });
 });

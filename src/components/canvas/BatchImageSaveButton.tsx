@@ -44,7 +44,12 @@ import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getFirstModuleLightItem, normalizeModuleLightItems } from '@/utils/moduleLightItems';
 import { createSchematicImageSignature, hasCurrentSchematicImageSignature } from '@/utils/schematicImageSignature';
 import { normalizeDistanceUnit, signedToMillimeters, toMillimeters } from '@/utils/distanceUnits';
-import { isModule3DCamera } from '@/utils/module3DCamera';
+import {
+  getActiveModuleConfig,
+  getModuleTwoDCameraType,
+  getObjectRecord,
+  isActiveModule3DCamera,
+} from '@/utils/moduleConfig';
 import { getThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 import { getWorkstationCycleTimeValue } from '@/utils/cycleTimeDisplay';
 
@@ -139,14 +144,8 @@ function resolveSchematicLayout(rawLayout: unknown): SchematicLayoutState {
   };
 }
 
-const MODULE_CONFIG_KEYS = ['defect_config', 'positioning_config', 'ocr_config', 'deep_learning_config', 'measurement_config'] as const;
-
 function getModuleConfig(module: any): any {
-  if (!module) return null;
-  for (const key of MODULE_CONFIG_KEYS) {
-    if (module[key]) return module[key];
-  }
-  return null;
+  return getActiveModuleConfig(module);
 }
 
 function getPersistedImaging(module: any): Record<string, any> {
@@ -154,7 +153,7 @@ function getPersistedImaging(module: any): Record<string, any> {
 }
 
 function isBatchModule3DCamera(module: any, projectUses3D = false): boolean {
-  return isModule3DCamera(module, projectUses3D);
+  return isActiveModule3DCamera(module, projectUses3D);
 }
 
 function getPersistedWorkingDistance(module: any): string {
@@ -255,6 +254,8 @@ function createBatchSchematicImageSignature(
   const moduleLightItems = getModuleLightItemsForBatch(module, projectUses3D);
   const firstLightItem = getFirstModuleLightItem(moduleLightItems);
   const is3DCamera = isBatchModule3DCamera(module, projectUses3D);
+  const twoDCameraType = getModuleTwoDCameraType(module);
+  const isLineScan = !is3DCamera && twoDCameraType === 'line_scan';
   const threeDConfig = is3DCamera ? (getModuleConfig(module)?.three_d ?? null) : null;
   const selectedCameraId = module?.selected_camera || module?.camera_id || null;
   const selectedLensId = is3DCamera ? null : (module?.selected_lens || module?.lens_id || null);
@@ -263,13 +264,17 @@ function createBatchSchematicImageSignature(
   const workingDistanceInput = getPersistedWorkingDistance(module);
   const workingDistanceMm = toMillimeters(workingDistanceInput, distanceUnit);
   const workingDistanceToleranceInput = String(imaging.workingDistanceTolerance ?? '');
-  const fovInput = getPersistedFov(module);
-  const fovWidthMm = imaging.fieldOfViewWidth
-    ? toMillimeters(imaging.fieldOfViewWidth, distanceUnit)
-    : (() => {
-      const parsed = parseFovWidth(fovInput);
-      return parsed === null ? null : parsed * (distanceUnit === 'm' ? 1000 : distanceUnit === 'cm' ? 10 : 1);
-    })();
+  const fovInput = isLineScan
+    ? String(getObjectRecord(imaging.lineScan)?.fieldOfView ?? '')
+    : getPersistedFov(module);
+  const fovWidthMm = isLineScan
+    ? toMillimeters(fovInput, distanceUnit)
+    : imaging.fieldOfViewWidth
+      ? toMillimeters(imaging.fieldOfViewWidth, distanceUnit)
+      : (() => {
+        const parsed = parseFovWidth(fovInput);
+        return parsed === null ? null : parsed * (distanceUnit === 'm' ? 1000 : distanceUnit === 'cm' ? 10 : 1);
+      })();
   const lightDistanceHorizontalMm = signedToMillimeters(firstLightItem?.lightDistanceHorizontal, distanceUnit) ?? 0;
   const lightDistanceVerticalMm = signedToMillimeters(firstLightItem?.lightDistanceVertical, distanceUnit);
   const diagramLightDistanceInput = firstLightItem?.lightDistance || '';
@@ -312,6 +317,7 @@ function createBatchSchematicImageSignature(
       angle: item.angle,
     })),
     is3DCamera,
+    twoDCameraType,
     distanceUnit,
     threeDConfig,
   });
@@ -364,8 +370,20 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
       }
       const wsModules = getWorkstationModules(ws.id);
       for (const m of wsModules) {
-        const schematicLayout = resolveSchematicLayout((m as any).schematic_layout);
-        if (!(m as any).schematic_image_url || !hasCurrentSchematicImageSignature(schematicLayout.savedImageSignature)) {
+        const module = m as any;
+        const schematicLayout = resolveSchematicLayout(module.schematic_layout);
+        const currentSignature = createBatchSchematicImageSignature(
+          module,
+          layout,
+          schematicLayout,
+          lights,
+          projectUses3D,
+        );
+        if (
+          !module.schematic_image_url
+          || !hasCurrentSchematicImageSignature(schematicLayout.savedImageSignature)
+          || schematicLayout.savedImageSignature !== currentSignature
+        ) {
           missingSchematics.push({ moduleId: m.id, moduleName: m.name, workstationName: ws.name });
         }
       }
@@ -373,7 +391,7 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
 
     const total = missingLayouts.length + missingSchematics.length;
     return { layouts: missingLayouts, schematics: missingSchematics, total };
-  }, [projectWorkstations, layouts, getWorkstationModules]);
+  }, [projectWorkstations, layouts, getWorkstationModules, lights, projectUses3D]);
 
   // Calculate ALL images (for force regeneration)
   const allImages = useMemo<ImageList>(() => {
@@ -577,6 +595,8 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
   const currentImaging = getPersistedImaging(currentModuleData);
   const currentDistanceUnit = normalizeDistanceUnit(currentImaging.distanceUnit);
   const currentIs3DCamera = currentModuleData ? isBatchModule3DCamera(currentModuleData, projectUses3D) : false;
+  const currentTwoDCameraType = getModuleTwoDCameraType(currentModuleData);
+  const currentIsLineScan = !currentIs3DCamera && currentTwoDCameraType === 'line_scan';
   const currentThreeDInfo = getThreeDDisplayInfo(
     currentIs3DCamera ? (getModuleConfig(currentModuleData)?.three_d || {}) : {},
   );
@@ -587,13 +607,17 @@ export function BatchImageSaveButton({ projectId }: BatchImageSaveButtonProps) {
   const currentWorkingDistanceInput = currentModuleData ? getPersistedWorkingDistance(currentModuleData) : '';
   const currentWorkingDistanceMm = toMillimeters(currentWorkingDistanceInput, currentDistanceUnit);
   const currentWorkingDistanceToleranceInput = String(currentImaging.workingDistanceTolerance ?? '');
-  const currentFovInput = currentModuleData ? getPersistedFov(currentModuleData) : '';
-  const currentFovWidthMm = currentImaging.fieldOfViewWidth
-    ? toMillimeters(currentImaging.fieldOfViewWidth, currentDistanceUnit)
-    : (() => {
-      const parsed = parseFovWidth(currentFovInput);
-      return parsed === null ? null : parsed * (currentDistanceUnit === 'm' ? 1000 : currentDistanceUnit === 'cm' ? 10 : 1);
-    })();
+  const currentFovInput = currentIsLineScan
+    ? String(getObjectRecord(currentImaging.lineScan)?.fieldOfView ?? '')
+    : (currentModuleData ? getPersistedFov(currentModuleData) : '');
+  const currentFovWidthMm = currentIsLineScan
+    ? toMillimeters(currentFovInput, currentDistanceUnit)
+    : currentImaging.fieldOfViewWidth
+      ? toMillimeters(currentImaging.fieldOfViewWidth, currentDistanceUnit)
+      : (() => {
+        const parsed = parseFovWidth(currentFovInput);
+        return parsed === null ? null : parsed * (currentDistanceUnit === 'm' ? 1000 : currentDistanceUnit === 'cm' ? 10 : 1);
+      })();
   const currentDiagramLightDistanceInput = currentFirstLightItem?.lightDistance || '';
   const currentLightDistanceHorizontalMm = signedToMillimeters(currentFirstLightItem?.lightDistanceHorizontal, currentDistanceUnit) ?? 0;
   const currentLightDistanceVerticalMm = signedToMillimeters(currentFirstLightItem?.lightDistanceVertical, currentDistanceUnit);
@@ -864,4 +888,3 @@ function OffscreenSimpleLayout({
     />
   );
 }
-

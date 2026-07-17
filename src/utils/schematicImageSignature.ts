@@ -1,4 +1,6 @@
-export const SCHEMATIC_IMAGE_SIGNATURE_VERSION = 8;
+import { normalizeTwoDCameraType, type TwoDCameraType } from './moduleConfig';
+
+export const SCHEMATIC_IMAGE_SIGNATURE_VERSION = 9;
 
 type SchematicPoint = { x: number; y: number };
 
@@ -35,6 +37,7 @@ export function createSchematicImageSignature({
   lightCount,
   lightItems,
   is3DCamera,
+  twoDCameraType,
   distanceUnit,
   threeDConfig,
 }: {
@@ -68,12 +71,14 @@ export function createSchematicImageSignature({
     verticalMm?: number | null;
     distanceInput?: string | null;
     angle?: string;
-  }>;
+  }>; 
   is3DCamera?: boolean;
+  twoDCameraType?: TwoDCameraType;
   distanceUnit?: string;
   threeDConfig?: Record<string, unknown> | null;
 }) {
   const is3D = Boolean(is3DCamera);
+  const normalizedTwoDCameraType = normalizeTwoDCameraType(twoDCameraType);
   return JSON.stringify({
     v: SCHEMATIC_IMAGE_SIGNATURE_VERSION,
     cameraId: cameraId || null,
@@ -108,6 +113,7 @@ export function createSchematicImageSignature({
       angle: item.angle || null,
     })),
     is3DCamera: is3D,
+    twoDCameraType: is3D ? null : normalizedTwoDCameraType,
     threeDConfig: is3D ? normalizeThreeDConfigForSignature(threeDConfig) : null,
     distanceUnit: distanceUnit || 'mm',
   });

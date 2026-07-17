@@ -37,6 +37,12 @@ describe('strip3DOpticsFromForm', () => {
       fieldOfViewWidth: '358',
       fieldOfViewHeight: '239',
       resolutionPerPixel: '0.0655',
+      twoDCameraType: 'line_scan' as const,
+      lineScan: {
+        fieldOfView: '50',
+        resolutionPerPixel: '0.0122',
+        scanSpeed: '500',
+      },
       exposure: '1000',
       gain: '6',
       triggerDelay: '20',
@@ -66,6 +72,12 @@ describe('strip3DOpticsFromForm', () => {
     expect(stripped.fieldOfViewWidth).toBe('');
     expect(stripped.fieldOfViewHeight).toBe('');
     expect(stripped.resolutionPerPixel).toBe('');
+    expect(stripped.twoDCameraType).toBe('line_scan');
+    expect(stripped.lineScan).toEqual({
+      fieldOfView: '',
+      resolutionPerPixel: '',
+      scanSpeed: '',
+    });
     expect(stripped.exposure).toBe('');
     expect(stripped.gain).toBe('');
     expect(stripped.triggerDelay).toBe('');

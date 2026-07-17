@@ -12,6 +12,11 @@ export function strip3DOpticsFromForm<T extends ModuleFormState>(state: T): T {
     fieldOfViewWidth: '',
     fieldOfViewHeight: '',
     resolutionPerPixel: '',
+    lineScan: {
+      fieldOfView: '',
+      resolutionPerPixel: '',
+      scanSpeed: '',
+    },
     exposure: '',
     gain: '',
     triggerDelay: '',
@@ -241,6 +246,9 @@ export function needs3DOpticsStrip(state: ModuleFormState) {
       || state.fieldOfViewWidth
       || state.fieldOfViewHeight
       || state.resolutionPerPixel
+      || state.lineScan.fieldOfView
+      || state.lineScan.resolutionPerPixel
+      || state.lineScan.scanSpeed
       || state.exposure
       || state.gain
       || state.triggerDelay

@@ -63,6 +63,8 @@ export interface TemplateGenerationData {
       mod_camera_install?: string;
       mod_shot_count?: string;
       mod_takt_time?: string;
+      mod_scan_speed?: string;
+      mod_vision_checklist?: string;
     }>;
     layout?: {
       front_view_image_url?: string | null;
@@ -104,6 +106,8 @@ export interface TemplateGenerationData {
     mod_camera_install?: string;
     mod_shot_count?: string;
     mod_takt_time?: string;
+    mod_scan_speed?: string;
+    mod_vision_checklist?: string;
   }>;
   hardware: {
     cameras?: Array<{ brand: string; model: string; resolution: string; sensor_size: string; interface: string; image_url?: string | null }>;
@@ -401,6 +405,8 @@ export const MODULE_PLACEHOLDERS = {
   mod_camera_install: '相机安装',
   mod_shot_count: '拍照次数',
   mod_takt_time: '节拍',
+  mod_scan_speed: '扫描速度',
+  mod_vision_checklist: '完整视觉清单（面扫六行/线扫五行）',
   mod_schematic_url: '示意图URL',
 };
 
@@ -419,6 +425,7 @@ export const LOOP_SYNTAX_EXAMPLES = `
   {{#modules}}
   模块 {{mod_index}}: {{mod_name}} ({{mod_type_label}})
   触发: {{mod_trigger_label}}
+  {{mod_vision_checklist}}
   {{/modules}}
 
 {{/workstations}}
