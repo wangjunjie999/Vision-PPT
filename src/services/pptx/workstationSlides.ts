@@ -332,7 +332,7 @@ interface WorkstationSlideData {
     selected_cameras?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
     selected_lenses?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
     selected_lights?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-    selected_controller?: { id: string; brand: string; model: string; image_url?: string | null } | null;
+    selected_controller?: { id: string; brand: string; model: string; image_url?: string | null; gpu?: string | null } | null;
   } | null;
   modules: Array<{
     id: string;
