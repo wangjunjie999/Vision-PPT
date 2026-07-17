@@ -5,6 +5,22 @@ export type ModuleType = 'positioning' | 'defect' | 'ocr' | 'deeplearning' | 'me
 export type TriggerType = 'io' | 'encoder' | 'software' | 'continuous';
 export type QualityStrategy = 'no_miss' | 'balanced' | 'allow_pass';
 export type DistanceUnit = 'mm' | 'cm' | 'm';
+export type TwoDCameraType = 'area_scan' | 'line_scan';
+
+export interface LineScanCameraConfig {
+  fieldOfView: string;
+  resolutionPerPixel: string;
+  scanSpeed: string;
+}
+
+export function isLineScanConfigComplete(config: LineScanCameraConfig): boolean {
+  const fieldOfView = Number(config.fieldOfView.trim());
+  const scanSpeed = Number(config.scanSpeed.trim());
+  return Number.isFinite(fieldOfView)
+    && fieldOfView > 0
+    && Number.isFinite(scanSpeed)
+    && scanSpeed > 0;
+}
 
 // Common enums
 export type InspectionSurface = 'top' | 'side' | 'bottom' | 'hole' | 'edge';
@@ -223,6 +239,8 @@ export interface ModuleFormState {
   // Imaging and optical parameters
   distanceUnit: DistanceUnit; // 距离单位，默认 mm；内部计算统一换算为 mm
   is3DCamera: boolean; // 3D相机无需镜头
+  twoDCameraType: TwoDCameraType; // 旧数据缺失时按面扫相机处理
+  lineScan: LineScanCameraConfig; // 线扫专属参数，与面扫参数相互独立
   workingDistance: string; // 工作距离WD (mm) - 通用字段，各类型可能覆盖
   fieldOfViewCommon: string; // 视野FOV (mm×mm) - 通用字段
   fieldOfViewWidth: string; // FOV 宽 (mm)
@@ -459,6 +477,12 @@ export const getDefaultFormState = (): ModuleFormState => ({
   // Imaging and optical parameters defaults
   distanceUnit: 'mm',
   is3DCamera: false,
+  twoDCameraType: 'area_scan',
+  lineScan: {
+    fieldOfView: '',
+    resolutionPerPixel: '',
+    scanSpeed: '',
+  },
   workingDistance: '',
   fieldOfViewCommon: '',
   fieldOfViewWidth: '',

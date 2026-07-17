@@ -1,6 +1,10 @@
 import type { Database } from '@/integrations/supabase/types';
 import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
-import { isModule3DCamera as isModule3DCameraWithLegacy } from '@/utils/module3DCamera';
+import {
+  getActiveModuleConfig,
+  isActiveModule3DCamera,
+  normalizeTwoDCameraType,
+} from '@/utils/moduleConfig';
 
 type DbProject = Database['public']['Tables']['projects']['Row'];
 type DbWorkstation = Database['public']['Tables']['workstations']['Row'];
@@ -200,7 +204,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     const layout = layouts.find(l => l.workstation_id === ws.id);
     const workstationModules = projectModules.filter(mod => mod.workstation_id === ws.id);
     const workstationNeeds2DOptics = workstationModules.length === 0
-      || workstationModules.some(mod => !isModule3DCameraWithLegacy(mod, projectUses3D));
+      || workstationModules.some(mod => !isActiveModule3DCamera(mod, projectUses3D));
     
     if (!layout) {
       missing.push({
@@ -288,7 +292,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
     // 检查成像参数（FOV、工作距离等）
     const config = getModuleConfig(mod);
     if (config) {
-      const moduleUses3D = isModule3DCameraWithLegacy(mod, projectUses3D);
+      const moduleUses3D = isActiveModule3DCamera(mod, projectUses3D);
       const missingImaging = moduleUses3D ? getMissingThreeDParams(config) : getMissingImagingParams(config);
       
       if (missingImaging.length > 0) {
@@ -340,7 +344,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
       const layout = layouts.find(l => l.workstation_id === ws.id);
       const workstationModules = projectModules.filter(mod => mod.workstation_id === ws.id);
       const workstationNeeds2DOptics = workstationModules.length === 0
-        || workstationModules.some(mod => !isModule3DCameraWithLegacy(mod, projectUses3D));
+        || workstationModules.some(mod => !isActiveModule3DCamera(mod, projectUses3D));
       if (layout) {
         const primaryView = (layout as any).primary_view || 'front';
         const primaryUrl = (layout as any)?.[`${primaryView}_view_image_url`];
@@ -405,7 +409,7 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
   // 11. 检查模块关键参数缺失（警告级别）
   projectModules.forEach(mod => {
     const modWarnings: string[] = [];
-    const moduleUses3D = isModule3DCameraWithLegacy(mod, projectUses3D);
+    const moduleUses3D = isActiveModule3DCamera(mod, projectUses3D);
     
     // 检查硬件配置
     if (!mod.selected_camera) {
@@ -462,16 +466,15 @@ export function checkPPTReadiness(input: CheckInput): PPTReadinessResult {
 }
 
 function getModuleConfig(module: DbModule): Record<string, unknown> | null {
-  return getObject(module.defect_config)
-    || getObject(module.positioning_config)
-    || getObject(module.measurement_config)
-    || getObject(module.ocr_config)
-    || getObject(module.deep_learning_config)
-    || null;
+  return getActiveModuleConfig(module);
 }
 
 function getMissingImagingParams(config: Record<string, unknown>): string[] {
   const imaging = getObject(config.imaging);
+  if (normalizeTwoDCameraType(imaging?.twoDCameraType) === 'line_scan') {
+    return getMissingLineScanParams(config, imaging);
+  }
+
   const missingImaging: string[] = [];
 
   if (!hasFieldOfView(config, imaging)) missingImaging.push('视野范围(FOV)');
@@ -479,6 +482,22 @@ function getMissingImagingParams(config: Record<string, unknown>): string[] {
   if (!hasPixelAccuracy(config, imaging)) missingImaging.push('像素精度');
 
   return missingImaging;
+}
+
+function getMissingLineScanParams(
+  config: Record<string, unknown>,
+  imaging: Record<string, unknown> | null,
+): string[] {
+  const lineScan = getObject(imaging?.lineScan);
+  const missing: string[] = [];
+
+  // Deliberately do not fall back to the hidden area-scan FOV or precision.
+  if (!hasPositiveMeasurement(lineScan?.fieldOfView)) missing.push('线扫视野范围(FOV)');
+  if (!hasWorkingDistance(config, imaging)) missing.push('工作距离');
+  if (!hasPositiveMeasurement(lineScan?.resolutionPerPixel)) missing.push('线扫像素精度');
+  if (!hasPositiveMeasurement(lineScan?.scanSpeed)) missing.push('扫描速度');
+
+  return missing;
 }
 
 function getMissingThreeDParams(config: Record<string, unknown>): string[] {
@@ -546,6 +565,17 @@ function firstPresent(...values: unknown[]): string | number | boolean | undefin
     return value as string | number | boolean;
   }
   return undefined;
+}
+
+function hasPositiveMeasurement(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (!/^[+]?(?:\d+(?:\.\d*)?|\.\d+)(?:\s*[a-zA-Z]+(?:\s*\/\s*[a-zA-Z]+)?)?$/.test(normalized)) {
+    return false;
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) && parsed > 0;
 }
 
 function joinFov(width: unknown, height: unknown): string | undefined {

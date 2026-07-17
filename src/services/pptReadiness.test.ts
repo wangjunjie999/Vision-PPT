@@ -15,6 +15,7 @@ const baseWorkstation = {
   id: 'workstation-1',
   project_id: 'project-1',
   name: 'workstation 1',
+  design_responsible: 'designer',
 };
 
 const baseLayout = {
@@ -178,6 +179,119 @@ describe('pptReadiness imaging parameters', () => {
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0].warning).toContain('FOV');
+  });
+
+  it('uses the config column for the current module type before legacy columns', () => {
+    const warnings = imagingWarnings({
+      type: 'measurement',
+      defect_config: {
+        imaging: {
+          fieldOfView: '200x150',
+          workingDistance: '430',
+          resolutionPerPixel: '0.0500',
+        },
+      },
+      measurement_config: {
+        imaging: {
+          workingDistance: '430',
+        },
+      },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].warning).toContain('FOV');
+    expect(warnings[0].warning).toContain('像素精度');
+  });
+
+  it('falls back to a legacy config column when the active column is absent', () => {
+    const warnings = imagingWarnings({
+      type: 'measurement',
+      measurement_config: null,
+      defect_config: {
+        imaging: {
+          fieldOfView: '200x150',
+          workingDistance: '430',
+          resolutionPerPixel: '0.0500',
+        },
+      },
+    });
+
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('accepts complete line-scan parameters without area-scan FOV fields', () => {
+    const warnings = imagingWarnings({
+      defect_config: {
+        imaging: {
+          twoDCameraType: 'line_scan',
+          workingDistance: '430',
+          lineScan: {
+            fieldOfView: '50',
+            resolutionPerPixel: '0.0122',
+            scanSpeed: '500',
+          },
+        },
+      },
+    });
+
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('does not let hidden area-scan values satisfy line-scan readiness', () => {
+    const warnings = imagingWarnings({
+      defect_config: {
+        imaging: {
+          twoDCameraType: 'line_scan',
+          fieldOfView: '200x150',
+          resolutionPerPixel: '0.0500',
+          workingDistance: '430',
+          lineScan: {
+            scanSpeed: '500',
+          },
+        },
+      },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].warning).toContain('线扫视野范围');
+    expect(warnings[0].warning).toContain('线扫像素精度');
+  });
+
+  it('requires scan speed for line-scan readiness', () => {
+    const warnings = imagingWarnings({
+      defect_config: {
+        imaging: {
+          twoDCameraType: 'line_scan',
+          workingDistance: '430',
+          lineScan: {
+            fieldOfView: '50',
+            resolutionPerPixel: '0.0122',
+          },
+        },
+      },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].warning).toContain('扫描速度');
+  });
+
+  it.each([
+    ['zero FOV', { fieldOfView: '0', resolutionPerPixel: '0.0122', scanSpeed: '500' }, '线扫视野范围'],
+    ['negative precision', { fieldOfView: '50', resolutionPerPixel: '-0.0122', scanSpeed: '500' }, '线扫像素精度'],
+    ['non-numeric speed', { fieldOfView: '50', resolutionPerPixel: '0.0122', scanSpeed: 'fast' }, '扫描速度'],
+  ])('rejects %s in line-scan readiness', (_label, lineScan, expected) => {
+    const warnings = imagingWarnings({
+      defect_config: {
+        imaging: {
+          twoDCameraType: 'line_scan',
+          workingDistance: '430',
+          lineScan,
+        },
+      },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].warning).toContain(expected);
   });
 
   it('does not require lens or light hardware for 3D projects', () => {

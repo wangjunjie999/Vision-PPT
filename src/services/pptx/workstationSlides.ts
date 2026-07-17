@@ -34,7 +34,11 @@ import {
   getLabel 
 } from '@/services/labelMaps';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
-import { buildModuleVisionChecklist } from '@/utils/moduleVisionChecklist';
+import {
+  buildModuleVisionChecklist,
+  buildModuleVisionChecklistLines,
+  type ModuleVisionChecklist,
+} from '@/utils/moduleVisionChecklist';
 import { formatWorkstationCycleTime } from '@/utils/cycleTimeDisplay';
 import { buildThreeDMeasurementChecklist, getThreeDDisplayInfo, type ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 
@@ -374,6 +378,50 @@ interface WorkstationSlideData {
 }
 
 export type { WorkstationSlideData, FullCameraData, FullLensData, FullLightData, FullControllerData };
+
+export interface ModuleOpticalSlideTextContent {
+  checklist: ModuleVisionChecklist;
+  checklistItems: string[];
+  methodDescription: string;
+}
+
+export function buildModuleOpticalSlideTextContent({
+  module,
+  data,
+  isZh,
+}: {
+  module: WorkstationSlideData['modules'][number];
+  data: Pick<WorkstationSlideData, 'ws' | 'layout' | 'hardware'>;
+  isZh: boolean;
+}): ModuleOpticalSlideTextContent {
+  const language = isZh ? 'zh' : 'en';
+  const checklist = buildModuleVisionChecklist({
+    module,
+    workstation: data.ws,
+    layout: data.layout,
+    hardware: data.hardware,
+    language,
+  });
+
+  const areaScanDefault = isZh
+    ? '1. 产品到位，触发拍照\n2. 图像采集与处理\n3. 结果判定与输出'
+    : '1. Product arrives, trigger capture\n2. Image acquisition & processing\n3. Result judgment & output';
+  const lineScanDefault = isZh
+    ? '1. 线扫相机固定安装，由运动机构带动产品或相机按设定扫描速度完成连续扫描\n2. 获取线扫图像后进行拼接与处理，完成相应视觉任务并输出结果'
+    : '1. The line-scan camera is fixed while the product or camera moves continuously at the configured scan speed\n2. Stitch and process the line-scan image, then perform the configured vision task and output the result';
+
+  const methodDescription = checklist.cameraType === 'line_scan'
+    ? [module.description, data.ws.motion_description, data.ws.action_script]
+      .find(value => typeof value === 'string' && value.trim())
+      ?.trim() || lineScanDefault
+    : module.description || data.ws.motion_description || data.ws.action_script || areaScanDefault;
+
+  return {
+    checklist,
+    checklistItems: buildModuleVisionChecklistLines(checklist, language),
+    methodDescription,
+  };
+}
 
 export interface WorkstationTechnicalRequirementTables {
   basicInfoRows: string[][];
@@ -1586,7 +1634,7 @@ export async function generateModuleOpticalSlide(
     }
   }
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { modules, layout, hardware } = data;
+  const { modules } = data;
   const mod = modules[moduleIndex];
   if (!mod) return;
 
@@ -1653,22 +1701,8 @@ export async function generateModuleOpticalSlide(
   });
 
   // Numbered checklist
-  const checklist = buildModuleVisionChecklist({
-    module: mod,
-    workstation: data.ws,
-    layout,
-    hardware,
-    language: ctx.isZh ? 'zh' : 'en',
-  });
-
-  const checklistItems = [
-    `1. ${ctx.isZh ? '检测方式' : 'Detection Method'}: ${checklist.detectionMethod}`,
-    `2. ${ctx.isZh ? '视野范围' : 'FOV'}: ${checklist.fieldOfView}`,
-    `3. ${ctx.isZh ? '像素精度' : 'Pixel Accuracy'}: ${checklist.pixelAccuracy}`,
-    `4. ${ctx.isZh ? '相机安装' : 'Camera Mount'}: ${checklist.cameraInstall}`,
-    `5. ${ctx.isZh ? '拍照次数' : 'Shot Count'}: ${checklist.shotCount}`,
-    `6. ${ctx.isZh ? '节拍' : 'Takt'}: ${checklist.taktTime}`,
-  ];
+  const textContent = buildModuleOpticalSlideTextContent({ module: mod, data, isZh: ctx.isZh });
+  const checklistItems = textContent.checklistItems;
 
   slide.addText(checklistItems.join('\n'), {
     x: rightX, y: 1.45, w: rightW, h: 1.8,
@@ -1681,9 +1715,7 @@ export async function generateModuleOpticalSlide(
     fontSize: 10, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
-  const methodDesc = mod.description || data.ws.motion_description || data.ws.action_script || (ctx.isZh
-    ? '1. 产品到位，触发拍照\n2. 图像采集与处理\n3. 结果判定与输出'
-    : '1. Product arrives, trigger capture\n2. Image acquisition & processing\n3. Result judgment & output');
+  const methodDesc = textContent.methodDescription;
 
   slide.addShape('rect', {
     x: rightX, y: 3.7, w: rightW, h: 1.4,
