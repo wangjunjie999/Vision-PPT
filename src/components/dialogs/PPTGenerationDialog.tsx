@@ -1310,6 +1310,30 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     );
   };
 
+  const allWorkstationIds = useMemo(() => projectWorkstations.map(ws => ws.id), [projectWorkstations]);
+  const allModuleIds = useMemo(() => {
+    const ids: string[] = [];
+    projectWorkstations.forEach(ws => getWorkstationModules(ws.id).forEach(m => ids.push(m.id)));
+    return ids;
+  }, [projectWorkstations, getWorkstationModules]);
+
+  const selectAllWorkstations = () => setSelectedWorkstations(allWorkstationIds);
+  const clearWorkstations = () => setSelectedWorkstations([]);
+  const selectAllModules = () => setSelectedModules(allModuleIds);
+  const clearModules = () => setSelectedModules([]);
+
+  const toggleWorkstationModules = (wsId: string) => {
+    const wsModIds = getWorkstationModules(wsId).map(m => m.id);
+    if (wsModIds.length === 0) return;
+    const allSelected = wsModIds.every(id => selectedModules.includes(id));
+    setSelectedModules(prev => {
+      if (allSelected) return prev.filter(id => !wsModIds.includes(id));
+      const set = new Set(prev);
+      wsModIds.forEach(id => set.add(id));
+      return Array.from(set);
+    });
+  };
+
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
