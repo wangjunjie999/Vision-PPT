@@ -1310,10 +1310,34 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     );
   };
 
+  const allWorkstationIds = useMemo(() => projectWorkstations.map(ws => ws.id), [projectWorkstations]);
+  const allModuleIds = useMemo(() => {
+    const ids: string[] = [];
+    projectWorkstations.forEach(ws => getWorkstationModules(ws.id).forEach(m => ids.push(m.id)));
+    return ids;
+  }, [projectWorkstations, getWorkstationModules]);
+
+  const selectAllWorkstations = () => setSelectedWorkstations(allWorkstationIds);
+  const clearWorkstations = () => setSelectedWorkstations([]);
+  const selectAllModules = () => setSelectedModules(allModuleIds);
+  const clearModules = () => setSelectedModules([]);
+
+  const toggleWorkstationModules = (wsId: string) => {
+    const wsModIds = getWorkstationModules(wsId).map(m => m.id);
+    if (wsModIds.length === 0) return;
+    const allSelected = wsModIds.every(id => selectedModules.includes(id));
+    setSelectedModules(prev => {
+      if (allSelected) return prev.filter(id => !wsModIds.includes(id));
+      const set = new Set(prev);
+      wsModIds.forEach(id => set.add(id));
+      return Array.from(set);
+    });
+  };
+
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[92dvh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
@@ -1709,7 +1733,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             {(scope === 'workstations' || scope === 'modules') && (
               <div className="border rounded-lg overflow-hidden bg-background">
                 <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">
                       {scope === 'workstations' ? '选择要生成的工位' : '选择要生成的模块'}
                     </p>
@@ -1719,11 +1743,33 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         : '只导出勾选模块的光学方案页和打光照片页'}
                     </p>
                   </div>
-                  <Badge variant={hasRequiredSelection ? 'secondary' : 'outline'} className="shrink-0">
-                    {scope === 'workstations' ? scopedSelection.workstations.length : scopedSelection.modules.length} 已选
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={scope === 'workstations' ? selectAllWorkstations : selectAllModules}
+                    >
+                      全选
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={scope === 'workstations' ? clearWorkstations : clearModules}
+                    >
+                      清空
+                    </Button>
+                    <Badge variant={hasRequiredSelection ? 'secondary' : 'outline'}>
+                      {scope === 'workstations'
+                        ? `${scopedSelection.workstations.length} / ${projectWorkstations.length}`
+                        : `${scopedSelection.modules.length} / ${allModuleIds.length}`}
+                    </Badge>
+                  </div>
                 </div>
-                <ScrollArea className="h-48 max-h-[32vh]">
+                <ScrollArea className="max-h-[46vh] min-h-[220px]">
                   <div className="p-2 space-y-1">
                     {scope === 'workstations' && projectWorkstations.length === 0 && (
                       <div className="p-4 text-center text-sm text-muted-foreground">当前项目暂无工位</div>
@@ -1735,7 +1781,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                           onCheckedChange={() => toggleWorkstation(ws.id)} 
                         />
                         <Box className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm flex-1 min-w-0 truncate">{ws.name}</span>
+                        <span className="text-sm flex-1 min-w-0 truncate">
+                          {ws.code ? <span className="text-muted-foreground mr-1">{ws.code}</span> : null}
+                          {ws.name}
+                        </span>
                         <Badge variant="outline" className="text-xs shrink-0">
                           {getWorkstationModules(ws.id).length} 模块
                         </Badge>
@@ -1747,9 +1796,26 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                     {scope === 'modules' && projectWorkstations.map(ws => {
                       const wsModules = getWorkstationModules(ws.id);
                       if (wsModules.length === 0) return null;
+                      const wsModIds = wsModules.map(m => m.id);
+                      const selectedInWs = wsModIds.filter(id => selectedModules.includes(id)).length;
+                      const allChecked = selectedInWs === wsModIds.length;
+                      const someChecked = selectedInWs > 0 && !allChecked;
                       return (
                       <div key={ws.id}>
-                        <div className="text-xs text-muted-foreground px-2 py-1 font-medium">{ws.name}</div>
+                        <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer">
+                          <Checkbox
+                            checked={allChecked ? true : someChecked ? 'indeterminate' : false}
+                            onCheckedChange={() => toggleWorkstationModules(ws.id)}
+                          />
+                          <Box className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-xs font-medium flex-1 min-w-0 truncate">
+                            {ws.code ? <span className="text-muted-foreground mr-1">{ws.code}</span> : null}
+                            {ws.name}
+                          </span>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {selectedInWs}/{wsModIds.length}
+                          </Badge>
+                        </label>
                         {wsModules.map(mod => (
                           <label key={mod.id} className="flex items-center gap-2 p-2 pl-6 rounded hover:bg-muted cursor-pointer">
                             <Checkbox 
