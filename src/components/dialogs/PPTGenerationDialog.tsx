@@ -1313,7 +1313,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[92dvh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
