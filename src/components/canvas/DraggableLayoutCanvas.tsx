@@ -1162,6 +1162,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         handleSaveAll={handleSaveAll} isSaving={isSaving} isSavingAllViews={isSavingAllViews} saveProgress={saveProgress}
         settingsCollapsed={settingsCollapsed} setSettingsCollapsed={setSettingsCollapsed}
         addCamera={addCamera} addMechanism={addMechanism}
+        addProduct={addProduct}
         autoArrangeObjects={autoArrangeObjects} resetLayout={resetLayout}
         gridSize={gridSize} setGridSize={setGridSize}
         gridEnabled={gridEnabled} setGridEnabled={setGridEnabled}
