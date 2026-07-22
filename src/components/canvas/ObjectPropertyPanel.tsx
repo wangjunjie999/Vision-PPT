@@ -608,8 +608,16 @@ export function ObjectPropertyPanel({
   // Early return after all hooks
   if (!object) return null;
 
-  const typeColor = object.type === 'camera' ? 'bg-blue-500' : 'bg-orange-500';
-  const typeLabel = object.type === 'camera' ? '相机' : '机构';
+  const typeColor = object.type === 'camera'
+    ? 'bg-blue-500'
+    : object.type === 'product'
+      ? 'bg-cyan-500'
+      : 'bg-orange-500';
+  const typeLabel = object.type === 'camera'
+    ? '相机'
+    : object.type === 'product'
+      ? '产品'
+      : '机构';
 
   return (
     <div 
