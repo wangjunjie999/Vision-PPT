@@ -603,6 +603,38 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Parent product selector — a module can annotate any of the workstation's products */}
+        <div className="flex items-center gap-2">
+          <Label className="text-xs whitespace-nowrap text-muted-foreground">关联产品</Label>
+          {parentProducts.length > 0 ? (
+            <Select
+              value={selectedParentProductId ?? undefined}
+              onValueChange={(v) => setSelectedParentProductId(v)}
+            >
+              <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectValue placeholder="选择关联产品" />
+              </SelectTrigger>
+              <SelectContent>
+                {parentProducts.map((p) => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                    <span className="flex items-center gap-1.5">
+                      {p.is_primary && <Star className="h-3 w-3 text-primary" />}
+                      {p.product_name || '未命名产品'}
+                      {p.product_code && (
+                        <span className="text-muted-foreground">· {p.product_code}</span>
+                      )}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              请先在工位面板添加至少一个产品
+            </span>
+          )}
+        </div>
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-3 h-8">
             <TabsTrigger value="viewer" className="text-xs">
