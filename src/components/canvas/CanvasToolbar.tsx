@@ -38,6 +38,7 @@ interface CanvasToolbarProps {
   // Object actions
   addCamera: () => void;
   addMechanism: (m: Mechanism) => void;
+  addProduct?: () => void;
   autoArrangeObjects: () => void;
   resetLayout: () => void;
   // Grid
@@ -84,7 +85,7 @@ export const CanvasToolbar = memo(function CanvasToolbar({
   currentView, setCurrentView, viewSaveStatus,
   saveQuality, setSaveQuality, handleSaveAll, isSaving, isSavingAllViews, saveProgress,
   settingsCollapsed, setSettingsCollapsed,
-  addCamera, addMechanism, autoArrangeObjects, resetLayout,
+  addCamera, addMechanism, addProduct, autoArrangeObjects, resetLayout,
   gridSize, setGridSize, gridEnabled, setGridEnabled, snapEnabled, setSnapEnabled, smartSnapEnabled, setSmartSnapEnabled,
   showDistances, setShowDistances, showObjectList, setShowObjectList,
   layerOrder, draggedLayer, dragOverLayer, onLayerDragStart, onLayerDragOver, onLayerDrop, onLayerDragEnd, onSaveLayerOrder,
@@ -228,6 +229,12 @@ export const CanvasToolbar = memo(function CanvasToolbar({
               <Button variant="default" size="sm" onClick={addCamera} className="gap-1.5 h-7 text-xs">
                 <Camera className="h-3 w-3" />添加相机
               </Button>
+
+              {addProduct && (
+                <Button variant="outline" size="sm" onClick={addProduct} className="gap-1.5 h-7 text-xs">
+                  <Plus className="h-3 w-3" />添加产品
+                </Button>
+              )}
 
               <Popover>
                 <PopoverTrigger asChild>

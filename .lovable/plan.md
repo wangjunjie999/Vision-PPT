@@ -1,94 +1,79 @@
-# 一个工位支持多个独立产品
+## 目标
+让"机械结构布局图"支持一个工位内放置**多个产品**,每个产品有独立的尺寸(长/宽/高)、名称、位置,并跟随现有拖拽/视图/PPT 导出链路一起工作。
 
-## 范围
-让一个工位可以承载多个相互独立的产品（不是同一产品的兼容型号）。工位主产品、模块级素材、以及 PPT / Word / PDF 导出全部按产品维度展开。`product_models` 继续保留，作为“单个产品内部的兼容型号”。
+## 现状
+- `DraggableLayoutCanvas` 里只有一个硬编码对象 `product-main`,尺寸来自 `workstation.product_dimensions`(单一 JSON),位置来自 `workstation.product_position`。
+- 已有的多产品数据模型在 `product_assets`(带 `product_name/code/spec/is_primary/sort_order/parent_product_id`),但**没有尺寸字段**,也没有在机械布局里被消费。
+- 布局对象存储在 `mechanical_layouts.layout_objects`(JSON 数组),已包含 `type:'product'` 分支——只是当前只塞了一个。
 
-## 1. 数据库（单个新增 migration）
+## 方案:布局内多产品对象 + 与 `product_assets` 联动
 
-新增列（不动历史 migration）：
+### 1. 数据模型
+- 给 `product_assets` 增加尺寸字段:`length_mm / width_mm / height_mm`(numeric),外加 `posX / posY / posZ`(可空,单个产品在工位坐标系下的默认位置)。
+- 保留 `workstation.product_dimensions / product_position` 作为**主产品**的兼容字段(读时同步、写时同步到 primary 记录),旧数据不丢。
+- 布局 JSON 里的 `product` 对象扩展:`productAssetId`、`length/width/height`、`name`,不再只允许一个 `product-main`。
 
-- `product_assets.product_name text`
-- `product_assets.product_code text`
-- `product_assets.product_spec text`
-- `product_assets.sort_order integer not null default 0`
-- `product_assets.is_primary boolean not null default false`
-- `product_assets.parent_product_id uuid references public.product_assets(id) on delete cascade`
+### 2. 表单侧(产品标注面板 `ProductAnnotationPanel`)
+- 在现有的"产品管理条"里,每个产品行/编辑弹窗新增三个数字输入:长(mm)、宽(mm)、高(mm),写回 `product_assets`。
+- 主产品(is_primary)的尺寸写入时同步到 `workstations.product_dimensions`,保持兼容。
 
-约束与回填：
+### 3. 机械结构画布(`DraggableLayoutCanvas` + 相关渲染器)
+- 加载 `mechanical_layouts` 时,合并同工位的 `product_assets`:布局 JSON 里缺失的产品 → 用 asset 默认位置补齐;JSON 里已删的仍显示可"重新添加"入口。
+- `objects` 里可以有 N 个 `type:'product'` 项。渲染时循环:
+  - `ProductRenderer` 按对象自己的 `width/height/depth` 绘制外框(不再全局读 `productDimensions`)。
+  - `autoScaleResult` 用所有产品的包围盒并集来居中/缩放。
+  - `project3DTo2D` / 拖拽 / 挂载点(`ProductMountPoints`)保持不变,只是索引每个产品。
+- 顶部工具栏新增"添加产品"下拉:列出该工位未上画布的 `product_assets`,选择后落到当前对象数组。
+- 侧栏 `ObjectListPanel` 增加"产品"分组,展示多个产品并可选中/删除(删除仅从画布移除,不删 asset)。
+- 属性面板 `ObjectPropertyPanel`:选中产品时可以就地修改长/宽/高(同步写回 asset)和位置。
 
-- 唯一部分索引：每个工位最多一个主产品
-  `create unique index on public.product_assets(workstation_id) where scope_type='workstation' and is_primary`
-- 回填工位级历史行：`product_name` = `产品 1`，`is_primary` = true，`sort_order` = 0。
-- 回填模块级历史行：当所属工位只有唯一的主产品时，将 `parent_product_id` 指向该主产品。
-- RLS 策略沿用现有策略，无需新增。
+### 4. 3D 预览(`Layout3DPreview`)
+- `productDimensions` 改为按对象数组循环生成盒子(每个产品一个 mesh,尺寸/位置由自身字段决定)。
+- 自适应包围盒改用所有产品的并集。
 
-回滚思路：所有新列都可 `drop column`，索引 `drop index`。
+### 5. 拓扑图 / PPT 导出
+- `SimpleLayoutDiagram`:`ProductIcon` 循环渲染多个产品,标签 `P1..Pn`;所有相机→产品拍摄线按每个相机的 `targetProductId`(可选)或最近产品选择,默认指向主产品保持向后兼容。
+- `pptxGenerator` / `workstationSlides` 在"机械布局"页把多个产品的名称与尺寸列到参数面板;`ProductAssetData` 已具备身份字段,再补 `length/width/height` 供渲染。
+- PDF/DOCX 同步:`reportDataBuilder` 输出 `products: [{name, length, width, height, posX, posY, posZ}]`。
 
-## 2. 工位产品界面（`ProductAnnotationPanel`）
-
-- state 由 `productAsset` 改为 `products: ProductAsset[]` + `selectedProductId`。
-- 查询：`scope_type='workstation' and workstation_id=?` 全部返回，排序 `is_primary desc, sort_order asc, created_at asc`。
-- 顶部产品切换栏：卡片/下拉；操作：新增、编辑（名称/编号/规格）、设为主产品、上/下移、删除。
-- 产品名称必填，编号/规格可选；添加第一个产品时自动 `is_primary=true`。
-- 切换 `selectedProductId` 时重新加载：assets（该产品自身）、`product_annotations`、3D/图片。
-- 上传/保存/标注/查看/删除严格用 `selectedProductId`；移除对 `.maybeSingle()` 的依赖。
-- Storage 路径统一：`{workstationId}/{productId}/...`；旧路径读取保持兼容。
-- 删除前弹确认框，清理 Storage 对象与 DB 行（模块级子行由 `on delete cascade` 处理）。
-
-## 3. 模块界面（`ModuleAnnotationPanel`）
-
-- 加载工位全部产品，默认选中主产品（不是第一条隐式）。
-- 模块级 `product_assets` 保存时写入 `parent_product_id = selectedProductId`。
-- 同一模块可为不同产品各自保存局部图与标注（按 `parent_product_id` 隔离查询）。
-- 若当前模块对该产品无素材，只读展示对应工位产品的素材作为参考。
-
-## 4. 导出链路
-
-生成上下文类型改造：
-
-- `WorkstationReportData` 由 `productAsset` 改为 `products: ProductForExport[]`；每个含 `id/name/code/spec/asset/annotations/modules[]`。
-- 模块导出上下文含 `product_id`，仅带上匹配 `parent_product_id` 的模块素材。
-
-PPT（`pptxGenerator` + `pptx/workstationSlides` + `templateBasedGenerator`）：
-
-- 每工位循环产品；每个产品生成至少一组「产品示意图」页，标题含产品名称，多页显示 `(i/N)`。
-- 目录/页码在循环后重新累计。
-- 上传模板 `TemplateGenerationContext` 增加 `products` 数组 + 当前 `product`：`product_name/product_code/product_spec/product_preview`。
-- 模块范围仅携带被选模块所对应的产品资产。
-
-Word / PDF（`docxGenerator` / `pdfGenerator`）：
-
-- 输出层级：工位 → 产品 → 图片 + 标注；打印产品名称、编号、规格。
-
-预检 & 缓存：
-
-- `pptReadiness`、`imagePreloader`、`imageAccessibilityCheck`、`batchImageSaver` 全部改为遍历 products。
-
-## 5. 测试
-
-Vitest（新增/更新）：
-
-- 工位产品：默认主产品、添加多个、切换隔离、编辑、排序、删除、切换主产品、跨工位不串。
-- 模块：同一模块对两个产品分别保存标注互不影响。
-- 导出：`pptxGenerator.scope.test`、`workstationSlides.test`、`documentGenerationScope.test`、`pptReadiness.test` 覆盖双产品导出无遗漏无串用。
-- 兼容：单产品旧行迁移后仍可打开（fixture 模拟）。
-
-最后：`npm test` + `npm run build`，修复本次引入的问题。
+### 6. 兼容与迁移
+- 旧布局只有一个 `product-main` 且无 `productAssetId` → 首次加载时自动挂到 primary asset,并把 `workstation.product_dimensions` 拷进对象自身尺寸。
+- 未填尺寸的 asset 走默认 300×200×100。
 
 ## 技术细节
 
-- 类型：`src/integrations/supabase/types.ts` 通过 Supabase 类型再生获得新列；生成前先在客户端定义 `ProductAsset` 扩展类型避免阻塞。
-- Storage 兼容读取：读时先试新路径，失败回退到旧路径。
-- Scope 工具 `pptGenerationScope.ts` + `templateGenerationScope.ts` 新增按 product 展开逻辑，`MODULE_SCOPED_SLIDE_TYPES` 保持不变，新增 `PRODUCT_SCOPED_SLIDE_TYPES`（示意图/产品信息类）。
-- 不动无关代码，不上传 `.env`。
-
-```text
-Workstation
- ├─ Product A (is_primary)
- │   ├─ assets (workstation scope, parent=null)
- │   ├─ annotations
- │   └─ Module X assets (parent_product_id=A)
- └─ Product B
-     ├─ assets
-     └─ Module X assets (parent_product_id=B)
+**SQL 迁移**
+```sql
+ALTER TABLE public.product_assets
+  ADD COLUMN IF NOT EXISTS length_mm numeric,
+  ADD COLUMN IF NOT EXISTS width_mm  numeric,
+  ADD COLUMN IF NOT EXISTS height_mm numeric,
+  ADD COLUMN IF NOT EXISTS pos_x numeric,
+  ADD COLUMN IF NOT EXISTS pos_y numeric,
+  ADD COLUMN IF NOT EXISTS pos_z numeric;
 ```
+
+**布局对象类型扩展**(`canvasTypes.ts`)
+```ts
+interface LayoutObject {
+  ...
+  productAssetId?: string;
+  length?: number; width?: number; height?: number; // mm, product only
+}
+```
+
+**关键改动清单**
+- SQL 迁移(上面)
+- `src/components/product/ProductAnnotationPanel.tsx` — 尺寸输入 + 主产品同步
+- `src/components/canvas/DraggableLayoutCanvas.tsx` — 多产品加载/渲染/自适应
+- `src/components/canvas/ProductRenderer.tsx` — 按对象自身尺寸绘制
+- `src/components/canvas/ObjectPropertyPanel.tsx` — 产品长宽高编辑
+- `src/components/canvas/Layout3DPreview.tsx` — 多产品盒子
+- `src/components/canvas/SimpleLayoutDiagram.tsx` — 多 `ProductIcon`
+- `src/services/reportDataBuilder.ts` / `pptxGenerator.ts` / `pptx/workstationSlides.ts` — 多产品参数输出
+- `src/hooks/useProducts` 或直接扩展 `ProductAnnotationPanel` 现有 CRUD
+
+## 待确认
+1. 多产品在画布上是否可以**独立平移**(默认可以)?还是只作为附加信息展示?
+2. 相机的"拍摄目标"是否需要指定到某一个具体产品(新增 `targetProductAssetId`)?否则默认全部对准主产品。
+3. 主产品的尺寸是否仍然写回 `workstation.product_dimensions`(兼容 PPT 旧字段读取)?建议是。

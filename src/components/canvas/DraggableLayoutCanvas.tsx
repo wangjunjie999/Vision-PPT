@@ -288,8 +288,19 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
     objects.forEach(obj => {
       const p = projectForView(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
-      allPoints.push({ x: p.x - iconMargin, y: p.y - iconMargin });
-      allPoints.push({ x: p.x + iconMargin, y: p.y + iconMargin });
+      // For products with custom dimensions, include their actual bounding box.
+      if (obj.type === 'product') {
+        const hL = (obj.productLength ?? productDimensions.length) / 2;
+        const hW = (obj.productWidth ?? productDimensions.width) / 2;
+        const hH = (obj.productHeight ?? productDimensions.height) / 2;
+        [{ x: -hL, y: -hW, z: -hH }, { x: hL, y: hW, z: hH }].forEach(c => {
+          const pp = projectForView((obj.posX ?? 0) + c.x, (obj.posY ?? 0) + c.y, (obj.posZ ?? 0) + c.z, currentView);
+          allPoints.push(pp);
+        });
+      } else {
+        allPoints.push({ x: p.x - iconMargin, y: p.y - iconMargin });
+        allPoints.push({ x: p.x + iconMargin, y: p.y + iconMargin });
+      }
     });
 
     if (allPoints.length < 2) {
@@ -836,6 +847,33 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     toast.success(`已添加 ${newMech.name}`);
   }, [objects, project3DTo2D, currentView, productDimensions.width]);
 
+  const addProduct = useCallback(() => {
+    const productCount = objects.filter(o => o.type === 'product').length;
+    // Space additional products next to existing ones along Y so they don't overlap.
+    const defaultPosX = 0;
+    const defaultPosY = productCount === 0
+      ? 0
+      : (productCount % 2 === 0 ? 1 : -1) * Math.ceil(productCount / 2) * (productDimensions.width + 100);
+    const defaultPosZ = 0;
+    const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
+    const newProduct: LayoutObject = {
+      id: `product-${Date.now()}`,
+      type: 'product',
+      name: `产品${productCount + 1}`,
+      posX: defaultPosX, posY: defaultPosY, posZ: defaultPosZ,
+      x: canvasPos.x, y: canvasPos.y,
+      width: productDimensions.length, height: productDimensions.height,
+      rotation: 0, locked: false,
+      productLength: productDimensions.length,
+      productWidth: productDimensions.width,
+      productHeight: productDimensions.height,
+    };
+    setObjects(prev => [...prev, newProduct]);
+    setSelectedIds([newProduct.id]);
+    setShowPropertyPanel(true);
+    toast.success(`已添加 ${newProduct.name}`);
+  }, [objects, project3DTo2D, currentView, productDimensions]);
+
   // ========== Stage (save data only, no screenshots) ==========
   const handleStageLayout = useCallback(async () => {
     try {
@@ -1124,6 +1162,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         handleSaveAll={handleSaveAll} isSaving={isSaving} isSavingAllViews={isSavingAllViews} saveProgress={saveProgress}
         settingsCollapsed={settingsCollapsed} setSettingsCollapsed={setSettingsCollapsed}
         addCamera={addCamera} addMechanism={addMechanism}
+        addProduct={addProduct}
         autoArrangeObjects={autoArrangeObjects} resetLayout={resetLayout}
         gridSize={gridSize} setGridSize={setGridSize}
         gridEnabled={gridEnabled} setGridEnabled={setGridEnabled}
