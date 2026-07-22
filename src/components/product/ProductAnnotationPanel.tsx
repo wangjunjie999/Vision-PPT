@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -43,6 +44,8 @@ import {
   Info,
   X,
   Maximize2,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
@@ -77,6 +80,13 @@ interface ProductAsset {
   detection_method?: string | null;
   product_models?: ProductModelItem[] | null;
   detection_requirements?: DetectionRequirementItem[] | null;
+  // Multi-product identity
+  product_name?: string | null;
+  product_code?: string | null;
+  product_spec?: string | null;
+  is_primary?: boolean;
+  sort_order?: number;
+  parent_product_id?: string | null;
 }
 
 interface AnnotationRecord {
