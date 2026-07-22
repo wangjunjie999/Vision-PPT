@@ -202,6 +202,7 @@ interface AnnotationItem {
 
 interface AnnotationData {
   id: string;
+  asset_id?: string;
   snapshot_url: string;
   annotations_json: AnnotationItem[];
   remark?: string | null;
