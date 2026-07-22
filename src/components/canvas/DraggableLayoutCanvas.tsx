@@ -836,6 +836,33 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     toast.success(`已添加 ${newMech.name}`);
   }, [objects, project3DTo2D, currentView, productDimensions.width]);
 
+  const addProduct = useCallback(() => {
+    const productCount = objects.filter(o => o.type === 'product').length;
+    // Space additional products next to existing ones along Y so they don't overlap.
+    const defaultPosX = 0;
+    const defaultPosY = productCount === 0
+      ? 0
+      : (productCount % 2 === 0 ? 1 : -1) * Math.ceil(productCount / 2) * (productDimensions.width + 100);
+    const defaultPosZ = 0;
+    const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
+    const newProduct: LayoutObject = {
+      id: `product-${Date.now()}`,
+      type: 'product',
+      name: `产品${productCount + 1}`,
+      posX: defaultPosX, posY: defaultPosY, posZ: defaultPosZ,
+      x: canvasPos.x, y: canvasPos.y,
+      width: productDimensions.length, height: productDimensions.height,
+      rotation: 0, locked: false,
+      productLength: productDimensions.length,
+      productWidth: productDimensions.width,
+      productHeight: productDimensions.height,
+    };
+    setObjects(prev => [...prev, newProduct]);
+    setSelectedIds([newProduct.id]);
+    setShowPropertyPanel(true);
+    toast.success(`已添加 ${newProduct.name}`);
+  }, [objects, project3DTo2D, currentView, productDimensions]);
+
   // ========== Stage (save data only, no screenshots) ==========
   const handleStageLayout = useCallback(async () => {
     try {
