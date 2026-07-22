@@ -358,16 +358,31 @@ interface WorkstationSlideData {
     lighting_photos?: Array<{ url: string; remark?: string; created_at?: string }> | null;
   }>;
   annotations?: Array<{
+    asset_id?: string;
     snapshot_url: string;
     annotations_json: Array<{ labelNumber?: number; label?: string; number?: number; name?: string; category?: string; description?: string }>;
     remark?: string | null;
   }>;
   productAsset?: {
+    id?: string;
+    product_name?: string | null;
+    product_code?: string | null;
+    is_primary?: boolean;
     preview_images: Array<{ url: string; name?: string }> | null;
     detection_method?: string | null;
     product_models?: Array<{ name: string; spec: string }> | null;
     detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
   };
+  productAssets?: Array<{
+    id: string;
+    product_name?: string | null;
+    product_code?: string | null;
+    is_primary?: boolean;
+    preview_images: Array<{ url: string; name?: string }> | null;
+    detection_method?: string | null;
+    product_models?: Array<{ name: string; spec: string }> | null;
+    detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
+  }>;
   // NEW: Complete hardware data for detailed parameters
   hardware?: {
     cameras: FullCameraData[];
