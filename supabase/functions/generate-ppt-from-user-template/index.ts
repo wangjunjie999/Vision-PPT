@@ -1,4 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+import {
+  buildTemplateSlidePlan,
+} from "../_shared/templateGenerationScope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -116,7 +119,7 @@ async function generatePptxFromTemplate(zip: any, input: {
     sourceRels.set(slidePath, await readZipFile(zip, relsPathForSlide(slidePath)) || relationshipsXml(""));
   }
 
-  const plan = buildSlidePlan(sourceSlides, input.data, input.structureMeta, input.options);
+  const plan = buildTemplateSlidePlan(sourceSlides, input.data, input.structureMeta, input.options);
   const replacedFields = new Set<string>();
   const slideTypes: Array<{ index: number; type: string }> = [];
 
@@ -171,75 +174,6 @@ async function generatePptxFromTemplate(zip: any, input: {
     slideCount: plan.length,
     replacedFields: [...replacedFields],
     slideTypes,
-  };
-}
-
-function buildSlidePlan(sourceSlides: string[], data: any, structureMeta: any, options: any) {
-  const layoutMapping = structureMeta?.layoutMapping || {};
-  const mappings = Array.isArray(layoutMapping.mappings)
-    ? layoutMapping.mappings.filter((m: any) => m.enabled !== false)
-    : [];
-  const duplicate = options?.duplicateWorkstationSlides ?? layoutMapping.duplicateForEachWorkstation ?? true;
-  const preserveUnmapped = layoutMapping.preserveUnmappedSlides !== false;
-  const mappedByIndex = new Map<number, any>();
-  mappings.forEach((mapping: any) => mappedByIndex.set(Number(mapping.templateSlideIndex), mapping));
-
-  const workstations = Array.isArray(data.workstations) ? data.workstations : [];
-  const plan = [];
-
-  for (let sourceIndex = 0; sourceIndex < sourceSlides.length; sourceIndex++) {
-    const mapping = mappedByIndex.get(sourceIndex);
-
-    if (mapping && duplicate && workstations.length > 0) {
-      for (let wsIndex = 0; wsIndex < workstations.length; wsIndex++) {
-        plan.push({
-          sourceIndex,
-          slideType: mapping.slideType,
-          context: buildContext(data, workstations[wsIndex], wsIndex),
-        });
-      }
-      continue;
-    }
-
-    if (mapping && !duplicate) {
-      plan.push({
-        sourceIndex,
-        slideType: mapping.slideType,
-        context: buildContext(data, workstations[0], 0),
-      });
-      continue;
-    }
-
-    if (preserveUnmapped || mappings.length === 0) {
-      plan.push({
-        sourceIndex,
-        slideType: "unmapped",
-        context: buildContext(data),
-      });
-    }
-  }
-
-  return plan.length > 0 ? plan : sourceSlides.map((_, sourceIndex) => ({
-    sourceIndex,
-    slideType: "template",
-    context: buildContext(data),
-  }));
-}
-
-function buildContext(data: any, workstation?: any, workstationIndex = 0) {
-  const modules = workstation?.modules || data.modules?.filter((m: any) => m.workstation_id === workstation?.id) || [];
-  return {
-    project: data.project || {},
-    workstations: data.workstations || [],
-    workstation,
-    workstationIndex,
-    modules,
-    layout: workstation?.layout || null,
-    hardware: data.hardware || {},
-    productAsset: workstation?.product_asset || null,
-    productAnnotation: workstation?.product_annotation || null,
-    language: data.language || "zh",
-    generatedAt: new Date(),
   };
 }
 
@@ -339,10 +273,10 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     side_view_image: layout.side_view_image_url,
     top_view_image: layout.top_view_image_url,
     product_snapshot: context.productAnnotation?.snapshot_url,
-    schematic_image: context.modules?.[0]?.schematic_image_url,
+    schematic_image: (context.module || context.modules?.[0])?.schematic_image_url,
   };
 
-  const firstModule = context.modules?.[0] || null;
+  const firstModule = context.module || context.modules?.[0] || null;
   if (firstModule) {
     Object.assign(fields, buildModuleVisionChecklistTemplateFields({
       module: firstModule,
@@ -896,7 +830,7 @@ function resolveImageUrl(key: string, context: any): string | null {
   const layout = context.layout || {};
   const productAsset = context.productAsset || {};
   const productAnnotation = context.productAnnotation || {};
-  const firstModule = context.modules?.[0] || {};
+  const firstModule = context.module || context.modules?.[0] || {};
   const aliases: Record<string, string | null> = {
     front_view: layout.front_view_image_url,
     side_view: layout.side_view_image_url,

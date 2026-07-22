@@ -5,6 +5,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import type { GenerationScope } from '@/types/generation';
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -139,6 +140,7 @@ export interface TemplateGenerationResult {
 export interface TemplateGenerationOptions {
   templateId: string;
   data: TemplateGenerationData;
+  scope?: GenerationScope;
   outputFileName?: string;
   onProgress?: (message: string) => void;
   /** 是否为每个工位复制模板幻灯片 */
@@ -172,6 +174,7 @@ export async function generateFromUserTemplate(
     duplicateWorkstationSlides = false,
     workstationSlideMapping,
     fieldMappings,
+    scope = 'full',
   } = options;
   
   // 获取认证信息
@@ -203,6 +206,7 @@ export async function generateFromUserTemplate(
           duplicateWorkstationSlides,
           workstationSlideMapping,
           fieldMappings,
+          scope,
         },
       }),
     });

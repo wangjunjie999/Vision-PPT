@@ -1,6 +1,6 @@
 /**
  * LightingPhotosPanel - Upload and manage lighting effect photos for a module
- * Max 4 photos with remark support
+ * Supports unlimited photos with remark support
  */
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -36,46 +36,51 @@ export function LightingPhotosPanel({ moduleId, moduleName, initialPhotos, onSav
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const handleUpload = useCallback(async (files: File[]) => {
-    if (photos.length >= 4) {
-      toast.error('最多上传 4 张打光照片');
-      return;
-    }
-
     setUploading(true);
+    const newPhotos: LightingPhoto[] = [];
+    const failedFiles: string[] = [];
+
     try {
-      const remaining = 4 - photos.length;
-      const filesToUpload = files.slice(0, remaining);
-      const newPhotos: LightingPhoto[] = [];
-
-      for (const file of filesToUpload) {
+      for (const file of files) {
         const fileName = `lighting-${moduleId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${getSafeFileExtension(file.name, 'png')}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('module-schematics')
-          .upload(fileName, file, { contentType: file.type, upsert: true });
 
-        if (uploadError) throw uploadError;
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from('module-schematics')
+            .upload(fileName, file, { contentType: file.type, upsert: true });
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('module-schematics')
-          .getPublicUrl(fileName);
+          if (uploadError) throw uploadError;
 
-        newPhotos.push({
-          url: publicUrl,
-          remark: '',
-          created_at: new Date().toISOString(),
-        });
+          const { data: { publicUrl } } = supabase.storage
+            .from('module-schematics')
+            .getPublicUrl(fileName);
+
+          newPhotos.push({
+            url: publicUrl,
+            remark: '',
+            created_at: new Date().toISOString(),
+          });
+        } catch (error) {
+          failedFiles.push(file.name);
+          console.error(`Upload failed for ${file.name}:`, error);
+        }
       }
 
-      setPhotos(prev => [...prev, ...newPhotos]);
-      toast.success(`已上传 ${newPhotos.length} 张照片`);
-    } catch (error) {
-      console.error('Upload failed:', error);
-      toast.error('上传失败');
+      if (newPhotos.length > 0) {
+        setPhotos(prev => [...prev, ...newPhotos]);
+      }
+
+      if (failedFiles.length === 0) {
+        toast.success(`已上传 ${newPhotos.length} 张照片`);
+      } else if (newPhotos.length > 0) {
+        toast.warning(`成功上传 ${newPhotos.length} 张，失败 ${failedFiles.length} 张`);
+      } else {
+        toast.error(`上传失败，共 ${failedFiles.length} 张`);
+      }
     } finally {
       setUploading(false);
     }
-  }, [moduleId, photos.length]);
+  }, [moduleId]);
 
   const handleRemarkChange = useCallback((index: number, remark: string) => {
     setPhotos(prev => prev.map((p, i) => i === index ? { ...p, remark } : p));
@@ -103,26 +108,25 @@ export function LightingPhotosPanel({ moduleId, moduleName, initialPhotos, onSav
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium">{moduleName} - 打光照片</h4>
-          <p className="text-xs text-muted-foreground">上传实拍打光效果照片，最多 4 张</p>
+          <p className="text-xs text-muted-foreground">上传实拍打光效果照片，不限制总张数</p>
         </div>
-        <Button onClick={handleSave} disabled={saving} size="sm" className="gap-2">
+        <Button onClick={handleSave} disabled={saving || uploading} size="sm" className="gap-2">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           保存
         </Button>
       </div>
 
       {/* Upload area */}
-      {photos.length < 4 && (
-        <DragDropUpload
-          onUpload={handleUpload}
-          accept="image/*"
-          multiple
-          maxFiles={4 - photos.length}
-          maxSize={10}
-          disabled={uploading}
-          showPreview={false}
-        />
-      )}
+      <DragDropUpload
+        onUpload={handleUpload}
+        accept="image/*"
+        multiple
+        maxFiles={null}
+        maxSize={10}
+        disabled={uploading}
+        showPreview={false}
+        hint="支持批量上传，单张不超过 10MB，不限制总张数"
+      />
 
       {/* Photo grid */}
       {photos.length > 0 && (
@@ -133,6 +137,8 @@ export function LightingPhotosPanel({ moduleId, moduleName, initialPhotos, onSav
                 <img
                   src={photo.url}
                   alt={photo.remark || `打光照片 ${index + 1}`}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">

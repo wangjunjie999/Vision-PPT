@@ -332,7 +332,7 @@ interface WorkstationSlideData {
     selected_cameras?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
     selected_lenses?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
     selected_lights?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-    selected_controller?: { id: string; brand: string; model: string; image_url?: string | null; gpu?: string | null } | null;
+    selected_controller?: { id: string; brand: string; model: string; image_url?: string | null } | null;
   } | null;
   modules: Array<{
     id: string;
@@ -1387,10 +1387,7 @@ export function generateBOMSlide(
 
   // Controller
   if (layout?.selected_controller) {
-    const ipc = layout.selected_controller;
-    const gpu = typeof ipc.gpu === 'string' ? ipc.gpu.trim() : '';
-    const remark = gpu ? (ctx.isZh ? `含GPU: ${gpu}` : `w/ GPU: ${gpu}`) : '';
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工控机' : 'IPC', `${ipc.brand} ${ipc.model}`, '1', 'TBD', remark]));
+    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工控机' : 'IPC', `${layout.selected_controller.brand} ${layout.selected_controller.model}`, '1', 'TBD', ctx.isZh ? '含GPU' : 'w/ GPU']));
   }
 
   if (bomRows.length === 0) {
@@ -1731,9 +1728,15 @@ export async function generateModuleOpticalSlide(
   });
 }
 
+export const LIGHTING_PHOTOS_PER_SLIDE = 2;
+
+export function getLightingPhotoSlideCount(photoCount: number): number {
+  return Math.ceil(Math.max(0, Math.floor(photoCount)) / LIGHTING_PHOTOS_PER_SLIDE);
+}
+
 /**
- * Slide: Lighting Photos (打光照片)
- * Dynamic layout: 1 centered, 2 side-by-side, 3-4 in 2×2 grid
+ * Slides: Lighting Photos (打光照片)
+ * At most two photos per slide; an odd final photo is centered.
  */
 export async function generateLightingPhotosSlide(
   ctx: SlideContext,
@@ -1744,58 +1747,54 @@ export async function generateLightingPhotosSlide(
   const photos = mod.lighting_photos || [];
   if (photos.length === 0) return;
 
-  const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const subtitle = `${mod.name} - ${ctx.isZh ? '打光照片' : 'Lighting Photos'}`;
-  addSlideTitle(slide, ctx, subtitle);
-
-  const count = photos.length;
-
-  // Layout configurations
   const layouts: Record<number, Array<{ x: number; y: number; width: number; height: number }>> = {
     1: [{ x: 1.5, y: 1.2, width: 7, height: 3.8 }],
     2: [
       { x: 0.3, y: 1.2, width: 4.5, height: 3.5 },
       { x: 5.2, y: 1.2, width: 4.5, height: 3.5 },
     ],
-    3: [
-      { x: 0.3, y: 1.1, width: 4.5, height: 2.2 },
-      { x: 5.2, y: 1.1, width: 4.5, height: 2.2 },
-      { x: 0.3, y: 3.5, width: 4.5, height: 2.2 },
-    ],
-    4: [
-      { x: 0.3, y: 1.1, width: 4.5, height: 2.2 },
-      { x: 5.2, y: 1.1, width: 4.5, height: 2.2 },
-      { x: 0.3, y: 3.5, width: 4.5, height: 2.2 },
-      { x: 5.2, y: 3.5, width: 4.5, height: 2.2 },
-    ],
   };
+  const pageCount = getLightingPhotoSlideCount(photos.length);
 
-  const positions = layouts[Math.min(count, 4)] || layouts[4];
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+    const pagePhotos = photos.slice(
+      pageIndex * LIGHTING_PHOTOS_PER_SLIDE,
+      (pageIndex + 1) * LIGHTING_PHOTOS_PER_SLIDE,
+    );
+    const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    const baseSubtitle = `${mod.name} - ${ctx.isZh ? '打光照片' : 'Lighting Photos'}`;
+    const pageSuffix = pageCount > 1
+      ? ctx.isZh
+        ? `（${pageIndex + 1}/${pageCount}）`
+        : ` (${pageIndex + 1}/${pageCount})`
+      : '';
+    addSlideTitle(slide, ctx, `${baseSubtitle}${pageSuffix}`);
 
-  for (let i = 0; i < Math.min(count, 4); i++) {
-    const photo = photos[i];
-    const pos = positions[i];
+    const positions = layouts[pagePhotos.length];
 
-    try {
-      const dataUri = await fetchImageAsDataUri(photo.url);
-      if (dataUri) {
-        const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
-        const fit = calculateContainFit(dims.width, dims.height, pos);
-        slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
-      } else {
+    for (let photoIndex = 0; photoIndex < pagePhotos.length; photoIndex++) {
+      const photo = pagePhotos[photoIndex];
+      const pos = positions[photoIndex];
+
+      try {
+        const dataUri = await fetchImageAsDataUri(photo.url);
+        if (dataUri) {
+          const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
+          const fit = calculateContainFit(dims.width, dims.height, pos);
+          slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
+        } else {
+          addImagePlaceholder(slide, pos, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
+        }
+      } catch {
         addImagePlaceholder(slide, pos, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
       }
-    } catch {
-      addImagePlaceholder(slide, pos, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
-    }
 
-    // Remark text below image
-    if (photo.remark) {
-      const remarkY = count <= 2 ? pos.y + pos.height + 0.05 : pos.y + pos.height + 0.02;
-      slide.addText(photo.remark, {
-        x: pos.x, y: remarkY, w: pos.width, h: 0.2,
-        fontSize: 8, fontFace: FONTS.body, color: COLORS.secondary, align: 'center',
-      });
+      if (photo.remark) {
+        slide.addText(photo.remark, {
+          x: pos.x, y: pos.y + pos.height + 0.05, w: pos.width, h: 0.2,
+          fontSize: 8, fontFace: FONTS.body, color: COLORS.secondary, align: 'center',
+        });
+      }
     }
   }
 }

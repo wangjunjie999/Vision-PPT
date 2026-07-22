@@ -10,6 +10,7 @@ import {
   generateLayoutAndOpticalSlide,
   generateModuleOpticalSlide,
   generateLightingPhotosSlide,
+  getLightingPhotoSlideCount,
   generateBOMSlide,
 } from './pptx/workstationSlides';
 import {
@@ -298,7 +299,7 @@ function getModuleTocPageCount(moduleCount: number): number {
   return Math.max(1, Math.ceil(moduleCount / TOC_ITEMS_PER_PAGE));
 }
 
-function buildModuleTocEntries(
+export function buildModuleTocEntries(
   projectCode: string,
   workstations: WorkstationData[],
   modules: ModuleData[],
@@ -334,8 +335,8 @@ function buildModuleTocEntries(
       });
 
       nextSlideNumber += 1; // Module optical page.
-      if (!isDraft && Array.isArray((mod as any).lighting_photos) && (mod as any).lighting_photos.length > 0) {
-        nextSlideNumber += 1;
+      if (!isDraft && Array.isArray((mod as any).lighting_photos)) {
+        nextSlideNumber += getLightingPhotoSlideCount((mod as any).lighting_photos.length);
       }
     }
 

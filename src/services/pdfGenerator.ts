@@ -8,6 +8,7 @@ import type { jsPDF } from 'jspdf';
 import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import { formatWorkstationCycleTime, formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
+import type { GenerationScope } from '@/types/generation';
 
 // ==================== DATA INTERFACES ====================
 
@@ -303,6 +304,7 @@ interface HardwareData {
 interface GenerationOptions {
   language: 'zh' | 'en';
   includeImages?: boolean;
+  scope?: GenerationScope;
 }
 
 type ProgressCallback = (progress: number, step: string, log: string) => void;
@@ -714,6 +716,7 @@ export async function generatePDF(
 ): Promise<Blob> {
   const isZh = options.language === 'zh';
   const includeImages = options.includeImages !== false;
+  const isModuleScope = options.scope === 'modules';
   
   onProgress?.(5, isZh ? '初始化PDF文档' : 'Initializing PDF document', '');
 
@@ -768,19 +771,35 @@ export async function generatePDF(
   // 动态生成目录
   const tocItems: Array<{ num: string; title: string; level: number }> = [
     { num: '1', title: isZh ? '项目概述' : 'Project Overview', level: 0 },
-    { num: '2', title: isZh ? '工作站配置与功能模块' : 'Workstation Configuration & Modules', level: 0 },
+    {
+      num: '2',
+      title: isModuleScope
+        ? (isZh ? '模块参数详情' : 'Module Parameter Details')
+        : (isZh ? '工作站配置与功能模块' : 'Workstation Configuration & Modules'),
+      level: 0,
+    },
   ];
-  
-  // 添加各工作站及其模块到目录
-  workstations.forEach((ws, wsIdx) => {
-    tocItems.push({ num: `2.${wsIdx + 1}`, title: `${ws.code || ''} ${ws.name}`, level: 1 });
-    const wsMods = modules.filter(m => m.workstation_id === ws.id);
-    wsMods.forEach((mod, modIdx) => {
-      tocItems.push({ num: `2.${wsIdx + 1}.${modIdx + 1}`, title: mod.name, level: 2 });
+
+  if (isModuleScope) {
+    modules.forEach((mod, modIdx) => {
+      const parent = workstations.find(ws => ws.id === mod.workstation_id);
+      tocItems.push({
+        num: `2.${modIdx + 1}`,
+        title: parent ? `${mod.name} (${parent.name})` : mod.name,
+        level: 1,
+      });
     });
-  });
-  
-  tocItems.push({ num: '3', title: isZh ? '硬件清单' : 'Hardware List', level: 0 });
+  } else {
+    // 添加各工作站及其模块到目录
+    workstations.forEach((ws, wsIdx) => {
+      tocItems.push({ num: `2.${wsIdx + 1}`, title: `${ws.code || ''} ${ws.name}`, level: 1 });
+      const wsMods = modules.filter(m => m.workstation_id === ws.id);
+      wsMods.forEach((mod, modIdx) => {
+        tocItems.push({ num: `2.${wsIdx + 1}.${modIdx + 1}`, title: mod.name, level: 2 });
+      });
+    });
+    tocItems.push({ num: '3', title: isZh ? '硬件清单' : 'Hardware List', level: 0 });
+  }
 
   tocItems.forEach((item) => {
     const indent = item.level * 10;
@@ -861,48 +880,66 @@ export async function generatePDF(
     helper.addTable(revHeaders, revRows, [25, 35, 40, 80]);
   }
 
-  // ==================== 2. 工作站配置与功能模块（按层级结构） ====================
+  // ==================== 2. 范围内容 ====================
   pdf.addPage();
   helper.y = margin;
-  onProgress?.(25, isZh ? '生成工作站配置' : 'Creating workstation configuration', '');
+  onProgress?.(
+    25,
+    isModuleScope
+      ? (isZh ? '生成模块参数' : 'Creating module details')
+      : (isZh ? '生成工作站配置' : 'Creating workstation configuration'),
+    '',
+  );
 
-  helper.addSectionTitle(isZh ? '工作站配置与功能模块' : 'Workstation Configuration & Modules');
+  helper.addSectionTitle(isModuleScope
+    ? (isZh ? '模块参数详情' : 'Module Parameter Details')
+    : (isZh ? '工作站配置与功能模块' : 'Workstation Configuration & Modules'));
   helper.addSpace(5);
 
-  // 工作站汇总表
-  helper.addSubtitle(isZh ? '工作站汇总' : 'Workstation Summary');
-  const wsHeaders = isZh 
-    ? ['编号', '名称', '类型', '工位节拍(s)', '模块数']
-    : ['Code', 'Name', 'Type', 'Station Cycle(s)', 'Modules'];
-  
-  const wsRows = workstations.map(ws => {
-    const modCount = modules.filter(m => m.workstation_id === ws.id).length;
-    return [
-      ws.code || '—',
-      ws.name,
-      WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type || '—',
-      formatWorkstationCycleTimePlain(ws, '—'),
-      String(modCount),
-    ];
-  });
+  if (!isModuleScope) {
+    // 工作站汇总表
+    helper.addSubtitle(isZh ? '工作站汇总' : 'Workstation Summary');
+    const wsHeaders = isZh
+      ? ['编号', '名称', '类型', '工位节拍(s)', '模块数']
+      : ['Code', 'Name', 'Type', 'Station Cycle(s)', 'Modules'];
 
-  helper.addTable(wsHeaders, wsRows, [30, 55, 35, 25, 25]);
-  helper.addSpace(10);
+    const wsRows = workstations.map(ws => {
+      const modCount = modules.filter(m => m.workstation_id === ws.id).length;
+      return [
+        ws.code || '—',
+        ws.name,
+        WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type || '—',
+        formatWorkstationCycleTimePlain(ws, '—'),
+        String(modCount),
+      ];
+    });
+
+    helper.addTable(wsHeaders, wsRows, [30, 55, 35, 25, 25]);
+    helper.addSpace(10);
+  }
 
   // ==================== 遍历每个工作站及其功能模块 ====================
   const sectionNum = helper.getSectionNumber();
+  let moduleSequence = 0;
   
   for (let wsIdx = 0; wsIdx < workstations.length; wsIdx++) {
     const ws = workstations[wsIdx];
     const layout = layouts.find(l => l.workstation_id === ws.id);
     const wsMods = modules.filter(m => m.workstation_id === ws.id);
     
-    const progressValue = 25 + (wsIdx / workstations.length) * 55;
-    onProgress?.(progressValue, isZh ? `生成工作站: ${ws.name}` : `Creating workstation: ${ws.name}`, '');
+    const progressValue = 25 + (wsIdx / Math.max(workstations.length, 1)) * 55;
+    onProgress?.(
+      progressValue,
+      isModuleScope
+        ? (isZh ? `生成模块: ${ws.name}` : `Creating modules: ${ws.name}`)
+        : (isZh ? `生成工作站: ${ws.name}` : `Creating workstation: ${ws.name}`),
+      '',
+    );
 
-    // ========== 工作站新页 ==========
-    pdf.addPage();
-    helper.y = margin;
+    if (!isModuleScope) {
+      // ========== 工作站新页 ==========
+      pdf.addPage();
+      helper.y = margin;
 
     helper.addSubsectionTitle(sectionNum, wsIdx + 1, `${ws.code || ''} ${ws.name}`);
     helper.addSpace(3);
@@ -1095,8 +1132,8 @@ export async function generatePDF(
       }
     }
 
-    // 产品标注图
-    if (includeImages && productAssets && productAnnotations) {
+      // 产品标注图
+      if (includeImages && productAssets && productAnnotations) {
       const wsAssets = productAssets.filter(a => a.workstation_id === ws.id && a.scope_type === 'workstation');
       
       if (wsAssets.length > 0) {
@@ -1121,6 +1158,13 @@ export async function generatePDF(
           }
         }
       }
+      }
+    } else {
+      // 模块范围只保留父工位归属，不输出工位配置、布局和工位图片。
+      pdf.addPage();
+      helper.y = margin;
+      helper.addSubtitle(`${ws.code || ''} ${ws.name}`.trim());
+      helper.addSpace(3);
     }
 
     // ========== 该工作站下的功能模块（紧跟在工作站后面） ==========
@@ -1145,11 +1189,14 @@ export async function generatePDF(
       // 每个模块的详细信息
       for (let modIdx = 0; modIdx < wsMods.length; modIdx++) {
         const mod = wsMods[modIdx];
+        moduleSequence++;
         
         helper.addNewPageIfNeeded(60);
         
         // 模块标题（三级标题）- 12pt
-        const modTitle = `${sectionNum}.${wsIdx + 1}.${modIdx + 1} ${mod.name}`;
+        const modTitle = isModuleScope
+          ? `${sectionNum}.${moduleSequence} ${mod.name}`
+          : `${sectionNum}.${wsIdx + 1}.${modIdx + 1} ${mod.name}`;
         const { height: modTitleHeight } = helper.addTextImage(modTitle, margin, 12, 'bold', '#4a5568');
         helper.y += Math.max(modTitleHeight, 10) + 5;
         
@@ -1515,13 +1562,14 @@ export async function generatePDF(
     }
   }
 
-  // ==================== 3. 硬件清单 ====================
-  pdf.addPage();
-  helper.y = margin;
-  onProgress?.(85, isZh ? '生成硬件清单' : 'Creating hardware list', '');
+  if (!isModuleScope) {
+    // ==================== 3. 硬件清单 ====================
+    pdf.addPage();
+    helper.y = margin;
+    onProgress?.(85, isZh ? '生成硬件清单' : 'Creating hardware list', '');
 
-  helper.addSectionTitle(isZh ? '硬件清单' : 'Hardware List');
-  helper.addSpace(5);
+    helper.addSectionTitle(isZh ? '硬件清单' : 'Hardware List');
+    helper.addSpace(5);
 
   // 相机
   if (hardware.cameras.length > 0) {
@@ -1566,7 +1614,7 @@ export async function generatePDF(
   }
 
   // 控制器
-  if (hardware.controllers.length > 0) {
+    if (hardware.controllers.length > 0) {
     helper.addNewPageIfNeeded(40);
     helper.addSubtitle(isZh ? '控制器列表' : 'Controller List');
     const ctrlHeaders = isZh 
@@ -1574,6 +1622,7 @@ export async function generatePDF(
       : ['Brand', 'Model', 'CPU', 'Memory', 'Storage', 'Performance'];
     const ctrlRows = hardware.controllers.map(c => [c.brand, c.model, c.cpu, c.memory, c.storage, c.performance]);
     helper.addTable(ctrlHeaders, ctrlRows, [25, 35, 35, 25, 25, 25]);
+    }
   }
 
   // ==================== 4. 附录：额外字段 ====================
@@ -1587,8 +1636,8 @@ export async function generatePDF(
   };
 
   const projectHasExtra = hasExtraFields(project);
-  const wsWithExtra = workstations.filter(ws => hasExtraFields(ws));
-  const layoutsWithExtra = layouts.filter(l => hasExtraFields(l));
+  const wsWithExtra = isModuleScope ? [] : workstations.filter(ws => hasExtraFields(ws));
+  const layoutsWithExtra = isModuleScope ? [] : layouts.filter(l => hasExtraFields(l));
   const modulesWithExtra = modules.filter(m => hasExtraFields(m));
 
   if (projectHasExtra || wsWithExtra.length > 0 || layoutsWithExtra.length > 0 || modulesWithExtra.length > 0) {

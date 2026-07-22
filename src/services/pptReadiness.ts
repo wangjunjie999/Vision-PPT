@@ -1,4 +1,5 @@
 import type { Database } from '@/integrations/supabase/types';
+import type { GenerationScope } from '@/types/generation';
 import { hasCurrentSchematicLayoutSignature } from '@/utils/schematicImageSignature';
 import {
   getActiveModuleConfig,
@@ -13,7 +14,6 @@ type DbModule = Database['public']['Tables']['function_modules']['Row'];
 
 export type OutputFormat = 'ppt' | 'pdf' | 'word';
 export type GenerationMode = 'draft' | 'final';
-export type GenerationScope = 'full' | 'workstations' | 'modules';
 
 export interface MissingItem {
   level: 'project' | 'workstation' | 'module' | 'layout';

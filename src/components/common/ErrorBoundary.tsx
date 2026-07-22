@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Copy, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { isDynamicImportLoadError } from './dynamicImportError';
 
 interface ErrorBoundaryContext {
   projectId?: string;
@@ -57,6 +58,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   handleReset = (): void => {
+    // React.lazy caches a rejected import promise. Merely resetting this error
+    // boundary renders the same rejected promise again, so chunk/module load
+    // failures need a real page reload to rebuild the browser module graph.
+    if (isDynamicImportLoadError(this.state.error) && typeof window !== 'undefined') {
+      window.location.reload();
+      return;
+    }
+
     this.setState({
       hasError: false,
       error: null,

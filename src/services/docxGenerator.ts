@@ -17,6 +17,7 @@ import {
 import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import { formatWorkstationCycleTime, formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
+import type { GenerationScope } from '@/types/generation';
 
 // ==================== DATA INTERFACES ====================
 
@@ -174,6 +175,7 @@ interface HardwareData {
 interface GenerationOptions {
   language: 'zh' | 'en';
   includeImages?: boolean;
+  scope?: GenerationScope;
 }
 
 // Image fetching utilities
@@ -369,6 +371,7 @@ export async function generateDOCX(
 ): Promise<Blob> {
   const isZh = options.language === 'zh';
   const includeImages = options.includeImages !== false; // default to true
+  const isModuleScope = options.scope === 'modules';
   const sections: (Paragraph | Table)[] = [];
   
   onProgress?.(5, isZh ? '开始生成文档' : 'Starting document generation', '');
@@ -455,13 +458,14 @@ export async function generateDOCX(
     );
   }
 
-  onProgress?.(30, isZh ? '生成工作站详情' : 'Generating workstation details', '');
+  if (!isModuleScope) {
+    onProgress?.(30, isZh ? '生成工作站详情' : 'Generating workstation details', '');
 
-  // ==================== WORKSTATIONS ====================
-  sections.push(
-    new Paragraph({ text: '', spacing: { before: 200 } }),
-    createHeading(isZh ? '2. 工作站配置' : '2. Workstation Configuration'),
-  );
+    // ==================== WORKSTATIONS ====================
+    sections.push(
+      new Paragraph({ text: '', spacing: { before: 200 } }),
+      createHeading(isZh ? '2. 工作站配置' : '2. Workstation Configuration'),
+    );
 
   // Workstation summary table
   const wsHeaders = isZh 
@@ -655,6 +659,7 @@ export async function generateDOCX(
 
       sections.push(createTableFromData(modHeaders, modRows));
     }
+    }
   }
 
   onProgress?.(60, isZh ? '生成模块参数' : 'Generating module parameters', '');
@@ -662,7 +667,9 @@ export async function generateDOCX(
   // ==================== MODULE DETAILS ====================
   sections.push(
     new Paragraph({ text: '', spacing: { before: 200 } }),
-    createHeading(isZh ? '3. 模块参数详情' : '3. Module Parameter Details'),
+    createHeading(isZh
+      ? `${isModuleScope ? '2' : '3'}. 模块参数详情`
+      : `${isModuleScope ? '2' : '3'}. Module Parameter Details`),
   );
 
   for (let idx = 0; idx < modules.length; idx++) {
@@ -672,7 +679,7 @@ export async function generateDOCX(
 
     sections.push(
       new Paragraph({ text: '', spacing: { before: 150 } }),
-      createHeading(`3.${idx + 1} ${mod.name} (${typeLabel})`, HeadingLevel.HEADING_2),
+      createHeading(`${isModuleScope ? '2' : '3'}.${idx + 1} ${mod.name} (${typeLabel})`, HeadingLevel.HEADING_2),
       createLabelValue(isZh ? '所属工作站' : 'Workstation', ws ? `${ws.code} - ${ws.name}` : '-'),
       createLabelValue(isZh ? '触发方式' : 'Trigger Type', TRIGGER_LABELS[mod.trigger_type || '']?.[isZh ? 'zh' : 'en'] || mod.trigger_type || '-'),
       createLabelValue(isZh ? 'ROI策略' : 'ROI Strategy', mod.roi_strategy || '-'),
@@ -841,13 +848,14 @@ export async function generateDOCX(
     }
   }
 
-  onProgress?.(80, isZh ? '生成硬件清单' : 'Generating hardware list', '');
+  if (!isModuleScope) {
+    onProgress?.(80, isZh ? '生成硬件清单' : 'Generating hardware list', '');
 
-  // ==================== HARDWARE LIST ====================
-  sections.push(
-    new Paragraph({ text: '', spacing: { before: 200 } }),
-    createHeading(isZh ? '4. 硬件设备清单' : '4. Hardware Equipment List'),
-  );
+    // ==================== HARDWARE LIST ====================
+    sections.push(
+      new Paragraph({ text: '', spacing: { before: 200 } }),
+      createHeading(isZh ? '4. 硬件设备清单' : '4. Hardware Equipment List'),
+    );
 
   // Cameras
   if (hardware.cameras.length > 0) {
@@ -894,7 +902,7 @@ export async function generateDOCX(
   }
 
   // Controllers
-  if (hardware.controllers.length > 0) {
+    if (hardware.controllers.length > 0) {
     sections.push(
       new Paragraph({ text: '', spacing: { before: 150 } }),
       createHeading(isZh ? '4.4 工控机' : '4.4 Controllers', HeadingLevel.HEADING_2),
@@ -906,6 +914,7 @@ export async function generateDOCX(
       c.brand, c.model, c.cpu, c.gpu || '-', c.memory, c.storage
     ]);
     sections.push(createTableFromData(ctrlHeaders, ctrlRows));
+    }
   }
 
   // ==================== APPENDIX: EXTRA FIELDS ====================
@@ -918,14 +927,16 @@ export async function generateDOCX(
   };
 
   const projectHasExtra = hasExtraFields(project);
-  const wsWithExtra = workstations.filter(ws => hasExtraFields(ws));
-  const layoutsWithExtra = layouts.filter(l => hasExtraFields(l));
+  const wsWithExtra = isModuleScope ? [] : workstations.filter(ws => hasExtraFields(ws));
+  const layoutsWithExtra = isModuleScope ? [] : layouts.filter(l => hasExtraFields(l));
   const modulesWithExtra = modules.filter(m => hasExtraFields(m));
 
   if (projectHasExtra || wsWithExtra.length > 0 || layoutsWithExtra.length > 0 || modulesWithExtra.length > 0) {
     sections.push(
       new Paragraph({ text: '', spacing: { before: 300 } }),
-      createHeading(isZh ? '5. 附录：补充字段' : '5. Appendix: Additional Fields'),
+      createHeading(isZh
+        ? `${isModuleScope ? '3' : '5'}. 附录：补充字段`
+        : `${isModuleScope ? '3' : '5'}. Appendix: Additional Fields`),
     );
 
     // Project extra fields

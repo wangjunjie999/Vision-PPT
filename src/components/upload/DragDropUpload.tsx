@@ -15,7 +15,8 @@ export interface DragDropUploadProps {
   accept?: string;
   multiple?: boolean;
   maxSize?: number; // in MB
-  maxFiles?: number;
+  /** Maximum files per selection. Use `null` for no application-level limit. */
+  maxFiles?: number | null;
   disabled?: boolean;
   className?: string;
   children?: ReactNode;
@@ -107,7 +108,12 @@ export function DragDropUpload({
         setError('一次只能上传一个文件');
         return;
       }
-      const filesToProcess = Array.from(fileList).slice(0, multiple ? maxFiles : 1);
+      const selectedFiles = Array.from(fileList);
+      const filesToProcess = multiple
+        ? maxFiles === null
+          ? selectedFiles
+          : selectedFiles.slice(0, maxFiles)
+        : selectedFiles.slice(0, 1);
 
       for (const file of filesToProcess) {
         const validationError = validateFile(file);
@@ -116,18 +122,23 @@ export function DragDropUpload({
           continue;
         }
         let preview: string | null = null;
-        if (file.type.startsWith('image/')) preview = URL.createObjectURL(file);
+        if (showPreview && file.type.startsWith('image/')) preview = URL.createObjectURL(file);
         newFiles.push({ file, preview });
       }
 
       setError(errors.length > 0 ? errors.join('\n') : null);
 
       if (newFiles.length > 0) {
-        if (multiple) {
-          setFiles((prev) => [...prev, ...newFiles].slice(0, maxFiles));
-        } else {
-          files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
-          setFiles(newFiles);
+        if (showPreview) {
+          if (multiple) {
+            setFiles((prev) => {
+              const combined = [...prev, ...newFiles];
+              return maxFiles === null ? combined : combined.slice(0, maxFiles);
+            });
+          } else {
+            files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
+            setFiles(newFiles);
+          }
         }
         try {
           if (externalUploading === undefined) setInternalUploading(true);
@@ -137,7 +148,7 @@ export function DragDropUpload({
         }
       }
     },
-    [files, maxFiles, multiple, onUpload, validateFile, externalUploading]
+    [files, maxFiles, multiple, onUpload, validateFile, externalUploading, showPreview]
   );
 
   const handleDragEnter = useCallback(
@@ -432,7 +443,7 @@ export function DragDropUpload({
                 {hint || (
                   <>
                     支持 {acceptHint} · 最大 {maxSize}MB
-                    {multiple && ` · 最多 ${maxFiles} 个`}
+                    {multiple && (maxFiles === null ? ' · 不限制数量' : ` · 最多 ${maxFiles} 个`)}
                   </>
                 )}
               </p>

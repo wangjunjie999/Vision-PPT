@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generatePPTX } from '@/services/pptxGenerator';
+import { getLightingPhotoSlideCount } from '@/services/pptx/workstationSlides';
 import { generateFromUserTemplate, downloadGeneratedFile } from '@/services/templateBasedGenerator';
 import { generateDOCX } from '@/services/docxGenerator';
 import { generatePDF } from '@/services/pdfGenerator';
@@ -59,6 +60,7 @@ import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { buildModuleVisionChecklistTemplateFields } from '@/utils/moduleVisionChecklist';
 import {
   deriveScopedGenerationData,
+  deriveScopedMedia,
   getScopeSelectionPrompt,
   hasRequiredScopeSelection,
   type GenerationScope,
@@ -83,6 +85,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     workstations: allWorkstations,
     modules: allModules,
     layouts: allLayouts,
+    loading: dataLoading,
     getProjectWorkstations,
     getWorkstationModules,
     selectWorkstation,
@@ -110,6 +113,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const [scope, setScope] = useState<GenerationScope>('full');
   const [selectedWorkstations, setSelectedWorkstations] = useState<string[]>([]);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  const selectionInitializationRef = useRef<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [language, setLanguage] = useState<OutputLanguage>('zh');
   const [quality, setQuality] = useState<ImageQuality>(pptImageQuality);
@@ -173,12 +177,23 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
   // Get current project and workstations
   const project = projects.find(p => p.id === selectedProjectId);
-  const projectWorkstations = selectedProjectId ? getProjectWorkstations(selectedProjectId) : [];
+  const projectWorkstations = useMemo(
+    () => selectedProjectId ? getProjectWorkstations(selectedProjectId) : [],
+    [selectedProjectId, getProjectWorkstations],
+  );
 
-  const projectModules = useMemo(() => {
-    const projectWsIds = new Set(projectWorkstations.map(ws => ws.id));
-    return allModules.filter(mod => projectWsIds.has(mod.workstation_id));
-  }, [projectWorkstations, allModules]);
+  const projectModules = useMemo(
+    () => projectWorkstations.flatMap(ws => getWorkstationModules(ws.id)),
+    [projectWorkstations, getWorkstationModules],
+  );
+
+  const modulesByWorkstation = useMemo(() => {
+    const grouped = new Map<string, typeof projectModules>();
+    projectWorkstations.forEach(ws => {
+      grouped.set(ws.id, projectModules.filter(mod => mod.workstation_id === ws.id));
+    });
+    return grouped;
+  }, [projectWorkstations, projectModules]);
 
   const scopedSelection = useMemo(() => {
     return deriveScopedGenerationData({
@@ -193,30 +208,18 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
   const hasRequiredSelection = hasRequiredScopeSelection(scope, scopedSelection);
   const selectionPrompt = getScopeSelectionPrompt(scope);
+  const selectionOptionCount = scope === 'workstations'
+    ? projectWorkstations.length
+    : projectModules.length;
 
-  const scopedProductAssets = useMemo(() => {
-    const wsIds = new Set(scopedSelection.workstations.map(ws => ws.id));
-    const modIds = new Set(scopedSelection.modules.map(mod => mod.id));
-    return productAssets.filter(asset => {
-      if (asset.scope_type === 'module') {
-        return Boolean(asset.module_id && modIds.has(asset.module_id));
-      }
-      return Boolean(asset.workstation_id && wsIds.has(asset.workstation_id));
-    });
-  }, [productAssets, scopedSelection]);
-
-  const scopedAnnotations = useMemo(() => {
-    const wsIds = new Set(scopedSelection.workstations.map(ws => ws.id));
-    const modIds = new Set(scopedSelection.modules.map(mod => mod.id));
-    const assetIds = new Set(scopedProductAssets.map(asset => asset.id));
-    return annotations.filter(annotation => {
-      if (assetIds.has(annotation.asset_id)) return true;
-      if (annotation.scope_type === 'module') {
-        return Boolean(annotation.module_id && modIds.has(annotation.module_id));
-      }
-      return Boolean(annotation.workstation_id && wsIds.has(annotation.workstation_id));
-    });
-  }, [annotations, scopedSelection, scopedProductAssets]);
+  const scopedMedia = useMemo(() => deriveScopedMedia({
+    scope,
+    scoped: scopedSelection,
+    productAssets,
+    annotations,
+  }), [scope, scopedSelection, productAssets, annotations]);
+  const scopedProductAssets = scopedMedia.productAssets;
+  const scopedAnnotations = scopedMedia.annotations;
 
   // Check generation readiness using pptReadiness service
   const readinessResult = useMemo(() => {
@@ -284,19 +287,29 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     }
   }, [open, project?.template_id, defaultTemplate, selectedTemplateId, templates]);
 
-  // Initialize selected items when project/dialog changes
+  // Initialize once per dialog opening/project. Subsequent renders must preserve
+  // the user's explicit checkbox changes.
   useEffect(() => {
-    if (selectedProjectId && open) {
-      const wsIds = projectWorkstations.map(ws => ws.id);
-      setSelectedWorkstations(wsIds);
-      
-      const modIds: string[] = [];
-      projectWorkstations.forEach(ws => {
-        getWorkstationModules(ws.id).forEach(m => modIds.push(m.id));
-      });
-      setSelectedModules(modIds);
+    if (!open) {
+      selectionInitializationRef.current = null;
+      return;
     }
-  }, [selectedProjectId, open, projectWorkstations, getWorkstationModules]);
+    if (!selectedProjectId || dataLoading || selectionInitializationRef.current === selectedProjectId) return;
+
+    setSelectedWorkstations(projectWorkstations.map(ws => ws.id));
+    setSelectedModules(projectModules.map(mod => mod.id));
+    selectionInitializationRef.current = selectedProjectId;
+  }, [open, selectedProjectId, dataLoading, projectWorkstations, projectModules]);
+
+  // Drop stale IDs if the project data changes while the dialog is open. New
+  // entities are not auto-selected after initialization, so manual choices stay intact.
+  useEffect(() => {
+    if (!open || !selectedProjectId || selectionInitializationRef.current !== selectedProjectId) return;
+    const validWorkstationIds = new Set(projectWorkstations.map(ws => ws.id));
+    const validModuleIds = new Set(projectModules.map(mod => mod.id));
+    setSelectedWorkstations(previous => previous.filter(id => validWorkstationIds.has(id)));
+    setSelectedModules(previous => previous.filter(id => validModuleIds.has(id)));
+  }, [open, selectedProjectId, projectWorkstations, projectModules]);
 
   // Use refs to avoid infinite loop in the fetch effect below
   const projectWorkstationsRef = useRef(projectWorkstations);
@@ -484,6 +497,29 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           label: `${mod.name} - 示意图`,
         });
       }
+    });
+
+    // Product previews and annotation snapshots must follow the same scoped
+    // selection as report generation.
+    scopedProductAssets.forEach(asset => {
+      (asset.preview_images || []).forEach((image, index) => {
+        if (!image.url) return;
+        itemsToCache.push({
+          type: 'product',
+          relatedId: `${asset.id}:${index}`,
+          url: image.url,
+          label: `产品图片 ${index + 1}`,
+        });
+      });
+    });
+    scopedAnnotations.forEach(annotation => {
+      if (!annotation.snapshot_url) return;
+      itemsToCache.push({
+        type: 'annotation',
+        relatedId: annotation.id,
+        url: annotation.snapshot_url,
+        label: '标注截图',
+      });
     });
 
     if (itemsToCache.length === 0) {
@@ -898,7 +934,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           layoutDataWithImages,
           moduleData,
           hardwareData,
-          { language, includeImages: true },
+          { language, includeImages: true, scope },
           (prog, step, log) => {
             setProgress(prog);
             setCurrentStep(step);
@@ -1033,7 +1069,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           layoutDataWithImages,
           moduleData,
           hardwareData,
-          { language, includeImages: true },
+          { language, includeImages: true, scope },
           (prog, step, log) => {
             setProgress(prog);
             setCurrentStep(step);
@@ -1097,11 +1133,34 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         setProgress(10);
         setCurrentStep('准备模板生成数据');
 
+        const modulesForTemplate = moduleData.map(mod => {
+          const moduleProductAsset = productAssetData.find(
+            asset => asset.scope_type === 'module' && asset.module_id === mod.id,
+          ) || null;
+          const moduleAnnotation = scopedAnnotations.find(
+            annotation => annotation.scope_type === 'module' && annotation.module_id === mod.id,
+          ) || null;
+
+          return {
+            ...mod,
+            product_asset: moduleProductAsset,
+            product_annotation: moduleAnnotation ? {
+              snapshot_url: moduleAnnotation.snapshot_url,
+              annotations_json: Array.isArray(moduleAnnotation.annotations_json) ? moduleAnnotation.annotations_json : [],
+              remark: moduleAnnotation.remark,
+            } : null,
+          };
+        });
+
         const workstationsForTemplate = workstationData.map(ws => {
-          const wsModules = moduleData.filter(m => m.workstation_id === ws.id);
+          const wsModules = modulesForTemplate.filter(m => m.workstation_id === ws.id);
           const wsLayout = layoutData.find(l => l.workstation_id === ws.id) || null;
-          const wsProductAsset = productAssetData.find(a => a.workstation_id === ws.id) || null;
-          const wsAnnotation = scopedAnnotations.find(a => a.workstation_id === ws.id) || null;
+          const wsProductAsset = productAssetData.find(
+            asset => asset.scope_type === 'workstation' && asset.workstation_id === ws.id,
+          ) || null;
+          const wsAnnotation = scopedAnnotations.find(
+            annotation => annotation.scope_type === 'workstation' && annotation.workstation_id === ws.id,
+          ) || null;
 
           return {
             ...ws,
@@ -1118,10 +1177,11 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
         const result = await generateFromUserTemplate({
           templateId: selectedTemplateId,
+          scope,
           data: {
             project: projectData,
             workstations: workstationsForTemplate,
-            modules: moduleData,
+            modules: modulesForTemplate,
             hardware: hardwareData,
             language,
           },
@@ -1216,13 +1276,18 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
         generatedBlobRef.current = blob;
 
-        const moduleOnlyPageCount = moduleData.reduce(
-          (count, mod) => count + 1 + ((mod as any).lighting_photos?.length ? 1 : 0),
-          0,
-        );
+        const lightingPhotoPageCount = mode === 'final'
+          ? moduleData.reduce((count, mod) => {
+              const photos = Array.isArray((mod as any).lighting_photos)
+                ? (mod as any).lighting_photos
+                : [];
+              return count + getLightingPhotoSlideCount(photos.length);
+            }, 0)
+          : 0;
+        const moduleOnlyPageCount = moduleData.length + lightingPhotoPageCount;
         const pptPageCount = scope === 'modules'
           ? moduleOnlyPageCount
-          : 2 + wsToProcess.length + modsToProcess.length + 2;
+          : 2 + wsToProcess.length + modsToProcess.length + 2 + lightingPhotoPageCount;
         // Set result
         setGenerationResult({
           pageCount: pptPageCount,
@@ -1310,34 +1375,41 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     );
   };
 
-  const allWorkstationIds = useMemo(() => projectWorkstations.map(ws => ws.id), [projectWorkstations]);
-  const allModuleIds = useMemo(() => {
-    const ids: string[] = [];
-    projectWorkstations.forEach(ws => getWorkstationModules(ws.id).forEach(m => ids.push(m.id)));
-    return ids;
-  }, [projectWorkstations, getWorkstationModules]);
+  const selectAllWorkstations = () => {
+    setSelectedWorkstations(projectWorkstations.map(ws => ws.id));
+  };
 
-  const selectAllWorkstations = () => setSelectedWorkstations(allWorkstationIds);
-  const clearWorkstations = () => setSelectedWorkstations([]);
-  const selectAllModules = () => setSelectedModules(allModuleIds);
-  const clearModules = () => setSelectedModules([]);
+  const clearSelectedWorkstations = () => {
+    setSelectedWorkstations([]);
+  };
 
-  const toggleWorkstationModules = (wsId: string) => {
-    const wsModIds = getWorkstationModules(wsId).map(m => m.id);
-    if (wsModIds.length === 0) return;
-    const allSelected = wsModIds.every(id => selectedModules.includes(id));
-    setSelectedModules(prev => {
-      if (allSelected) return prev.filter(id => !wsModIds.includes(id));
-      const set = new Set(prev);
-      wsModIds.forEach(id => set.add(id));
-      return Array.from(set);
+  const selectAllModules = () => {
+    setSelectedModules(projectModules.map(mod => mod.id));
+  };
+
+  const clearSelectedModules = () => {
+    setSelectedModules([]);
+  };
+
+  const toggleWorkstationModules = (workstationId: string) => {
+    const workstationModuleIds = (modulesByWorkstation.get(workstationId) || []).map(mod => mod.id);
+    if (workstationModuleIds.length === 0) return;
+
+    setSelectedModules(previous => {
+      const selectedIds = new Set(previous);
+      const groupIsFullySelected = workstationModuleIds.every(id => selectedIds.has(id));
+      if (groupIsFullySelected) {
+        return previous.filter(id => !workstationModuleIds.includes(id));
+      }
+      workstationModuleIds.forEach(id => selectedIds.add(id));
+      return projectModules.map(mod => mod.id).filter(id => selectedIds.has(id));
     });
   };
 
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-hidden flex flex-col">
+      <DialogContent className="flex max-h-[92dvh] w-[min(96vw,72rem)] min-h-0 flex-col overflow-hidden p-4 sm:max-w-6xl sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
@@ -1347,7 +1419,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
         {/* Config Stage */}
         {stage === 'config' && (
-          <div className="flex flex-col gap-4 overflow-y-auto flex-1 pr-1 pb-1">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-y-auto pr-1 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.9fr)] lg:overflow-hidden">
+              <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto lg:pr-2">
             {/* Output Format Selection - 输出格式选择 */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">输出格式</Label>
@@ -1701,6 +1775,38 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               )}
             </div>
 
+            {/* Output Options */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">输出语言</Label>
+                <Select value={language} onValueChange={(v) => setLanguage(v as OutputLanguage)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="zh">中文</SelectItem>
+                    <SelectItem value="en">English</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">图片清晰度</Label>
+                <Select value={quality} onValueChange={(v) => setQuality(v as ImageQuality)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">标准 (72dpi)</SelectItem>
+                    <SelectItem value="high">高清 (150dpi)</SelectItem>
+                    <SelectItem value="ultra">超清 (300dpi)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+              </div>
+
+              <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+
             {/* Generation Scope */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">生成范围</Label>
@@ -1731,9 +1837,9 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
             {/* Workstation/Module Selection */}
             {(scope === 'workstations' || scope === 'modules') && (
-              <div className="border rounded-lg overflow-hidden bg-background">
-                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
-                  <div className="min-w-0">
+              <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-background" data-testid="generation-scope-selection">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2">
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">
                       {scope === 'workstations' ? '选择要生成的工位' : '选择要生成的模块'}
                     </p>
@@ -1743,12 +1849,18 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         : '只导出勾选模块的光学方案页和打光照片页'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Badge variant={hasRequiredSelection ? 'secondary' : 'outline'} className="mr-1 shrink-0">
+                      {scope === 'workstations'
+                        ? `${scopedSelection.workstations.length}/${projectWorkstations.length}`
+                        : `${scopedSelection.modules.length}/${projectModules.length}`} 已选
+                    </Badge>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs"
+                      aria-label={scope === 'workstations' ? '全选工位' : '全选模块'}
                       onClick={scope === 'workstations' ? selectAllWorkstations : selectAllModules}
                     >
                       全选
@@ -1758,35 +1870,33 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs"
-                      onClick={scope === 'workstations' ? clearWorkstations : clearModules}
+                      aria-label={scope === 'workstations' ? '清空工位' : '清空模块'}
+                      onClick={scope === 'workstations' ? clearSelectedWorkstations : clearSelectedModules}
                     >
                       清空
                     </Button>
-                    <Badge variant={hasRequiredSelection ? 'secondary' : 'outline'}>
-                      {scope === 'workstations'
-                        ? `${scopedSelection.workstations.length} / ${projectWorkstations.length}`
-                        : `${scopedSelection.modules.length} / ${allModuleIds.length}`}
-                    </Badge>
                   </div>
                 </div>
-                <ScrollArea className="max-h-[46vh] min-h-[220px]">
-                  <div className="p-2 space-y-1">
+                <div
+                  className="min-h-0 overflow-y-auto overscroll-contain p-2 [scrollbar-gutter:stable]"
+                  style={selectionOptionCount > 10 ? { maxHeight: 'min(52dvh, 36rem)' } : undefined}
+                  data-testid="generation-scope-list"
+                >
+                  <div className="space-y-1">
                     {scope === 'workstations' && projectWorkstations.length === 0 && (
                       <div className="p-4 text-center text-sm text-muted-foreground">当前项目暂无工位</div>
                     )}
                     {scope === 'workstations' && projectWorkstations.map(ws => (
                       <label key={ws.id} className="flex items-center gap-2 p-2 rounded hover:bg-muted cursor-pointer">
                         <Checkbox 
+                          aria-label={`选择工位 ${ws.name}`}
                           checked={selectedWorkstations.includes(ws.id)} 
                           onCheckedChange={() => toggleWorkstation(ws.id)} 
                         />
                         <Box className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm flex-1 min-w-0 truncate">
-                          {ws.code ? <span className="text-muted-foreground mr-1">{ws.code}</span> : null}
-                          {ws.name}
-                        </span>
+                        <span className="text-sm flex-1 min-w-0 truncate">{ws.name}</span>
                         <Badge variant="outline" className="text-xs shrink-0">
-                          {getWorkstationModules(ws.id).length} 模块
+                          {(modulesByWorkstation.get(ws.id) || []).length} 模块
                         </Badge>
                       </label>
                     ))}
@@ -1794,31 +1904,28 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                       <div className="p-4 text-center text-sm text-muted-foreground">当前项目暂无模块</div>
                     )}
                     {scope === 'modules' && projectWorkstations.map(ws => {
-                      const wsModules = getWorkstationModules(ws.id);
+                      const wsModules = modulesByWorkstation.get(ws.id) || [];
                       if (wsModules.length === 0) return null;
-                      const wsModIds = wsModules.map(m => m.id);
-                      const selectedInWs = wsModIds.filter(id => selectedModules.includes(id)).length;
-                      const allChecked = selectedInWs === wsModIds.length;
-                      const someChecked = selectedInWs > 0 && !allChecked;
+                      const selectedGroupCount = wsModules.filter(mod => selectedModules.includes(mod.id)).length;
+                      const groupChecked = selectedGroupCount === wsModules.length
+                        ? true
+                        : selectedGroupCount > 0 ? 'indeterminate' : false;
                       return (
-                      <div key={ws.id}>
-                        <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer">
+                      <div key={ws.id} className="rounded-md border border-transparent bg-muted/20">
+                        <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/60">
                           <Checkbox
-                            checked={allChecked ? true : someChecked ? 'indeterminate' : false}
+                            aria-label={`选择 ${ws.name} 全部模块`}
+                            checked={groupChecked}
                             onCheckedChange={() => toggleWorkstationModules(ws.id)}
                           />
-                          <Box className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="text-xs font-medium flex-1 min-w-0 truncate">
-                            {ws.code ? <span className="text-muted-foreground mr-1">{ws.code}</span> : null}
-                            {ws.name}
-                          </span>
-                          <Badge variant="outline" className="text-[10px] shrink-0">
-                            {selectedInWs}/{wsModIds.length}
-                          </Badge>
+                          <Box className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{ws.name}</span>
+                          <span className="shrink-0 font-normal">{selectedGroupCount}/{wsModules.length}</span>
                         </label>
                         {wsModules.map(mod => (
-                          <label key={mod.id} className="flex items-center gap-2 p-2 pl-6 rounded hover:bg-muted cursor-pointer">
+                          <label key={mod.id} className="flex cursor-pointer items-center gap-2 rounded p-2 pl-9 hover:bg-muted">
                             <Checkbox 
+                              aria-label={`选择模块 ${mod.name}`}
                               checked={selectedModules.includes(mod.id)} 
                               onCheckedChange={() => toggleModule(mod.id)} 
                             />
@@ -1830,41 +1937,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                       );
                     })}
                   </div>
-                </ScrollArea>
+                </div>
                 {!hasRequiredSelection && (
-                  <p className="border-t px-3 py-2 text-xs text-destructive">{selectionPrompt}</p>
+                  <p className="border-t px-3 py-2 text-xs text-destructive" role="alert">{selectionPrompt}</p>
                 )}
               </div>
             )}
-
-            {/* Options Row */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">输出语言</Label>
-                <Select value={language} onValueChange={(v) => setLanguage(v as OutputLanguage)}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="zh">中文</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">图片清晰度</Label>
-                <Select value={quality} onValueChange={(v) => setQuality(v as ImageQuality)}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="standard">标准 (72dpi)</SelectItem>
-                    <SelectItem value="high">高清 (150dpi)</SelectItem>
-                    <SelectItem value="ultra">超清 (300dpi)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
             <Separator />
 
@@ -1895,9 +1973,11 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                 </div>
               </div>
             </div>
+              </div>
+            </div>
 
             {/* Actions */}
-            <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 border-t bg-background/95 px-1 pt-3 pb-1 backdrop-blur">
+            <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t bg-background pt-3">
               <Button variant="outline" onClick={() => setImagePreviewOpen(true)} className="gap-1 mr-auto">
                 <Eye className="h-4 w-4" />
                 查看已保存图片
@@ -2094,4 +2174,3 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     </>
   );
 }
-

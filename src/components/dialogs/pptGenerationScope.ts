@@ -1,4 +1,6 @@
-export type GenerationScope = 'full' | 'workstations' | 'modules';
+import type { GenerationScope } from '@/types/generation';
+
+export type { GenerationScope } from '@/types/generation';
 
 type ScopedWorkstation = {
   id: string;
@@ -11,6 +13,20 @@ type ScopedModule = {
 
 type ScopedLayout = {
   workstation_id: string;
+};
+
+type ScopedAsset = {
+  id: string;
+  scope_type?: string | null;
+  workstation_id?: string | null;
+  module_id?: string | null;
+};
+
+type ScopedAnnotation = {
+  asset_id?: string | null;
+  scope_type?: string | null;
+  workstation_id?: string | null;
+  module_id?: string | null;
 };
 
 export function deriveScopedGenerationData<
@@ -58,7 +74,8 @@ export function deriveScopedGenerationData<
   return {
     workstations: projectWorkstations.filter(ws => parentWsIds.has(ws.id)),
     modules,
-    layouts: layouts.filter(layout => parentWsIds.has(layout.workstation_id)),
+    // Parent workstations are naming/ownership context only in module scope.
+    layouts: [],
   };
 }
 
@@ -69,6 +86,48 @@ export function hasRequiredScopeSelection(
   return scope === 'full'
     || (scope === 'workstations' && scoped.workstations.length > 0)
     || (scope === 'modules' && scoped.modules.length > 0);
+}
+
+export function deriveScopedMedia<
+  TAsset extends ScopedAsset,
+  TAnnotation extends ScopedAnnotation,
+>({
+  scope,
+  scoped,
+  productAssets,
+  annotations,
+}: {
+  scope: GenerationScope;
+  scoped: { workstations: ScopedWorkstation[]; modules: ScopedModule[] };
+  productAssets: TAsset[];
+  annotations: TAnnotation[];
+}) {
+  const workstationIds = new Set(scoped.workstations.map(workstation => workstation.id));
+  const moduleIds = new Set(scoped.modules.map(module => module.id));
+  const assets = productAssets.filter(asset => {
+    if (scope === 'modules') {
+      return asset.scope_type === 'module'
+        && Boolean(asset.module_id && moduleIds.has(asset.module_id));
+    }
+    if (asset.scope_type === 'module') {
+      return Boolean(asset.module_id && moduleIds.has(asset.module_id));
+    }
+    return Boolean(asset.workstation_id && workstationIds.has(asset.workstation_id));
+  });
+  const assetIds = new Set(assets.map(asset => asset.id));
+  const scopedAnnotations = annotations.filter(annotation => {
+    if (annotation.asset_id && assetIds.has(annotation.asset_id)) return true;
+    if (scope === 'modules') {
+      return annotation.scope_type === 'module'
+        && Boolean(annotation.module_id && moduleIds.has(annotation.module_id));
+    }
+    if (annotation.scope_type === 'module') {
+      return Boolean(annotation.module_id && moduleIds.has(annotation.module_id));
+    }
+    return Boolean(annotation.workstation_id && workstationIds.has(annotation.workstation_id));
+  });
+
+  return { productAssets: assets, annotations: scopedAnnotations };
 }
 
 export function getScopeSelectionPrompt(scope: GenerationScope) {

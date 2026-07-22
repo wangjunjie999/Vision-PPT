@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveScopedGenerationData,
+  deriveScopedMedia,
   getScopeSelectionPrompt,
   hasRequiredScopeSelection,
 } from './pptGenerationScope';
@@ -69,7 +70,7 @@ describe('PPTGenerationDialog scope derivation', () => {
 
     expect(scoped.workstations.map(ws => ws.id)).toEqual(['ws-1', 'ws-2']);
     expect(scoped.modules.map(mod => mod.id)).toEqual(['module-2', 'module-3']);
-    expect(scoped.layouts.map(layout => layout.id)).toEqual(['layout-1', 'layout-2']);
+    expect(scoped.layouts).toEqual([]);
     expect(hasRequiredScopeSelection('modules', scoped)).toBe(true);
   });
 
@@ -95,5 +96,57 @@ describe('PPTGenerationDialog scope derivation', () => {
     expect(hasRequiredScopeSelection('modules', emptyModules)).toBe(false);
     expect(getScopeSelectionPrompt('workstations')).toBe('请至少选择一个工位');
     expect(getScopeSelectionPrompt('modules')).toBe('请至少选择一个模块');
+  });
+
+  it('ignores stale workstation and module ids', () => {
+    const scopedWorkstations = deriveScopedGenerationData({
+      scope: 'workstations',
+      projectWorkstations: workstations,
+      projectModules: modules,
+      layouts,
+      selectedWorkstationIds: ['missing-ws', 'ws-2'],
+      selectedModuleIds: [],
+    });
+    const scopedModules = deriveScopedGenerationData({
+      scope: 'modules',
+      projectWorkstations: workstations,
+      projectModules: modules,
+      layouts,
+      selectedWorkstationIds: [],
+      selectedModuleIds: ['missing-module', 'module-4'],
+    });
+
+    expect(scopedWorkstations.workstations.map(item => item.id)).toEqual(['ws-2']);
+    expect(scopedWorkstations.modules.map(item => item.id)).toEqual(['module-3']);
+    expect(scopedModules.workstations.map(item => item.id)).toEqual(['ws-3']);
+    expect(scopedModules.modules.map(item => item.id)).toEqual(['module-4']);
+  });
+
+  it('excludes parent workstation media when only modules are exported', () => {
+    const scoped = deriveScopedGenerationData({
+      scope: 'modules',
+      projectWorkstations: workstations,
+      projectModules: modules,
+      layouts,
+      selectedWorkstationIds: [],
+      selectedModuleIds: ['module-2', 'module-3'],
+    });
+    const productAssets = [
+      { id: 'asset-ws-1', scope_type: 'workstation', workstation_id: 'ws-1' },
+      { id: 'asset-mod-1', scope_type: 'module', module_id: 'module-1' },
+      { id: 'asset-mod-2', scope_type: 'module', module_id: 'module-2' },
+      { id: 'asset-mod-3', scope_type: 'module', module_id: 'module-3' },
+    ];
+    const annotations = [
+      { id: 'annotation-ws-1', asset_id: 'asset-ws-1', scope_type: 'workstation', workstation_id: 'ws-1' },
+      { id: 'annotation-mod-1', asset_id: 'asset-mod-1', scope_type: 'module', module_id: 'module-1' },
+      { id: 'annotation-mod-2', asset_id: 'asset-mod-2', scope_type: 'module', module_id: 'module-2' },
+      { id: 'annotation-mod-3', asset_id: 'asset-mod-3', scope_type: 'module', module_id: 'module-3' },
+    ];
+
+    const media = deriveScopedMedia({ scope: 'modules', scoped, productAssets, annotations });
+
+    expect(media.productAssets.map(item => item.id)).toEqual(['asset-mod-2', 'asset-mod-3']);
+    expect(media.annotations.map(item => item.id)).toEqual(['annotation-mod-2', 'annotation-mod-3']);
   });
 });
