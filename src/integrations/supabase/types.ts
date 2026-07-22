@@ -856,11 +856,17 @@ export type Database = {
           detection_method: string | null
           detection_requirements: Json | null
           id: string
+          is_primary: boolean
           model_file_url: string | null
           module_id: string | null
+          parent_product_id: string | null
           preview_images: Json | null
+          product_code: string | null
           product_models: Json | null
+          product_name: string | null
+          product_spec: string | null
           scope_type: Database["public"]["Enums"]["product_scope_type"]
+          sort_order: number
           source_type: string
           updated_at: string
           user_id: string
@@ -871,11 +877,17 @@ export type Database = {
           detection_method?: string | null
           detection_requirements?: Json | null
           id?: string
+          is_primary?: boolean
           model_file_url?: string | null
           module_id?: string | null
+          parent_product_id?: string | null
           preview_images?: Json | null
+          product_code?: string | null
           product_models?: Json | null
+          product_name?: string | null
+          product_spec?: string | null
           scope_type: Database["public"]["Enums"]["product_scope_type"]
+          sort_order?: number
           source_type?: string
           updated_at?: string
           user_id: string
@@ -886,11 +898,17 @@ export type Database = {
           detection_method?: string | null
           detection_requirements?: Json | null
           id?: string
+          is_primary?: boolean
           model_file_url?: string | null
           module_id?: string | null
+          parent_product_id?: string | null
           preview_images?: Json | null
+          product_code?: string | null
           product_models?: Json | null
+          product_name?: string | null
+          product_spec?: string | null
           scope_type?: Database["public"]["Enums"]["product_scope_type"]
+          sort_order?: number
           source_type?: string
           updated_at?: string
           user_id?: string
@@ -902,6 +920,13 @@ export type Database = {
             columns: ["module_id"]
             isOneToOne: false
             referencedRelation: "function_modules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_assets_parent_product_id_fkey"
+            columns: ["parent_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_assets"
             referencedColumns: ["id"]
           },
           {
