@@ -358,16 +358,31 @@ interface WorkstationSlideData {
     lighting_photos?: Array<{ url: string; remark?: string; created_at?: string }> | null;
   }>;
   annotations?: Array<{
+    asset_id?: string;
     snapshot_url: string;
     annotations_json: Array<{ labelNumber?: number; label?: string; number?: number; name?: string; category?: string; description?: string }>;
     remark?: string | null;
   }>;
   productAsset?: {
+    id?: string;
+    product_name?: string | null;
+    product_code?: string | null;
+    is_primary?: boolean;
     preview_images: Array<{ url: string; name?: string }> | null;
     detection_method?: string | null;
     product_models?: Array<{ name: string; spec: string }> | null;
     detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
   };
+  productAssets?: Array<{
+    id: string;
+    product_name?: string | null;
+    product_code?: string | null;
+    is_primary?: boolean;
+    preview_images: Array<{ url: string; name?: string }> | null;
+    detection_method?: string | null;
+    product_models?: Array<{ name: string; spec: string }> | null;
+    detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
+  }>;
   // NEW: Complete hardware data for detailed parameters
   hardware?: {
     cameras: FullCameraData[];
@@ -651,10 +666,39 @@ export async function generateProductSchematicSlide(
   ctx: SlideContext,
   data: WorkstationSlideData
 ): Promise<void> {
-  const { annotations: allAnnotations, productAsset } = data;
+  const { annotations: allAnnotations, productAsset, productAssets } = data;
   const annotationsList = allAnnotations && allAnnotations.length > 0 ? allAnnotations : [];
+
+  // Multi-product path: iterate each workstation product and render its own annotations/preview.
+  const products = productAssets && productAssets.length > 0
+    ? productAssets
+    : (productAsset ? [{ ...productAsset, id: productAsset.id ?? '__single__' }] : []);
+
+  if (products.length > 1) {
+    for (let pi = 0; pi < products.length; pi++) {
+      const product = products[pi];
+      const productLabel = product.product_name || `${ctx.isZh ? '产品' : 'Product'} ${pi + 1}`;
+      const productAnnots = annotationsList.filter(a => a.asset_id === product.id);
+
+      if (productAnnots.length > 0) {
+        for (let ai = 0; ai < productAnnots.length; ai++) {
+          const annotation = productAnnots[ai];
+          const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+          const suffix = productAnnots.length > 1 ? ` ${ai + 1}/${productAnnots.length}` : '';
+          addSlideTitle(slide, ctx, `${ctx.isZh ? '产品示意图' : 'Product Schematic'} · ${productLabel}${suffix}`);
+          await renderAnnotationBody(ctx, slide, annotation);
+        }
+      } else {
+        const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+        addSlideTitle(slide, ctx, `${ctx.isZh ? '产品示意图' : 'Product Schematic'} · ${productLabel}`);
+        await renderPreviewOnly(ctx, slide, product.preview_images?.[0]?.url);
+      }
+    }
+    return;
+  }
+
   console.log(`[PPT] 产品示意图: annotations=${annotationsList.length}, hasProductAsset=${!!productAsset}, previewImages=${productAsset?.preview_images?.length || 0}`);
-  
+
   if (annotationsList.length > 0) {
     // Generate one slide per annotation
     for (let ai = 0; ai < annotationsList.length; ai++) {
@@ -664,76 +708,88 @@ export async function generateProductSchematicSlide(
         ? `${ctx.isZh ? '产品示意图' : 'Product Schematic'} ${ai + 1}/${annotationsList.length}`
         : (ctx.isZh ? '产品示意图' : 'Product Schematic');
       addSlideTitle(slide, ctx, subtitle);
-
-      try {
-        const dataUri = await fetchImageAsDataUri(annotation.snapshot_url);
-        if (dataUri) {
-          const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
-          const fit = calculateContainFit(dims.width, dims.height, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 });
-          slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
-        } else {
-          console.warn('[PPT] 标注快照加载失败:', annotation.snapshot_url);
-          addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
-        }
-      } catch (e) {
-        addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
-      }
-
-      // Annotation legend
-      slide.addText(ctx.isZh ? '标注说明' : 'Annotation Legend', {
-        x: 6.2, y: 1.2, w: 3.3, h: 0.3, fontSize: 11, fontFace: FONTS.body, color: COLORS.dark, bold: true,
-      });
-      const annotItems = Array.isArray(annotation.annotations_json) ? annotation.annotations_json : [];
-      const legendRows: TableRow[] = annotItems
-        .filter(item => (item.labelNumber || item.number) && (item.label || item.name))
-        .map(item => {
-          const num = item.labelNumber || item.number || 0;
-          const label = item.label || item.name || '';
-          const detail = item.category ? `[${item.category}] ${label}` : label;
-          return row([`#${num}`, detail]);
-        });
-      if (legendRows.length > 0) {
-        addPaginatedTable(ctx, slide, 'Product Schematic', 'Annotation Legend', [], legendRows, {
-          x: 6.2, y: 1.55, w: 3.3, h: Math.min(legendRows.length * 0.32 + 0.1, 2.8),
-          fontFace: FONTS.body, fontSize: 9, colW: [0.6, 2.7],
-          border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
-        }, {
-          rowHeight: 0.32,
-          firstPageBottomY: 4.35,
-          continuationOptions: {
-            x: 0.5, y: 1.2, w: 9,
-            fontFace: FONTS.body, fontSize: 9, colW: [1.0, 8.0],
-            border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
-          },
-          continuationRowHeight: 0.32,
-        });
-      }
-      if (annotation.remark) {
-        slide.addText(annotation.remark, { x: 6.2, y: 4.5, w: 3.3, h: 0.5, fontSize: 9, fontFace: FONTS.body, color: COLORS.secondary });
-      }
+      await renderAnnotationBody(ctx, slide, annotation);
     }
   } else {
     // Fallback: use product asset preview image
     const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
     addSlideTitle(slide, ctx, ctx.isZh ? '产品示意图' : 'Product Schematic');
-    const imageUrl = productAsset?.preview_images?.[0]?.url;
-    if (imageUrl) {
-      try {
-        const dataUri = await fetchImageAsDataUri(imageUrl);
-        if (dataUri) {
-          const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
-          const fit = calculateContainFit(dims.width, dims.height, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 });
-          slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
-        } else {
-          console.warn('[PPT] 产品预览图加载失败:', imageUrl);
-          addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
-        }
-      } catch (e) {
-        addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
-      }
+    await renderPreviewOnly(ctx, slide, productAsset?.preview_images?.[0]?.url);
+  }
+}
+
+async function renderAnnotationBody(
+  ctx: SlideContext,
+  slide: PptxGenJS.Slide,
+  annotation: NonNullable<WorkstationSlideData['annotations']>[number],
+): Promise<void> {
+  try {
+    const dataUri = await fetchImageAsDataUri(annotation.snapshot_url);
+    if (dataUri) {
+      const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
+      const fit = calculateContainFit(dims.width, dims.height, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 });
+      slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
     } else {
-      addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
+      console.warn('[PPT] 标注快照加载失败:', annotation.snapshot_url);
+      addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
     }
+  } catch {
+    addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
+  }
+
+  slide.addText(ctx.isZh ? '标注说明' : 'Annotation Legend', {
+    x: 6.2, y: 1.2, w: 3.3, h: 0.3, fontSize: 11, fontFace: FONTS.body, color: COLORS.dark, bold: true,
+  });
+  const annotItems = Array.isArray(annotation.annotations_json) ? annotation.annotations_json : [];
+  const legendRows: TableRow[] = annotItems
+    .filter(item => (item.labelNumber || item.number) && (item.label || item.name))
+    .map(item => {
+      const num = item.labelNumber || item.number || 0;
+      const label = item.label || item.name || '';
+      const detail = item.category ? `[${item.category}] ${label}` : label;
+      return row([`#${num}`, detail]);
+    });
+  if (legendRows.length > 0) {
+    addPaginatedTable(ctx, slide, 'Product Schematic', 'Annotation Legend', [], legendRows, {
+      x: 6.2, y: 1.55, w: 3.3, h: Math.min(legendRows.length * 0.32 + 0.1, 2.8),
+      fontFace: FONTS.body, fontSize: 9, colW: [0.6, 2.7],
+      border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
+    }, {
+      rowHeight: 0.32,
+      firstPageBottomY: 4.35,
+      continuationOptions: {
+        x: 0.5, y: 1.2, w: 9,
+        fontFace: FONTS.body, fontSize: 9, colW: [1.0, 8.0],
+        border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
+      },
+      continuationRowHeight: 0.32,
+    });
+  }
+  if (annotation.remark) {
+    slide.addText(annotation.remark, { x: 6.2, y: 4.5, w: 3.3, h: 0.5, fontSize: 9, fontFace: FONTS.body, color: COLORS.secondary });
+  }
+}
+
+async function renderPreviewOnly(
+  ctx: SlideContext,
+  slide: PptxGenJS.Slide,
+  imageUrl: string | undefined,
+): Promise<void> {
+  if (!imageUrl) {
+    addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
+    return;
+  }
+  try {
+    const dataUri = await fetchImageAsDataUri(imageUrl);
+    if (dataUri) {
+      const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
+      const fit = calculateContainFit(dims.width, dims.height, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 });
+      slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
+    } else {
+      addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
+    }
+  } catch {
+    addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
   }
 }
 

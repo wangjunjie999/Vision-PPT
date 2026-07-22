@@ -334,13 +334,13 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         // Get product assets with all fields including new detection info
         const { data: assets } = await supabase
           .from('product_assets')
-          .select('id, workstation_id, module_id, scope_type, model_file_url, preview_images, detection_method, product_models, detection_requirements')
+          .select('id, workstation_id, module_id, scope_type, model_file_url, preview_images, detection_method, product_models, detection_requirements, product_name, product_code, product_spec, is_primary, sort_order, parent_product_id')
           .eq('user_id', user.id)
           .or(`workstation_id.in.(${wsIds.join(',')}),module_id.in.(${modIds.join(',')})`);
         
         if (assets && assets.length > 0) {
           // Store product assets for PPT generation
-          const mappedAssets = assets.map(asset => ({
+          const mappedAssets = assets.map((asset: any) => ({
             id: asset.id,
             workstation_id: asset.workstation_id,
             module_id: asset.module_id,
@@ -352,6 +352,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             detection_method: asset.detection_method,
             product_models: Array.isArray(asset.product_models) ? asset.product_models : [],
             detection_requirements: Array.isArray(asset.detection_requirements) ? asset.detection_requirements : [],
+            product_name: asset.product_name ?? null,
+            product_code: asset.product_code ?? null,
+            product_spec: asset.product_spec ?? null,
+            is_primary: asset.is_primary ?? false,
+            sort_order: asset.sort_order ?? 0,
+            parent_product_id: asset.parent_product_id ?? null,
           }));
           setProductAssets(mappedAssets);
           
