@@ -1139,6 +1139,80 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Product create / edit dialog */}
+        <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {productDialogMode === 'create' ? '新增产品' : '编辑产品'}
+              </DialogTitle>
+              <DialogDescription>
+                名称必填；编号、规格可选。一个工位可有多个独立产品，第一个产品自动作为主产品。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1">
+                <Label className="text-xs">产品名称 *</Label>
+                <Input
+                  value={productForm.name}
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  placeholder="例如：正极电池盖板"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">产品编号</Label>
+                <Input
+                  value={productForm.code}
+                  onChange={(e) => setProductForm({ ...productForm, code: e.target.value })}
+                  placeholder="例如：P-001"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">产品规格</Label>
+                <Input
+                  value={productForm.spec}
+                  onChange={(e) => setProductForm({ ...productForm, spec: e.target.value })}
+                  placeholder="例如：120 × 80 × 12 mm"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setProductDialogOpen(false)}>
+                取消
+              </Button>
+              <Button onClick={submitProductDialog} disabled={savingProduct}>
+                {savingProduct && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                保存
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete confirmation */}
+        <Dialog open={!!deleteConfirmId} onOpenChange={(v) => !v && setDeleteConfirmId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>删除产品？</DialogTitle>
+              <DialogDescription>
+                删除后，该产品的 3D 模型 / 图片、标注记录、以及模块层级挂在此产品下的素材都会一并删除，且无法恢复。
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+                取消
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDeleteProduct}
+                disabled={deletingProduct}
+              >
+                {deletingProduct && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                删除
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
