@@ -94,6 +94,12 @@ export interface ProductAssetInput {
   detection_method?: string | null;
   product_models?: Array<{ name: string; spec: string }> | null;
   detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  product_spec?: string | null;
+  is_primary?: boolean;
+  sort_order?: number;
+  parent_product_id?: string | null;
 }
 
 export interface AnnotationInput {
@@ -276,6 +282,12 @@ export interface ReportProductAssetData {
   detection_method: string | null;
   product_models: Array<{ name: string; spec: string }> | null;
   detection_requirements: Array<{ content: string; highlight?: string | null }> | null;
+  product_name: string | null;
+  product_code: string | null;
+  product_spec: string | null;
+  is_primary: boolean;
+  sort_order: number;
+  parent_product_id: string | null;
 }
 
 export interface ReportAnnotationData {
