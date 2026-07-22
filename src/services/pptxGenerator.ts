@@ -992,7 +992,13 @@ export async function generatePPTX(
       (a.scope_type === 'workstation' && a.workstation_id === ws.id) ||
       (a.scope_type === 'module' && a.module_id && wsModuleIds.has(a.module_id))
     ) || [];
-    const wsProductAsset = productAssets?.find(a => a.scope_type === 'workstation' && a.workstation_id === ws.id);
+    const wsProductAssets = (productAssets || [])
+      .filter(a => a.scope_type === 'workstation' && a.workstation_id === ws.id)
+      .sort((a, b) =>
+        Number(b.is_primary ?? false) - Number(a.is_primary ?? false) ||
+        (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      );
+    const wsProductAsset = wsProductAssets[0];
 
     return {
       ws: {
@@ -1061,16 +1067,31 @@ export async function generatePPTX(
         };
       }),
       annotations: wsAnnotations.map(a => ({
+        asset_id: (a as { asset_id?: string }).asset_id,
         snapshot_url: a.snapshot_url,
         annotations_json: a.annotations_json,
         remark: a.remark,
       })),
       productAsset: wsProductAsset ? {
+        id: wsProductAsset.id,
+        product_name: wsProductAsset.product_name ?? null,
+        product_code: wsProductAsset.product_code ?? null,
+        is_primary: wsProductAsset.is_primary ?? false,
         preview_images: wsProductAsset.preview_images,
         detection_method: wsProductAsset.detection_method,
         product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
         detection_requirements: wsProductAsset.detection_requirements as Array<{ content: string; highlight?: string | null }> | null,
       } : undefined,
+      productAssets: wsProductAssets.map(p => ({
+        id: p.id,
+        product_name: p.product_name ?? null,
+        product_code: p.product_code ?? null,
+        is_primary: p.is_primary ?? false,
+        preview_images: p.preview_images,
+        detection_method: p.detection_method ?? null,
+        product_models: p.product_models ?? null,
+        detection_requirements: p.detection_requirements ?? null,
+      })),
       hardware: hardware ? {
         cameras: hardware.cameras,
         lenses: hardware.lenses,
@@ -1529,7 +1550,13 @@ export async function generatePPTX(
       (a.scope_type === 'workstation' && a.workstation_id === ws.id) ||
       (a.scope_type === 'module' && a.module_id && wsModuleIds.has(a.module_id))
     ) || [];
-    const wsProductAsset = productAssets?.find(a => a.scope_type === 'workstation' && a.workstation_id === ws.id);
+    const wsProductAssets = (productAssets || [])
+      .filter(a => a.scope_type === 'workstation' && a.workstation_id === ws.id)
+      .sort((a, b) =>
+        Number(b.is_primary ?? false) - Number(a.is_primary ?? false) ||
+        (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      );
+    const wsProductAsset = wsProductAssets[0];
 
     const wsBaseProgress = 20 + i * progressPerWs;
     const moduleCount = Math.max(wsModules.length, 1);
@@ -1617,16 +1644,31 @@ export async function generatePPTX(
         };
       }),
       annotations: wsAnnotations.map(a => ({
+        asset_id: (a as { asset_id?: string }).asset_id,
         snapshot_url: a.snapshot_url,
         annotations_json: a.annotations_json,
         remark: a.remark,
       })),
       productAsset: wsProductAsset ? {
+        id: wsProductAsset.id,
+        product_name: wsProductAsset.product_name ?? null,
+        product_code: wsProductAsset.product_code ?? null,
+        is_primary: wsProductAsset.is_primary ?? false,
         preview_images: wsProductAsset.preview_images,
         detection_method: wsProductAsset.detection_method,
         product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
         detection_requirements: wsProductAsset.detection_requirements as Array<{ content: string; highlight?: string | null }> | null,
       } : undefined,
+      productAssets: wsProductAssets.map(p => ({
+        id: p.id,
+        product_name: p.product_name ?? null,
+        product_code: p.product_code ?? null,
+        is_primary: p.is_primary ?? false,
+        preview_images: p.preview_images,
+        detection_method: p.detection_method ?? null,
+        product_models: p.product_models ?? null,
+        detection_requirements: p.detection_requirements ?? null,
+      })),
       hardware: hardware ? {
         cameras: hardware.cameras,
         lenses: hardware.lenses,
