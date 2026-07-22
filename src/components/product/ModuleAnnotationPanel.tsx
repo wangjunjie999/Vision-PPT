@@ -17,6 +17,13 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Upload,
   Camera,
   Star,
@@ -53,6 +60,11 @@ interface ProductAsset {
   preview_images: string[];
   created_at: string;
   updated_at: string;
+  product_name?: string | null;
+  product_code?: string | null;
+  is_primary?: boolean;
+  sort_order?: number;
+  parent_product_id?: string | null;
 }
 
 interface AnnotationRecord {
