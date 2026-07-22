@@ -101,8 +101,20 @@ export const ProductRenderer = memo(function ProductRenderer({
         const isSelected = obj.id === selectedId;
         const isSecondSelected = obj.id === secondSelectedId;
         const isMounted = !!obj.mountedToMechanismId;
-        const pW = currentView === 'side' ? productD : productW;
-        const pH = currentView === 'top' ? productD : productH;
+        // Per-object dimensions override the workstation defaults so each product can be different.
+        const objLen = obj.productLength;
+        const objWid = obj.productWidth;
+        const objHei = obj.productHeight;
+        const hasCustomDims = objLen != null || objWid != null || objHei != null;
+        const scale = productW / Math.max(productDimensions.length, 1);
+        const localW = (objLen ?? productDimensions.length) * scale;
+        const localH = (objHei ?? productDimensions.height) * scale;
+        const localD = (objWid ?? productDimensions.width) * scale;
+        const pW = currentView === 'side' ? localD : localW;
+        const pH = currentView === 'top' ? localD : localH;
+        const dimsLabel = hasCustomDims
+          ? `${objLen ?? productDimensions.length}×${objWid ?? productDimensions.width}×${objHei ?? productDimensions.height}mm`
+          : `${productDimensions.length}×${productDimensions.width}×${productDimensions.height}mm`;
 
         return (
           <g
@@ -130,7 +142,7 @@ export const ProductRenderer = memo(function ProductRenderer({
             <line x1={0} y1={-15} x2={0} y2={15} stroke="#fff" strokeWidth="1" opacity="0.5" />
             <circle cx={0} cy={0} r={4} fill="#fff" opacity="0.7" />
             <text x={0} y={pH / 2 + 20} textAnchor="middle" fill={isMounted ? '#86efac' : '#94a3b8'} fontSize="11">
-              {isMounted ? '📦 ' : ''}产品 {productDimensions.length}×{productDimensions.width}×{productDimensions.height}mm
+              {isMounted ? '📦 ' : ''}{obj.name || '产品'} {dimsLabel}
             </text>
             <ResizeHandles object={{ ...obj, width: pW, height: pH }} isSelected={isSelected} onResize={onResize} />
           </g>
