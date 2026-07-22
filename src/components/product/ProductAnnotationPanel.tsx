@@ -677,6 +677,85 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Product selector bar */}
+        <div className="space-y-2 rounded-md border border-border/60 bg-secondary/30 p-2">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs shrink-0">产品</Label>
+            <Select
+              value={selectedProductId ?? ''}
+              onValueChange={(v) => setSelectedProductId(v)}
+              disabled={products.length === 0}
+            >
+              <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectValue placeholder={products.length === 0 ? '暂无产品' : '选择产品'} />
+              </SelectTrigger>
+              <SelectContent>
+                {products.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                    <span className="flex items-center gap-1">
+                      {p.is_primary && <Star className="h-3 w-3 text-primary" />}
+                      {p.product_name || '未命名产品'}
+                      {p.product_code ? (
+                        <span className="text-muted-foreground">· {p.product_code}</span>
+                      ) : null}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" className="h-8 px-2" onClick={openCreateProduct}>
+              <Plus className="h-3 w-3 mr-1" /> 新增
+            </Button>
+          </div>
+          {asset && (
+            <div className="flex flex-wrap items-center gap-1">
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={openEditProduct}>
+                <Edit3 className="h-3 w-3 mr-1" /> 编辑
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={setAsPrimary}
+                disabled={asset.is_primary}
+              >
+                <Star className="h-3 w-3 mr-1" /> 设为主产品
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => moveProduct('up')}
+                disabled={products.findIndex(p => p.id === asset.id) <= 0}
+              >
+                <ArrowUp className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => moveProduct('down')}
+                disabled={products.findIndex(p => p.id === asset.id) >= products.length - 1}
+              >
+                <ArrowDown className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                onClick={() => setDeleteConfirmId(asset.id)}
+              >
+                <Trash2 className="h-3 w-3 mr-1" /> 删除
+              </Button>
+              {asset.product_spec && (
+                <Badge variant="secondary" className="text-[10px] h-5">
+                  规格 {asset.product_spec}
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-3 h-8">
             <TabsTrigger value="viewer" className="text-xs">
