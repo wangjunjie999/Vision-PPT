@@ -627,7 +627,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
       if (error) throw error;
 
-      await loadData();
+      await loadData(asset?.id ?? null);
       toast.success('记录已删除');
     } catch (error) {
       console.error('Delete failed:', error);
@@ -910,31 +910,11 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                     className="w-full"
                     size="sm"
                     onClick={async () => {
-                      if (!asset || !user) {
-                        // Create new asset if not exists
-                        if (!user) return;
-                        setSavingInfo(true);
-                        try {
-                          const { error } = await supabase.from('product_assets').insert({
-                            workstation_id: workstationId,
-                            scope_type: 'workstation',
-                            source_type: 'image',
-                            detection_method: detectionMethod || null,
-                            product_models: productModels as unknown as any,
-                            detection_requirements: detectionRequirements as unknown as any,
-                            user_id: user.id,
-                          });
-                          if (error) throw error;
-                          await loadData();
-                          toast.success('产品信息已保存');
-                        } catch (error) {
-                          console.error('Save failed:', error);
-                          toast.error('保存失败');
-                        } finally {
-                          setSavingInfo(false);
-                        }
-                        return;
-                      }
+                    if (!user) return;
+                    if (!asset) {
+                      toast.error('请先添加产品');
+                      return;
+                    }
 
                       setSavingInfo(true);
                       try {
@@ -949,7 +929,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                           .eq('id', asset.id);
 
                         if (error) throw error;
-                        await loadData();
+                      await loadData(asset.id);
                         toast.success('产品信息已保存');
                       } catch (error) {
                         console.error('Save failed:', error);
