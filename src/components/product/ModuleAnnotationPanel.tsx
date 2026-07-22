@@ -402,6 +402,10 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
   // Reference workstation annotation
   const handleReferenceAnnotation = async (record: AnnotationRecord) => {
     if (!user) return;
+    if (!selectedParentProductId) {
+      toast.error('请先选择关联产品');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -415,6 +419,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
             scope_type: 'module',
             source_type: 'reference',
             user_id: user.id,
+            parent_product_id: selectedParentProductId,
           })
           .select()
           .single();
@@ -459,6 +464,10 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
   // Save annotation
   const handleSaveAnnotation = async () => {
     if (!currentSnapshot || !user) return;
+    if (!selectedParentProductId) {
+      toast.error('请先选择关联产品');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -472,6 +481,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
             scope_type: 'module',
             source_type: 'image',
             user_id: user.id,
+            parent_product_id: selectedParentProductId,
           })
           .select()
           .single();
@@ -481,7 +491,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
 
       // Upload snapshot
       const blob = await fetch(currentSnapshot).then(r => r.blob());
-      const path = `modules/${moduleId}/snapshots/${Date.now()}.png`;
+      const path = `modules/${moduleId}/${selectedParentProductId}/snapshots/${Date.now()}.png`;
       const { error: uploadError } = await supabase.storage
         .from('product-snapshots')
         .upload(path, blob, { contentType: 'image/png' });
