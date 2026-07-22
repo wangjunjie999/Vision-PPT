@@ -126,7 +126,8 @@ function getSingleViewerMedia(asset: ProductAsset): { modelUrl: string | null; i
 
 export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanelProps) {
   const { user } = useAuth();
-  const [asset, setAsset] = useState<ProductAsset | null>(null);
+  const [products, setProducts] = useState<ProductAsset[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -146,52 +147,75 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [detectionRequirements, setDetectionRequirements] = useState<DetectionRequirementItem[]>([]);
   const [savingInfo, setSavingInfo] = useState(false);
 
+  // Product management dialog state
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [productDialogMode, setProductDialogMode] = useState<'create' | 'edit'>('create');
+  const [productForm, setProductForm] = useState<{ name: string; code: string; spec: string }>({
+    name: '',
+    code: '',
+    spec: '',
+  });
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState(false);
+
+  const asset: ProductAsset | null =
+    products.find(p => p.id === selectedProductId) || products[0] || null;
+
   // Sync product info from asset
   useEffect(() => {
     if (asset) {
       setDetectionMethod(asset.detection_method || '');
       setProductModels(asset.product_models || []);
       setDetectionRequirements(asset.detection_requirements || []);
+    } else {
+      setDetectionMethod('');
+      setProductModels([]);
+      setDetectionRequirements([]);
     }
   }, [asset]);
 
-  // Load asset and annotations
-  const loadData = useCallback(async () => {
+  // Load all products for this workstation, plus annotations for the selected one
+  const loadData = useCallback(async (preferredProductId?: string | null) => {
     if (!workstationId || !user) return;
     setLoading(true);
     try {
-      // Load product asset
-      const { data: assetData, error: assetError } = await supabase
+      const { data: rows, error: assetError } = await supabase
         .from('product_assets')
         .select('*')
         .eq('workstation_id', workstationId)
         .eq('scope_type', 'workstation')
-        .maybeSingle();
+        .order('is_primary', { ascending: false })
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
 
       if (assetError) throw assetError;
 
-      if (assetData) {
-        const previewImages = Array.isArray(assetData.preview_images)
-          ? assetData.preview_images as string[]
-          : [];
-        const productModels = Array.isArray(assetData.product_models)
-          ? assetData.product_models as unknown as ProductModelItem[]
-          : [];
-        const detectionRequirements = Array.isArray(assetData.detection_requirements)
-          ? assetData.detection_requirements as unknown as DetectionRequirementItem[]
-          : [];
-        setAsset({
-          ...assetData,
-          preview_images: previewImages,
-          product_models: productModels,
-          detection_requirements: detectionRequirements,
-        } as ProductAsset);
+      const list: ProductAsset[] = (rows || []).map(r => ({
+        ...r,
+        preview_images: Array.isArray(r.preview_images) ? (r.preview_images as string[]) : [],
+        product_models: Array.isArray(r.product_models)
+          ? (r.product_models as unknown as ProductModelItem[])
+          : [],
+        detection_requirements: Array.isArray(r.detection_requirements)
+          ? (r.detection_requirements as unknown as DetectionRequirementItem[])
+          : [],
+      })) as ProductAsset[];
+      setProducts(list);
 
-        // Load annotations for this asset
+      // Choose next selected product
+      const nextSelected =
+        (preferredProductId && list.find(p => p.id === preferredProductId)?.id) ||
+        (selectedProductId && list.find(p => p.id === selectedProductId)?.id) ||
+        list[0]?.id ||
+        null;
+      setSelectedProductId(nextSelected);
+
+      if (nextSelected) {
         const { data: annotData, error: annotError } = await supabase
           .from('product_annotations')
           .select('*')
-          .eq('asset_id', assetData.id)
+          .eq('asset_id', nextSelected)
           .order('version', { ascending: false });
 
         if (annotError) throw annotError;
@@ -202,14 +226,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           view_meta: a.view_meta as AnnotationRecord['view_meta'],
         }));
         setAnnotations(records);
-
-        // Find default record (highest version or marked as default)
-        if (records.length > 0) {
-          setDefaultRecordId(records[0].id);
-        }
+        setDefaultRecordId(records.length > 0 ? records[0].id : null);
       } else {
-        setAsset(null);
         setAnnotations([]);
+        setDefaultRecordId(null);
       }
     } catch (error) {
       console.error('Failed to load product data:', error);
@@ -217,11 +237,195 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     } finally {
       setLoading(false);
     }
-  }, [workstationId, user]);
+  }, [workstationId, user, selectedProductId]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workstationId, user]);
+
+  // When user switches selected product, reload its annotations
+  useEffect(() => {
+    if (!selectedProductId) {
+      setAnnotations([]);
+      setDefaultRecordId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('product_annotations')
+        .select('*')
+        .eq('asset_id', selectedProductId)
+        .order('version', { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        console.error(error);
+        return;
+      }
+      const records = (data || []).map(a => ({
+        ...a,
+        annotations_json: a.annotations_json as unknown as Annotation[],
+        view_meta: a.view_meta as AnnotationRecord['view_meta'],
+      }));
+      setAnnotations(records);
+      setDefaultRecordId(records.length > 0 ? records[0].id : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProductId]);
+
+  // ---------- Product management ----------
+  const openCreateProduct = () => {
+    setProductDialogMode('create');
+    setProductForm({ name: `产品 ${products.length + 1}`, code: '', spec: '' });
+    setProductDialogOpen(true);
+  };
+  const openEditProduct = () => {
+    if (!asset) return;
+    setProductDialogMode('edit');
+    setProductForm({
+      name: asset.product_name || '',
+      code: asset.product_code || '',
+      spec: asset.product_spec || '',
+    });
+    setProductDialogOpen(true);
+  };
+  const submitProductDialog = async () => {
+    if (!user) return;
+    const name = productForm.name.trim();
+    if (!name) {
+      toast.error('产品名称必填');
+      return;
+    }
+    setSavingProduct(true);
+    try {
+      if (productDialogMode === 'create') {
+        const nextOrder =
+          products.length === 0
+            ? 0
+            : Math.max(...products.map(p => p.sort_order ?? 0)) + 1;
+        const makePrimary = products.length === 0;
+        const { data, error } = await supabase
+          .from('product_assets')
+          .insert({
+            workstation_id: workstationId,
+            scope_type: 'workstation',
+            source_type: 'image',
+            product_name: name,
+            product_code: productForm.code.trim() || null,
+            product_spec: productForm.spec.trim() || null,
+            sort_order: nextOrder,
+            is_primary: makePrimary,
+            user_id: user.id,
+          } as never)
+          .select('id')
+          .single();
+        if (error) throw error;
+        setProductDialogOpen(false);
+        await loadData(data?.id ?? null);
+        toast.success('产品已创建');
+      } else if (asset) {
+        const { error } = await supabase
+          .from('product_assets')
+          .update({
+            product_name: name,
+            product_code: productForm.code.trim() || null,
+            product_spec: productForm.spec.trim() || null,
+          } as never)
+          .eq('id', asset.id);
+        if (error) throw error;
+        setProductDialogOpen(false);
+        await loadData(asset.id);
+        toast.success('产品已更新');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  const setAsPrimary = async () => {
+    if (!asset) return;
+    try {
+      // Clear existing primary in this workstation first (partial unique index enforces one).
+      const { error: clearErr } = await supabase
+        .from('product_assets')
+        .update({ is_primary: false } as never)
+        .eq('workstation_id', workstationId)
+        .eq('scope_type', 'workstation')
+        .neq('id', asset.id);
+      if (clearErr) throw clearErr;
+      const { error } = await supabase
+        .from('product_assets')
+        .update({ is_primary: true } as never)
+        .eq('id', asset.id);
+      if (error) throw error;
+      await loadData(asset.id);
+      toast.success('已设为主产品');
+    } catch (e) {
+      console.error(e);
+      toast.error('设置主产品失败');
+    }
+  };
+
+  const moveProduct = async (direction: 'up' | 'down') => {
+    if (!asset) return;
+    const idx = products.findIndex(p => p.id === asset.id);
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= products.length) return;
+    const a = products[idx];
+    const b = products[targetIdx];
+    try {
+      const { error: e1 } = await supabase
+        .from('product_assets')
+        .update({ sort_order: b.sort_order ?? targetIdx } as never)
+        .eq('id', a.id);
+      if (e1) throw e1;
+      const { error: e2 } = await supabase
+        .from('product_assets')
+        .update({ sort_order: a.sort_order ?? idx } as never)
+        .eq('id', b.id);
+      if (e2) throw e2;
+      await loadData(asset.id);
+    } catch (e) {
+      console.error(e);
+      toast.error('排序失败');
+    }
+  };
+
+  const confirmDeleteProduct = async () => {
+    if (!deleteConfirmId) return;
+    setDeletingProduct(true);
+    try {
+      const target = products.find(p => p.id === deleteConfirmId);
+      const wasPrimary = target?.is_primary === true;
+      const { error } = await supabase
+        .from('product_assets')
+        .delete()
+        .eq('id', deleteConfirmId);
+      if (error) throw error;
+      // If removed primary and other products remain, promote first remaining.
+      const remaining = products.filter(p => p.id !== deleteConfirmId);
+      if (wasPrimary && remaining.length > 0) {
+        await supabase
+          .from('product_assets')
+          .update({ is_primary: true } as never)
+          .eq('id', remaining[0].id);
+      }
+      setDeleteConfirmId(null);
+      await loadData(null);
+      toast.success('产品已删除');
+    } catch (e) {
+      console.error(e);
+      toast.error('删除失败');
+    } finally {
+      setDeletingProduct(false);
+    }
+  };
 
   // Upload 3D model or images
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -254,6 +458,26 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         return;
       }
 
+      // Ensure a product row exists to attach media to.
+      let targetProductId = asset?.id ?? null;
+      if (!targetProductId) {
+        const { data: created, error: createErr } = await supabase
+          .from('product_assets')
+          .insert({
+            workstation_id: workstationId,
+            scope_type: 'workstation',
+            source_type: isModel ? 'model' : 'image',
+            product_name: `产品 ${products.length + 1}`,
+            sort_order: 0,
+            is_primary: true,
+            user_id: user.id,
+          } as never)
+          .select('id')
+          .single();
+        if (createErr) throw createErr;
+        targetProductId = created!.id;
+      }
+
       // GLB: use same bucket + policies as hardware center (3d-models via uploadGLBFile).
       // GLTF + images: keep product-models direct upload.
       let fileUrl: string;
@@ -265,7 +489,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         fileUrl = url;
       } else {
         const bucket = 'product-models';
-        const path = `${workstationId}/${createSafeStorageObjectName(file.name, {
+        const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
           fallbackBase: isModel ? 'model' : 'image',
           fallbackExtension: isModel ? 'gltf' : 'png',
         })}`;
@@ -275,47 +499,30 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         fileUrl = publicUrl;
       }
 
-      // Create or update asset
-      if (asset) {
-        const updateData: any = {
-          updated_at: new Date().toISOString(),
-        };
-        if (isModel) {
-          updateData.model_file_url = fileUrl;
-          updateData.preview_images = [];
-          updateData.source_type = 'model';
-        } else {
-          updateData.model_file_url = null;
-          updateData.preview_images = [fileUrl];
-          updateData.source_type = 'image';
-        }
-        const { error } = await supabase
-          .from('product_assets')
-          .update(updateData)
-          .eq('id', asset.id);
-        if (error) throw error;
+      const updateData: any = { updated_at: new Date().toISOString() };
+      if (isModel) {
+        updateData.model_file_url = fileUrl;
+        updateData.preview_images = [];
+        updateData.source_type = 'model';
       } else {
-        const { error } = await supabase.from('product_assets').insert({
-          workstation_id: workstationId,
-          scope_type: 'workstation',
-          source_type: isModel ? 'model' : 'image',
-          model_file_url: isModel ? fileUrl : null,
-          preview_images: isImage ? [fileUrl] : [],
-          user_id: user.id,
-        });
-        if (error) throw error;
+        updateData.model_file_url = null;
+        updateData.preview_images = [fileUrl];
+        updateData.source_type = 'image';
       }
+      const { error } = await supabase
+        .from('product_assets')
+        .update(updateData)
+        .eq('id', targetProductId);
+      if (error) throw error;
 
-      await loadData();
+      await loadData(targetProductId);
       toast.success('文件上传成功');
 
       // Auto enter viewer mode after upload
-      // Need to re-fetch to get latest asset data
       const { data: latestAsset } = await supabase
         .from('product_assets')
         .select('*')
-        .eq('workstation_id', workstationId)
-        .eq('scope_type', 'workstation')
+        .eq('id', targetProductId)
         .maybeSingle();
       if (latestAsset) {
         const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
@@ -352,7 +559,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     try {
       // Upload snapshot to storage
       const blob = await fetch(currentSnapshot).then(r => r.blob());
-      const path = `${workstationId}/snapshots/${Date.now()}.png`;
+      const path = `${workstationId}/${asset.id}/snapshots/${Date.now()}.png`;
       const { error: uploadError } = await supabase.storage
         .from('product-snapshots')
         .upload(path, blob, { contentType: 'image/png' });
@@ -380,7 +587,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
       if (error) throw error;
 
-      await loadData();
+      await loadData(asset.id);
       setIsAnnotating(false);
       setCurrentSnapshot(null);
       setCurrentAnnotations([]);
