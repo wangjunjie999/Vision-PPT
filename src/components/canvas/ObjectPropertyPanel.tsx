@@ -1042,6 +1042,52 @@ export function ObjectPropertyPanel({
             );
           })()}
 
+          {/* Per-product dimensions editor (any view) — one product can differ from another */}
+          {object.type === 'product' && (
+            <>
+              <Separator className="my-3" />
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">产品尺寸 (mm)</Label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['productLength', 'productWidth', 'productHeight'] as const).map((field) => {
+                    const label = field === 'productLength' ? 'L' : field === 'productWidth' ? 'W' : 'H';
+                    const fallback =
+                      field === 'productLength'
+                        ? productDimensions?.length ?? 0
+                        : field === 'productWidth'
+                          ? productDimensions?.width ?? 0
+                          : productDimensions?.height ?? 0;
+                    const value = (object as any)[field] ?? fallback;
+                    return (
+                      <div key={field} className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">{label}</Label>
+                        <Input
+                          type="number"
+                          defaultValue={value}
+                          onBlur={(e) => {
+                            const parsed = parseEditableNumber(e.target.value);
+                            if (parsed == null) return;
+                            onUpdate(object.id, { [field]: Math.max(1, Math.round(parsed)) } as any);
+                          }}
+                          onKeyDown={(e) => {
+                            stopCanvasShortcutPropagation(e);
+                            if (e.key === 'Enter') {
+                              const parsed = parseEditableNumber(e.currentTarget.value);
+                              if (parsed != null) onUpdate(object.id, { [field]: Math.max(1, Math.round(parsed)) } as any);
+                            }
+                          }}
+                          className="h-7 text-xs font-mono px-1.5"
+                          disabled={object.locked}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-muted-foreground">留空则沿用工位默认尺寸</p>
+              </div>
+            </>
+          )}
+
           {/* 3D Product dimensions & position editing */}
           {isIsometric && object.id === '__product__' && (
             <>
