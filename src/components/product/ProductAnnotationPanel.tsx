@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -43,6 +44,8 @@ import {
   Info,
   X,
   Maximize2,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
@@ -77,6 +80,13 @@ interface ProductAsset {
   detection_method?: string | null;
   product_models?: ProductModelItem[] | null;
   detection_requirements?: DetectionRequirementItem[] | null;
+  // Multi-product identity
+  product_name?: string | null;
+  product_code?: string | null;
+  product_spec?: string | null;
+  is_primary?: boolean;
+  sort_order?: number;
+  parent_product_id?: string | null;
 }
 
 interface AnnotationRecord {
@@ -116,7 +126,8 @@ function getSingleViewerMedia(asset: ProductAsset): { modelUrl: string | null; i
 
 export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanelProps) {
   const { user } = useAuth();
-  const [asset, setAsset] = useState<ProductAsset | null>(null);
+  const [products, setProducts] = useState<ProductAsset[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -136,52 +147,75 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [detectionRequirements, setDetectionRequirements] = useState<DetectionRequirementItem[]>([]);
   const [savingInfo, setSavingInfo] = useState(false);
 
+  // Product management dialog state
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [productDialogMode, setProductDialogMode] = useState<'create' | 'edit'>('create');
+  const [productForm, setProductForm] = useState<{ name: string; code: string; spec: string }>({
+    name: '',
+    code: '',
+    spec: '',
+  });
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState(false);
+
+  const asset: ProductAsset | null =
+    products.find(p => p.id === selectedProductId) || products[0] || null;
+
   // Sync product info from asset
   useEffect(() => {
     if (asset) {
       setDetectionMethod(asset.detection_method || '');
       setProductModels(asset.product_models || []);
       setDetectionRequirements(asset.detection_requirements || []);
+    } else {
+      setDetectionMethod('');
+      setProductModels([]);
+      setDetectionRequirements([]);
     }
   }, [asset]);
 
-  // Load asset and annotations
-  const loadData = useCallback(async () => {
+  // Load all products for this workstation, plus annotations for the selected one
+  const loadData = useCallback(async (preferredProductId?: string | null) => {
     if (!workstationId || !user) return;
     setLoading(true);
     try {
-      // Load product asset
-      const { data: assetData, error: assetError } = await supabase
+      const { data: rows, error: assetError } = await supabase
         .from('product_assets')
         .select('*')
         .eq('workstation_id', workstationId)
         .eq('scope_type', 'workstation')
-        .maybeSingle();
+        .order('is_primary', { ascending: false })
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
 
       if (assetError) throw assetError;
 
-      if (assetData) {
-        const previewImages = Array.isArray(assetData.preview_images)
-          ? assetData.preview_images as string[]
-          : [];
-        const productModels = Array.isArray(assetData.product_models)
-          ? assetData.product_models as unknown as ProductModelItem[]
-          : [];
-        const detectionRequirements = Array.isArray(assetData.detection_requirements)
-          ? assetData.detection_requirements as unknown as DetectionRequirementItem[]
-          : [];
-        setAsset({
-          ...assetData,
-          preview_images: previewImages,
-          product_models: productModels,
-          detection_requirements: detectionRequirements,
-        } as ProductAsset);
+      const list: ProductAsset[] = (rows || []).map(r => ({
+        ...r,
+        preview_images: Array.isArray(r.preview_images) ? (r.preview_images as string[]) : [],
+        product_models: Array.isArray(r.product_models)
+          ? (r.product_models as unknown as ProductModelItem[])
+          : [],
+        detection_requirements: Array.isArray(r.detection_requirements)
+          ? (r.detection_requirements as unknown as DetectionRequirementItem[])
+          : [],
+      })) as ProductAsset[];
+      setProducts(list);
 
-        // Load annotations for this asset
+      // Choose next selected product
+      const nextSelected =
+        (preferredProductId && list.find(p => p.id === preferredProductId)?.id) ||
+        (selectedProductId && list.find(p => p.id === selectedProductId)?.id) ||
+        list[0]?.id ||
+        null;
+      setSelectedProductId(nextSelected);
+
+      if (nextSelected) {
         const { data: annotData, error: annotError } = await supabase
           .from('product_annotations')
           .select('*')
-          .eq('asset_id', assetData.id)
+          .eq('asset_id', nextSelected)
           .order('version', { ascending: false });
 
         if (annotError) throw annotError;
@@ -192,14 +226,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           view_meta: a.view_meta as AnnotationRecord['view_meta'],
         }));
         setAnnotations(records);
-
-        // Find default record (highest version or marked as default)
-        if (records.length > 0) {
-          setDefaultRecordId(records[0].id);
-        }
+        setDefaultRecordId(records.length > 0 ? records[0].id : null);
       } else {
-        setAsset(null);
         setAnnotations([]);
+        setDefaultRecordId(null);
       }
     } catch (error) {
       console.error('Failed to load product data:', error);
@@ -207,11 +237,195 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     } finally {
       setLoading(false);
     }
-  }, [workstationId, user]);
+  }, [workstationId, user, selectedProductId]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workstationId, user]);
+
+  // When user switches selected product, reload its annotations
+  useEffect(() => {
+    if (!selectedProductId) {
+      setAnnotations([]);
+      setDefaultRecordId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('product_annotations')
+        .select('*')
+        .eq('asset_id', selectedProductId)
+        .order('version', { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        console.error(error);
+        return;
+      }
+      const records = (data || []).map(a => ({
+        ...a,
+        annotations_json: a.annotations_json as unknown as Annotation[],
+        view_meta: a.view_meta as AnnotationRecord['view_meta'],
+      }));
+      setAnnotations(records);
+      setDefaultRecordId(records.length > 0 ? records[0].id : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProductId]);
+
+  // ---------- Product management ----------
+  const openCreateProduct = () => {
+    setProductDialogMode('create');
+    setProductForm({ name: `产品 ${products.length + 1}`, code: '', spec: '' });
+    setProductDialogOpen(true);
+  };
+  const openEditProduct = () => {
+    if (!asset) return;
+    setProductDialogMode('edit');
+    setProductForm({
+      name: asset.product_name || '',
+      code: asset.product_code || '',
+      spec: asset.product_spec || '',
+    });
+    setProductDialogOpen(true);
+  };
+  const submitProductDialog = async () => {
+    if (!user) return;
+    const name = productForm.name.trim();
+    if (!name) {
+      toast.error('产品名称必填');
+      return;
+    }
+    setSavingProduct(true);
+    try {
+      if (productDialogMode === 'create') {
+        const nextOrder =
+          products.length === 0
+            ? 0
+            : Math.max(...products.map(p => p.sort_order ?? 0)) + 1;
+        const makePrimary = products.length === 0;
+        const { data, error } = await supabase
+          .from('product_assets')
+          .insert({
+            workstation_id: workstationId,
+            scope_type: 'workstation',
+            source_type: 'image',
+            product_name: name,
+            product_code: productForm.code.trim() || null,
+            product_spec: productForm.spec.trim() || null,
+            sort_order: nextOrder,
+            is_primary: makePrimary,
+            user_id: user.id,
+          } as never)
+          .select('id')
+          .single();
+        if (error) throw error;
+        setProductDialogOpen(false);
+        await loadData(data?.id ?? null);
+        toast.success('产品已创建');
+      } else if (asset) {
+        const { error } = await supabase
+          .from('product_assets')
+          .update({
+            product_name: name,
+            product_code: productForm.code.trim() || null,
+            product_spec: productForm.spec.trim() || null,
+          } as never)
+          .eq('id', asset.id);
+        if (error) throw error;
+        setProductDialogOpen(false);
+        await loadData(asset.id);
+        toast.success('产品已更新');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  const setAsPrimary = async () => {
+    if (!asset) return;
+    try {
+      // Clear existing primary in this workstation first (partial unique index enforces one).
+      const { error: clearErr } = await supabase
+        .from('product_assets')
+        .update({ is_primary: false } as never)
+        .eq('workstation_id', workstationId)
+        .eq('scope_type', 'workstation')
+        .neq('id', asset.id);
+      if (clearErr) throw clearErr;
+      const { error } = await supabase
+        .from('product_assets')
+        .update({ is_primary: true } as never)
+        .eq('id', asset.id);
+      if (error) throw error;
+      await loadData(asset.id);
+      toast.success('已设为主产品');
+    } catch (e) {
+      console.error(e);
+      toast.error('设置主产品失败');
+    }
+  };
+
+  const moveProduct = async (direction: 'up' | 'down') => {
+    if (!asset) return;
+    const idx = products.findIndex(p => p.id === asset.id);
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= products.length) return;
+    const a = products[idx];
+    const b = products[targetIdx];
+    try {
+      const { error: e1 } = await supabase
+        .from('product_assets')
+        .update({ sort_order: b.sort_order ?? targetIdx } as never)
+        .eq('id', a.id);
+      if (e1) throw e1;
+      const { error: e2 } = await supabase
+        .from('product_assets')
+        .update({ sort_order: a.sort_order ?? idx } as never)
+        .eq('id', b.id);
+      if (e2) throw e2;
+      await loadData(asset.id);
+    } catch (e) {
+      console.error(e);
+      toast.error('排序失败');
+    }
+  };
+
+  const confirmDeleteProduct = async () => {
+    if (!deleteConfirmId) return;
+    setDeletingProduct(true);
+    try {
+      const target = products.find(p => p.id === deleteConfirmId);
+      const wasPrimary = target?.is_primary === true;
+      const { error } = await supabase
+        .from('product_assets')
+        .delete()
+        .eq('id', deleteConfirmId);
+      if (error) throw error;
+      // If removed primary and other products remain, promote first remaining.
+      const remaining = products.filter(p => p.id !== deleteConfirmId);
+      if (wasPrimary && remaining.length > 0) {
+        await supabase
+          .from('product_assets')
+          .update({ is_primary: true } as never)
+          .eq('id', remaining[0].id);
+      }
+      setDeleteConfirmId(null);
+      await loadData(null);
+      toast.success('产品已删除');
+    } catch (e) {
+      console.error(e);
+      toast.error('删除失败');
+    } finally {
+      setDeletingProduct(false);
+    }
+  };
 
   // Upload 3D model or images
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,6 +458,26 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         return;
       }
 
+      // Ensure a product row exists to attach media to.
+      let targetProductId = asset?.id ?? null;
+      if (!targetProductId) {
+        const { data: created, error: createErr } = await supabase
+          .from('product_assets')
+          .insert({
+            workstation_id: workstationId,
+            scope_type: 'workstation',
+            source_type: isModel ? 'model' : 'image',
+            product_name: `产品 ${products.length + 1}`,
+            sort_order: 0,
+            is_primary: true,
+            user_id: user.id,
+          } as never)
+          .select('id')
+          .single();
+        if (createErr) throw createErr;
+        targetProductId = created!.id;
+      }
+
       // GLB: use same bucket + policies as hardware center (3d-models via uploadGLBFile).
       // GLTF + images: keep product-models direct upload.
       let fileUrl: string;
@@ -255,7 +489,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         fileUrl = url;
       } else {
         const bucket = 'product-models';
-        const path = `${workstationId}/${createSafeStorageObjectName(file.name, {
+        const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
           fallbackBase: isModel ? 'model' : 'image',
           fallbackExtension: isModel ? 'gltf' : 'png',
         })}`;
@@ -265,47 +499,30 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         fileUrl = publicUrl;
       }
 
-      // Create or update asset
-      if (asset) {
-        const updateData: any = {
-          updated_at: new Date().toISOString(),
-        };
-        if (isModel) {
-          updateData.model_file_url = fileUrl;
-          updateData.preview_images = [];
-          updateData.source_type = 'model';
-        } else {
-          updateData.model_file_url = null;
-          updateData.preview_images = [fileUrl];
-          updateData.source_type = 'image';
-        }
-        const { error } = await supabase
-          .from('product_assets')
-          .update(updateData)
-          .eq('id', asset.id);
-        if (error) throw error;
+      const updateData: any = { updated_at: new Date().toISOString() };
+      if (isModel) {
+        updateData.model_file_url = fileUrl;
+        updateData.preview_images = [];
+        updateData.source_type = 'model';
       } else {
-        const { error } = await supabase.from('product_assets').insert({
-          workstation_id: workstationId,
-          scope_type: 'workstation',
-          source_type: isModel ? 'model' : 'image',
-          model_file_url: isModel ? fileUrl : null,
-          preview_images: isImage ? [fileUrl] : [],
-          user_id: user.id,
-        });
-        if (error) throw error;
+        updateData.model_file_url = null;
+        updateData.preview_images = [fileUrl];
+        updateData.source_type = 'image';
       }
+      const { error } = await supabase
+        .from('product_assets')
+        .update(updateData)
+        .eq('id', targetProductId);
+      if (error) throw error;
 
-      await loadData();
+      await loadData(targetProductId);
       toast.success('文件上传成功');
 
       // Auto enter viewer mode after upload
-      // Need to re-fetch to get latest asset data
       const { data: latestAsset } = await supabase
         .from('product_assets')
         .select('*')
-        .eq('workstation_id', workstationId)
-        .eq('scope_type', 'workstation')
+        .eq('id', targetProductId)
         .maybeSingle();
       if (latestAsset) {
         const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
@@ -342,7 +559,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     try {
       // Upload snapshot to storage
       const blob = await fetch(currentSnapshot).then(r => r.blob());
-      const path = `${workstationId}/snapshots/${Date.now()}.png`;
+      const path = `${workstationId}/${asset.id}/snapshots/${Date.now()}.png`;
       const { error: uploadError } = await supabase.storage
         .from('product-snapshots')
         .upload(path, blob, { contentType: 'image/png' });
@@ -370,7 +587,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
       if (error) throw error;
 
-      await loadData();
+      await loadData(asset.id);
       setIsAnnotating(false);
       setCurrentSnapshot(null);
       setCurrentAnnotations([]);
@@ -410,7 +627,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
       if (error) throw error;
 
-      await loadData();
+      await loadData(asset?.id ?? null);
       toast.success('记录已删除');
     } catch (error) {
       console.error('Delete failed:', error);
@@ -460,6 +677,85 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Product selector bar */}
+        <div className="space-y-2 rounded-md border border-border/60 bg-secondary/30 p-2">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs shrink-0">产品</Label>
+            <Select
+              value={selectedProductId ?? ''}
+              onValueChange={(v) => setSelectedProductId(v)}
+              disabled={products.length === 0}
+            >
+              <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectValue placeholder={products.length === 0 ? '暂无产品' : '选择产品'} />
+              </SelectTrigger>
+              <SelectContent>
+                {products.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                    <span className="flex items-center gap-1">
+                      {p.is_primary && <Star className="h-3 w-3 text-primary" />}
+                      {p.product_name || '未命名产品'}
+                      {p.product_code ? (
+                        <span className="text-muted-foreground">· {p.product_code}</span>
+                      ) : null}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" className="h-8 px-2" onClick={openCreateProduct}>
+              <Plus className="h-3 w-3 mr-1" /> 新增
+            </Button>
+          </div>
+          {asset && (
+            <div className="flex flex-wrap items-center gap-1">
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={openEditProduct}>
+                <Edit3 className="h-3 w-3 mr-1" /> 编辑
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={setAsPrimary}
+                disabled={asset.is_primary}
+              >
+                <Star className="h-3 w-3 mr-1" /> 设为主产品
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => moveProduct('up')}
+                disabled={products.findIndex(p => p.id === asset.id) <= 0}
+              >
+                <ArrowUp className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => moveProduct('down')}
+                disabled={products.findIndex(p => p.id === asset.id) >= products.length - 1}
+              >
+                <ArrowDown className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                onClick={() => setDeleteConfirmId(asset.id)}
+              >
+                <Trash2 className="h-3 w-3 mr-1" /> 删除
+              </Button>
+              {asset.product_spec && (
+                <Badge variant="secondary" className="text-[10px] h-5">
+                  规格 {asset.product_spec}
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-3 h-8">
             <TabsTrigger value="viewer" className="text-xs">
@@ -693,31 +989,11 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                     className="w-full"
                     size="sm"
                     onClick={async () => {
-                      if (!asset || !user) {
-                        // Create new asset if not exists
-                        if (!user) return;
-                        setSavingInfo(true);
-                        try {
-                          const { error } = await supabase.from('product_assets').insert({
-                            workstation_id: workstationId,
-                            scope_type: 'workstation',
-                            source_type: 'image',
-                            detection_method: detectionMethod || null,
-                            product_models: productModels as unknown as any,
-                            detection_requirements: detectionRequirements as unknown as any,
-                            user_id: user.id,
-                          });
-                          if (error) throw error;
-                          await loadData();
-                          toast.success('产品信息已保存');
-                        } catch (error) {
-                          console.error('Save failed:', error);
-                          toast.error('保存失败');
-                        } finally {
-                          setSavingInfo(false);
-                        }
-                        return;
-                      }
+                    if (!user) return;
+                    if (!asset) {
+                      toast.error('请先添加产品');
+                      return;
+                    }
 
                       setSavingInfo(true);
                       try {
@@ -732,7 +1008,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                           .eq('id', asset.id);
 
                         if (error) throw error;
-                        await loadData();
+                      await loadData(asset.id);
                         toast.success('产品信息已保存');
                       } catch (error) {
                         console.error('Save failed:', error);
@@ -859,6 +1135,80 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
               <Button onClick={handleSaveAnnotation} disabled={saving}>
                 {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                 保存
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Product create / edit dialog */}
+        <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {productDialogMode === 'create' ? '新增产品' : '编辑产品'}
+              </DialogTitle>
+              <DialogDescription>
+                名称必填；编号、规格可选。一个工位可有多个独立产品，第一个产品自动作为主产品。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1">
+                <Label className="text-xs">产品名称 *</Label>
+                <Input
+                  value={productForm.name}
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  placeholder="例如：正极电池盖板"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">产品编号</Label>
+                <Input
+                  value={productForm.code}
+                  onChange={(e) => setProductForm({ ...productForm, code: e.target.value })}
+                  placeholder="例如：P-001"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">产品规格</Label>
+                <Input
+                  value={productForm.spec}
+                  onChange={(e) => setProductForm({ ...productForm, spec: e.target.value })}
+                  placeholder="例如：120 × 80 × 12 mm"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setProductDialogOpen(false)}>
+                取消
+              </Button>
+              <Button onClick={submitProductDialog} disabled={savingProduct}>
+                {savingProduct && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                保存
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete confirmation */}
+        <Dialog open={!!deleteConfirmId} onOpenChange={(v) => !v && setDeleteConfirmId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>删除产品？</DialogTitle>
+              <DialogDescription>
+                删除后，该产品的 3D 模型 / 图片、标注记录、以及模块层级挂在此产品下的素材都会一并删除，且无法恢复。
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+                取消
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDeleteProduct}
+                disabled={deletingProduct}
+              >
+                {deletingProduct && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                删除
               </Button>
             </DialogFooter>
           </DialogContent>
