@@ -288,8 +288,19 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
     objects.forEach(obj => {
       const p = projectForView(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
-      allPoints.push({ x: p.x - iconMargin, y: p.y - iconMargin });
-      allPoints.push({ x: p.x + iconMargin, y: p.y + iconMargin });
+      // For products with custom dimensions, include their actual bounding box.
+      if (obj.type === 'product') {
+        const hL = (obj.productLength ?? productDimensions.length) / 2;
+        const hW = (obj.productWidth ?? productDimensions.width) / 2;
+        const hH = (obj.productHeight ?? productDimensions.height) / 2;
+        [{ x: -hL, y: -hW, z: -hH }, { x: hL, y: hW, z: hH }].forEach(c => {
+          const pp = projectForView((obj.posX ?? 0) + c.x, (obj.posY ?? 0) + c.y, (obj.posZ ?? 0) + c.z, currentView);
+          allPoints.push(pp);
+        });
+      } else {
+        allPoints.push({ x: p.x - iconMargin, y: p.y - iconMargin });
+        allPoints.push({ x: p.x + iconMargin, y: p.y + iconMargin });
+      }
     });
 
     if (allPoints.length < 2) {
