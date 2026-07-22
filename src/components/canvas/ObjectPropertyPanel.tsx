@@ -47,6 +47,11 @@ export interface LayoutObject {
   mountOffsetZ?: number;
   // Custom GLB 3D model URL
   model3dUrl?: string;
+  // Per-product physical dimensions (mm). Only meaningful when type === 'product'.
+  // Falls back to workstation.product_dimensions when absent.
+  productLength?: number;
+  productWidth?: number;
+  productHeight?: number;
 }
 
 interface ObjectPropertyPanelProps {
