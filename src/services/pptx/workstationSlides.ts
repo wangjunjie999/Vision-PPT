@@ -720,7 +720,7 @@ export async function generateProductSchematicSlide(
 
 async function renderAnnotationBody(
   ctx: SlideContext,
-  slide: PptxSlide,
+  slide: PptxGenJS.Slide,
   annotation: NonNullable<WorkstationSlideData['annotations']>[number],
 ): Promise<void> {
   try {
@@ -772,7 +772,7 @@ async function renderAnnotationBody(
 
 async function renderPreviewOnly(
   ctx: SlideContext,
-  slide: PptxSlide,
+  slide: PptxGenJS.Slide,
   imageUrl: string | undefined,
 ): Promise<void> {
   if (!imageUrl) {
