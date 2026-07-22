@@ -26,18 +26,24 @@ export const ProductRenderer = memo(function ProductRenderer({
     <>
       {/* Isometric 3D cube */}
       {isIsometric && (() => {
-        const productObj = objects.find(o => o.type === 'product');
+        const productObjs = objects.filter(o => o.type === 'product');
+        if (productObjs.length === 0) return null;
+        return productObjs.map((productObj) => {
         const isMounted = !!productObj?.mountedToMechanismId;
         const parentMech = isMounted ? objects.find(o => o.id === productObj?.mountedToMechanismId) : null;
+
+        const pLen = productObj.productLength ?? productDimensions.length;
+        const pWid = productObj.productWidth ?? productDimensions.width;
+        const pHei = productObj.productHeight ?? productDimensions.height;
 
         const pPosX = isMounted && parentMech ? (parentMech.posX ?? 0) : (productObj?.posX ?? 0);
         const pPosY = isMounted && parentMech ? (parentMech.posY ?? 0) : (productObj?.posY ?? 0);
         const mechHeight = isMounted && parentMech ? (parentMech.height ?? 80) : 0;
-        const pPosZ = isMounted && parentMech ? (parentMech.posZ ?? 0) + mechHeight / 2 + productDimensions.height / 2 : (productObj?.posZ ?? 0);
+        const pPosZ = isMounted && parentMech ? (parentMech.posZ ?? 0) + mechHeight / 2 + pHei / 2 : (productObj?.posZ ?? 0);
 
-        const hL = productDimensions.length / 2;
-        const hW = productDimensions.width / 2;
-        const hH = productDimensions.height / 2;
+        const hL = pLen / 2;
+        const hW = pWid / 2;
+        const hH = pHei / 2;
         const p = (x: number, y: number, z: number) => isoProject(pPosX + x, pPosY + y, pPosZ + z);
         const t0 = p(-hL, -hW, hH), t1 = p(hL, -hW, hH), t2 = p(hL, hW, hH), t3 = p(-hL, hW, hH);
         const b0 = p(-hL, -hW, -hH), b1 = p(hL, -hW, -hH), b2 = p(hL, hW, -hH), b3 = p(-hL, hW, -hH);
@@ -68,7 +74,7 @@ export const ProductRenderer = memo(function ProductRenderer({
         })() : null;
 
         return (
-          <g opacity={isMounted ? 0.7 : 1}>
+          <g key={productObj.id} opacity={isMounted ? 0.7 : 1}>
             {connectionLine}
             <g filter="url(#drop-shadow)">
               <line x1={t2.x} y1={t2.y} x2={t3.x} y2={t3.y} stroke={strokeColor} strokeWidth="1" strokeDasharray="4 3" opacity={0.35} />
@@ -89,11 +95,12 @@ export const ProductRenderer = memo(function ProductRenderer({
                 y={Math.max(b0.y, b1.y, b2.y) + 25}
                 textAnchor="middle" fill={labelColor} fontSize="11"
               >
-                {isMounted ? '📦 ' : ''}产品 {productDimensions.length}×{productDimensions.width}×{productDimensions.height}mm
+                {isMounted ? '📦 ' : ''}{productObj.name || '产品'} {pLen}×{pWid}×{pHei}mm
               </text>
             </g>
           </g>
         );
+        });
       })()}
 
       {/* 2D product rendering */}
