@@ -281,6 +281,11 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       event.target.value = '';
       return;
     }
+    if (!selectedParentProductId) {
+      toast.error('请先在上方选择关联产品');
+      event.target.value = '';
+      return;
+    }
 
     setUploading(true);
     try {
@@ -293,7 +298,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       }
 
       const bucket = 'product-models';
-      const path = `modules/${moduleId}/${createSafeStorageObjectName(file.name, {
+      const path = `modules/${moduleId}/${selectedParentProductId}/${createSafeStorageObjectName(file.name, {
         fallbackBase: 'module-image',
         fallbackExtension: 'png',
       })}`;
@@ -320,6 +325,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
           model_file_url: null,
           preview_images: [fileUrl],
           user_id: user.id,
+          parent_product_id: selectedParentProductId,
         });
         if (error) throw error;
       }
@@ -333,6 +339,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
         .select('*')
         .eq('module_id', moduleId)
         .eq('scope_type', 'module')
+        .eq('parent_product_id', selectedParentProductId)
         .maybeSingle();
       if (latestAsset) {
         const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
