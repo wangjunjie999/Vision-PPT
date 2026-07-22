@@ -855,11 +855,16 @@ export type Database = {
           created_at: string
           detection_method: string | null
           detection_requirements: Json | null
+          height_mm: number | null
           id: string
           is_primary: boolean
+          length_mm: number | null
           model_file_url: string | null
           module_id: string | null
           parent_product_id: string | null
+          pos_x: number | null
+          pos_y: number | null
+          pos_z: number | null
           preview_images: Json | null
           product_code: string | null
           product_models: Json | null
@@ -870,17 +875,23 @@ export type Database = {
           source_type: string
           updated_at: string
           user_id: string
+          width_mm: number | null
           workstation_id: string | null
         }
         Insert: {
           created_at?: string
           detection_method?: string | null
           detection_requirements?: Json | null
+          height_mm?: number | null
           id?: string
           is_primary?: boolean
+          length_mm?: number | null
           model_file_url?: string | null
           module_id?: string | null
           parent_product_id?: string | null
+          pos_x?: number | null
+          pos_y?: number | null
+          pos_z?: number | null
           preview_images?: Json | null
           product_code?: string | null
           product_models?: Json | null
@@ -891,17 +902,23 @@ export type Database = {
           source_type?: string
           updated_at?: string
           user_id: string
+          width_mm?: number | null
           workstation_id?: string | null
         }
         Update: {
           created_at?: string
           detection_method?: string | null
           detection_requirements?: Json | null
+          height_mm?: number | null
           id?: string
           is_primary?: boolean
+          length_mm?: number | null
           model_file_url?: string | null
           module_id?: string | null
           parent_product_id?: string | null
+          pos_x?: number | null
+          pos_y?: number | null
+          pos_z?: number | null
           preview_images?: Json | null
           product_code?: string | null
           product_models?: Json | null
@@ -912,6 +929,7 @@ export type Database = {
           source_type?: string
           updated_at?: string
           user_id?: string
+          width_mm?: number | null
           workstation_id?: string | null
         }
         Relationships: [
