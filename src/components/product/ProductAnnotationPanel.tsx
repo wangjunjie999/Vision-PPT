@@ -165,6 +165,9 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [productAnnotationStats, setProductAnnotationStats] = useState<Map<string, ProductAnnotationStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [dragMediaId, setDragMediaId] = useState<string | null>(null);
+  const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
   const [activeTab, setActiveTab] = useState('media');
 
