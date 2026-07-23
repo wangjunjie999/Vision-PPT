@@ -863,8 +863,47 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                     const annotation = annotations.find(record => record.media_id === media.id) || null;
                     const displayUrl = getProductMediaDisplayUrl({ media, annotation });
                     return (
-                      <div key={media.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
-                        <div className="grid grid-cols-[112px_1fr] gap-3 p-3">
+                      <div
+                        key={media.id}
+                        draggable={!reordering}
+                        onDragStart={(e) => {
+                          setDragMediaId(media.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', media.id);
+                        }}
+                        onDragOver={(e) => {
+                          if (!dragMediaId || dragMediaId === media.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverMediaId !== media.id) setDragOverMediaId(media.id);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverMediaId === media.id) setDragOverMediaId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const sourceId = dragMediaId || e.dataTransfer.getData('text/plain');
+                          setDragMediaId(null);
+                          setDragOverMediaId(null);
+                          if (sourceId && sourceId !== media.id) {
+                            void handleReorderMediaByDrag(sourceId, media.id);
+                          }
+                        }}
+                        onDragEnd={() => {
+                          setDragMediaId(null);
+                          setDragOverMediaId(null);
+                        }}
+                        className={`overflow-hidden rounded-xl border bg-card shadow-sm transition ${
+                          dragMediaId === media.id ? 'opacity-50' : ''
+                        } ${dragOverMediaId === media.id ? 'border-primary ring-2 ring-primary/30' : ''}`}
+                      >
+                        <div className="grid grid-cols-[24px_112px_1fr] gap-3 p-3">
+                          <div
+                            className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing"
+                            title="拖拽排序"
+                          >
+                            <GripVertical className="h-4 w-4" />
+                          </div>
                           <button
                             type="button"
                             className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
