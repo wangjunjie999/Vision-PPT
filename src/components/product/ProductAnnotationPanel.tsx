@@ -42,6 +42,7 @@ import {
   Maximize2,
   ArrowUp,
   ArrowDown,
+  GripVertical,
 } from 'lucide-react';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
@@ -164,6 +165,9 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [productAnnotationStats, setProductAnnotationStats] = useState<Map<string, ProductAnnotationStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [dragMediaId, setDragMediaId] = useState<string | null>(null);
+  const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
   const [activeTab, setActiveTab] = useState('media');
 
@@ -599,6 +603,28 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     }
   };
 
+  const handleReorderMediaByDrag = async (sourceId: string, targetId: string) => {
+    if (!asset || sourceId === targetId) return;
+    const ordered = sortProductMedia(mediaItems, asset.id);
+    const fromIndex = ordered.findIndex(item => item.id === sourceId);
+    const toIndex = ordered.findIndex(item => item.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const next = [...ordered];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setReordering(true);
+    try {
+      await reorderProductMedia(asset.id, next.map(item => item.id));
+      await syncPreviewImagesFromMedia(asset.id);
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('图片排序失败');
+    } finally {
+      setReordering(false);
+    }
+  };
+
   const handlePaginationModeChange = async (value: string) => {
     if (!asset) return;
     const nextMode: 1 | 2 = value === '2' ? 2 : 1;
@@ -837,8 +863,47 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                     const annotation = annotations.find(record => record.media_id === media.id) || null;
                     const displayUrl = getProductMediaDisplayUrl({ media, annotation });
                     return (
-                      <div key={media.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
-                        <div className="grid grid-cols-[112px_1fr] gap-3 p-3">
+                      <div
+                        key={media.id}
+                        draggable={!reordering}
+                        onDragStart={(e) => {
+                          setDragMediaId(media.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', media.id);
+                        }}
+                        onDragOver={(e) => {
+                          if (!dragMediaId || dragMediaId === media.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverMediaId !== media.id) setDragOverMediaId(media.id);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverMediaId === media.id) setDragOverMediaId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const sourceId = dragMediaId || e.dataTransfer.getData('text/plain');
+                          setDragMediaId(null);
+                          setDragOverMediaId(null);
+                          if (sourceId && sourceId !== media.id) {
+                            void handleReorderMediaByDrag(sourceId, media.id);
+                          }
+                        }}
+                        onDragEnd={() => {
+                          setDragMediaId(null);
+                          setDragOverMediaId(null);
+                        }}
+                        className={`overflow-hidden rounded-xl border bg-card shadow-sm transition ${
+                          dragMediaId === media.id ? 'opacity-50' : ''
+                        } ${dragOverMediaId === media.id ? 'border-primary ring-2 ring-primary/30' : ''}`}
+                      >
+                        <div className="grid grid-cols-[24px_112px_1fr] gap-3 p-3">
+                          <div
+                            className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing"
+                            title="拖拽排序"
+                          >
+                            <GripVertical className="h-4 w-4" />
+                          </div>
                           <button
                             type="button"
                             className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
