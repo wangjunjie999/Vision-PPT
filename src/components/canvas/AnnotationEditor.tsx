@@ -66,9 +66,9 @@ export function AnnotationEditor() {
   // Sync editor state whenever a new annotation session starts.
   useEffect(() => {
     if (annotationExistingData) {
-      setAnnotations(annotationExistingData.annotations as Annotation[]);
+      setAnnotations((annotationExistingData.annotations || []) as Annotation[]);
       setSaveRemark(annotationExistingData.remark || '');
-      setReadOnly(true);
+      setReadOnly(Boolean(annotationExistingData.recordId));
     } else {
       setAnnotations([]);
       setSaveRemark('');
@@ -150,7 +150,7 @@ export function AnnotationEditor() {
       const { data: urlData } = supabase.storage.from('product-snapshots').getPublicUrl(path);
       const snapshotUrl = urlData.publicUrl;
 
-      // If editing existing record, update it
+      // A product_media image owns at most one editable annotation record.
       if (annotationExistingData?.recordId) {
         const { error } = await supabase
           .from('product_annotations')
@@ -158,9 +158,44 @@ export function AnnotationEditor() {
             snapshot_url: snapshotUrl,
             annotations_json: annotations as unknown as any,
             remark: saveRemark || null,
+            media_id: annotationExistingData.mediaId || null,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', annotationExistingData.recordId);
         if (error) throw error;
+      } else if (annotationExistingData?.mediaId) {
+        const { data: existing, error: existingError } = await supabase
+          .from('product_annotations')
+          .select('id')
+          .eq('media_id', annotationExistingData.mediaId)
+          .maybeSingle();
+        if (existingError) throw existingError;
+
+        if (existing) {
+          const { error } = await supabase
+            .from('product_annotations')
+            .update({
+              snapshot_url: snapshotUrl,
+              annotations_json: annotations as unknown as any,
+              remark: saveRemark || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('product_annotations').insert({
+            asset_id: annotationAssetId,
+            media_id: annotationExistingData.mediaId,
+            snapshot_url: snapshotUrl,
+            annotations_json: annotations as unknown as any,
+            view_meta: { viewName: '产品图片标注' },
+            version: 1,
+            remark: saveRemark || null,
+            user_id: user.id,
+            workstation_id: annotationWorkstationId,
+          });
+          if (error) throw error;
+        }
       } else {
         // Create new record
         const { data: existing } = await supabase

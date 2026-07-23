@@ -9,6 +9,13 @@ import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import { formatWorkstationCycleTime, formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
 import type { GenerationScope } from '@/types/generation';
+import {
+  buildProductMediaItems,
+  formatProductMediaCaption,
+  paginateProductMedia,
+  type ProductMediaOutputItem,
+  type ProductMediaRecord,
+} from '@/utils/productAssetMedia';
 
 // ==================== DATA INTERFACES ====================
 
@@ -247,16 +254,34 @@ interface ProductAssetData {
   workstation_id: string | null;
   module_id: string | null;
   scope_type: 'workstation' | 'module';
-  preview_images: Array<{ url: string; name?: string }> | null;
+  preview_images: unknown;
   model_file_url: string | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  product_spec?: string | null;
+  document_images_per_page?: 1 | 2 | number | null;
+  is_primary?: boolean;
+  sort_order?: number;
+  parent_product_id?: string | null;
+  length_mm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  pos_z?: number | null;
 }
 
 interface ProductAnnotationData {
   id: string;
   asset_id: string;
+  media_id?: string | null;
   snapshot_url: string;
   remark: string | null;
   annotations_json: unknown;
+  is_ppt_default?: boolean | null;
+  version?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface HardwareData {
@@ -397,8 +422,8 @@ async function fetchImageAsBase64(url: string): Promise<string | null> {
 
 function getImageFormat(url: string): 'PNG' | 'JPEG' | 'GIF' {
   const lowerUrl = url.toLowerCase();
-  if (lowerUrl.includes('.png')) return 'PNG';
-  if (lowerUrl.includes('.gif')) return 'GIF';
+  if (lowerUrl.startsWith('data:image/png') || lowerUrl.includes('.png')) return 'PNG';
+  if (lowerUrl.startsWith('data:image/gif') || lowerUrl.includes('.gif')) return 'GIF';
   return 'JPEG';
 }
 
@@ -614,6 +639,78 @@ class PDFTextHelper {
       return false;
     }
   }
+
+  async addProductMediaPage(
+    items: ProductMediaOutputItem[],
+    imagesPerPage: 1 | 2,
+    isZh: boolean,
+  ): Promise<number> {
+    if (items.length === 0) return 0;
+    if (items.length === 1) {
+      const item = items[0];
+      const caption = formatProductMediaCaption(item, isZh);
+      const candidates = [item.annotation?.snapshot_url, item.media.original_url].filter(Boolean) as string[];
+      for (const candidate of candidates) {
+        if (await this.addImage(
+          candidate,
+          caption,
+          imagesPerPage === 1 ? 170 : 125,
+          imagesPerPage === 1 ? 150 : 100,
+        )) return 1;
+      }
+      return 0;
+    }
+
+    const gap = 10;
+    const columnWidth = (this.contentWidth - gap) / 2;
+    const imageWidth = columnWidth - 4;
+    const imageHeight = 105;
+    const top = this.y;
+    let maxCaptionHeight = 0;
+    let rendered = 0;
+
+    for (let index = 0; index < Math.min(items.length, 2); index += 1) {
+      const item = items[index];
+      const candidates = [item.annotation?.snapshot_url, item.media.original_url].filter(Boolean) as string[];
+      let imageUrl = '';
+      let base64: string | null = null;
+      for (const candidate of candidates) {
+        base64 = await fetchImageAsBase64(candidate);
+        if (base64) {
+          imageUrl = candidate;
+          break;
+        }
+      }
+      if (!base64) continue;
+
+      const x = this.margin + index * (columnWidth + gap) + 2;
+      try {
+        const format = base64.startsWith('data:image/png') ? 'PNG' : getImageFormat(imageUrl);
+        this.pdf.setDrawColor(200, 200, 200);
+        this.pdf.setLineWidth(0.3);
+        this.pdf.rect(x - 2, top - 2, imageWidth + 4, imageHeight + 4);
+        this.pdf.addImage(base64, format, x, top, imageWidth, imageHeight);
+
+        const caption = formatProductMediaCaption(item, isZh);
+        const renderedCaption = renderTextToCanvas(caption, 8, 'normal', imageWidth, '#666666', 1.35);
+        const captionX = x + Math.max(0, (imageWidth - renderedCaption.width) / 2);
+        this.pdf.addImage(
+          renderedCaption.dataUrl,
+          'PNG',
+          captionX,
+          top + imageHeight + 5,
+          renderedCaption.width,
+          renderedCaption.height,
+        );
+        maxCaptionHeight = Math.max(maxCaptionHeight, renderedCaption.height);
+        rendered += 1;
+      } catch (error) {
+        console.warn('Failed to add product media to PDF:', error);
+      }
+    }
+    this.y = top + imageHeight + maxCaptionHeight + 12;
+    return rendered;
+  }
   
   // 添加表格 - 表头10pt 数据9pt
   addTable(headers: string[], rows: string[][], colWidths?: number[]) {
@@ -712,7 +809,8 @@ export async function generatePDF(
   options: GenerationOptions,
   onProgress?: ProgressCallback,
   productAssets?: ProductAssetData[],
-  productAnnotations?: ProductAnnotationData[]
+  productAnnotations?: ProductAnnotationData[],
+  productMedia?: ProductMediaRecord[],
 ): Promise<Blob> {
   const isZh = options.language === 'zh';
   const includeImages = options.includeImages !== false;
@@ -953,10 +1051,24 @@ export async function generatePDF(
     helper.addLabelValue(isZh ? '工艺阶段' : 'Process Stage', ws.process_stage || '');
     helper.addLabelValue(isZh ? '封闭环境' : 'Enclosed', ws.enclosed ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No'));
     
-    if (ws.product_dimensions) {
-      helper.addLabelValue(
-        isZh ? '产品尺寸' : 'Product Dimensions', 
-        `${ws.product_dimensions.length} × ${ws.product_dimensions.width} × ${ws.product_dimensions.height} mm`
+    const wsProductAssets = (productAssets || [])
+      .filter(asset => asset.workstation_id === ws.id && asset.scope_type === 'workstation')
+      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    helper.addLabelValue(isZh ? '产品数量' : 'Product Count', String(wsProductAssets.length));
+    if (wsProductAssets.length > 0) {
+      helper.addSpace(3);
+      helper.addSubtitle(isZh ? '产品明细' : 'Product Details');
+      const productRows = wsProductAssets.map((asset, productIndex) => [
+        `${productIndex + 1}${asset.is_primary ? '*' : ''}`,
+        asset.product_name || (isZh ? '未命名' : 'Unnamed'),
+        asset.product_code || '-',
+        `${asset.length_mm ?? ws.product_dimensions?.length ?? 100}×${asset.width_mm ?? ws.product_dimensions?.width ?? 100}×${asset.height_mm ?? ws.product_dimensions?.height ?? 50}`,
+        `${asset.pos_x ?? 0},${asset.pos_y ?? 0},${asset.pos_z ?? 0}`,
+      ]);
+      helper.addTable(
+        isZh ? ['#', '名称', '编号', '尺寸(mm)', 'XYZ(mm)'] : ['#', 'Name', 'Code', 'Dimensions(mm)', 'XYZ(mm)'],
+        productRows,
+        [12, 42, 30, 43, 38],
       );
     }
     if (ws.install_space) {
@@ -1132,33 +1244,34 @@ export async function generatePDF(
       }
     }
 
-      // 产品标注图
-      if (includeImages && productAssets && productAnnotations) {
-      const wsAssets = productAssets.filter(a => a.workstation_id === ws.id && a.scope_type === 'workstation');
-      
-      if (wsAssets.length > 0) {
-        helper.addNewPageIfNeeded(30);
-        helper.addSubtitle(isZh ? '产品标注' : 'Product Annotations');
-      }
-      
-      for (const asset of wsAssets) {
-        if (asset.preview_images) {
-          for (const img of asset.preview_images) {
-            if (img.url) {
-              const added = await helper.addImage(img.url, img.name || (isZh ? '产品预览' : 'Product Preview'), 120, 80);
-              if (added) totalImages++;
-            }
-          }
-        }
-        const assetAnnotations = productAnnotations.filter(a => a.asset_id === asset.id);
-        for (const ann of assetAnnotations) {
-          if (ann.snapshot_url) {
-            const added = await helper.addImage(ann.snapshot_url, ann.remark || (isZh ? '检测标注' : 'Detection Annotation'), 120, 80);
-            if (added) totalImages++;
-          }
-        }
-      }
-      }
+	      // 产品图片按产品级分页模式生成独立页面。
+	      if (includeImages && productAssets) {
+	        const wsAssets = productAssets.filter(a => a.workstation_id === ws.id && a.scope_type === 'workstation');
+	        const assetsWithPages = wsAssets
+	          .map(asset => ({
+	            asset,
+	            pages: paginateProductMedia([asset], productMedia, productAnnotations),
+	          }))
+	          .filter(entry => entry.pages.length > 0);
+
+	        for (let productIndex = 0; productIndex < assetsWithPages.length; productIndex += 1) {
+	          const { asset, pages } = assetsWithPages[productIndex];
+	          for (const page of pages) {
+	            pdf.addPage();
+	            helper.y = margin;
+	            const productLabel = asset.product_name || (isZh ? '未命名产品' : 'Unnamed Product');
+	            helper.addSubtitle(
+	              `${isZh ? '产品图片' : 'Product Images'} - ${productIndex + 1}. ${productLabel} (${page.pageIndex + 1}/${page.pageCount})`,
+	            );
+	            const rendered = await helper.addProductMediaPage(page.items, page.imagesPerPage, isZh);
+	            totalImages += rendered;
+	          }
+	        }
+	        if (assetsWithPages.length > 0 && wsMods.length > 0) {
+	          pdf.addPage();
+	          helper.y = margin;
+	        }
+	      }
     } else {
       // 模块范围只保留父工位归属，不输出工位配置、布局和工位图片。
       pdf.addPage();
@@ -1528,20 +1641,18 @@ export async function generatePDF(
           const modAssets = productAssets.filter(a => a.module_id === mod.id && a.scope_type === 'module');
           
           for (const asset of modAssets) {
-            if (asset.preview_images) {
-              for (const img of asset.preview_images) {
-                if (img.url) {
-                  const added = await helper.addImage(img.url, img.name || (isZh ? '检测区域' : 'Detection Region'), 100, 65);
-                  if (added) totalImages++;
-                }
-              }
-            }
-            const assetAnnotations = productAnnotations.filter(a => a.asset_id === asset.id);
-            for (const ann of assetAnnotations) {
-              if (ann.snapshot_url) {
-                const added = await helper.addImage(ann.snapshot_url, ann.remark || (isZh ? '标注详情' : 'Annotation Detail'), 100, 65);
-                if (added) totalImages++;
-              }
+            const parentProduct = productAssets.find(product => product.id === asset.parent_product_id);
+            helper.addNewPageIfNeeded(16);
+            helper.addLabelValue(
+              isZh ? '关联产品' : 'Linked Product',
+              parentProduct?.product_name || (isZh ? '未关联' : 'Unlinked'),
+            );
+            const items = buildProductMediaItems(asset.id, productMedia, productAnnotations, asset.preview_images);
+            for (const item of items) {
+              const caption = formatProductMediaCaption(item, isZh);
+              const url = item.annotation?.snapshot_url || item.media.original_url;
+              if (!await helper.addImage(url, caption, 100, 65)) continue;
+              totalImages += 1;
             }
           }
         }

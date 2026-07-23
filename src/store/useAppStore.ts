@@ -4,6 +4,13 @@ import type { ViewType, UserRole } from '@/types';
 import type { ProductViewerDisplayMode } from '@/utils/productViewer';
 import type { ModuleFormState } from '@/components/forms/module/types';
 
+interface AnnotationExistingData {
+  annotations?: Array<{ id: string; type: string; x: number; y: number; number?: number; name: string; category: string; description: string; width?: number; height?: number; radius?: number }>;
+  remark?: string | null;
+  recordId?: string;
+  mediaId?: string;
+}
+
 // Note: All data CRUD has been moved to DataContext (projects/workstations/layouts/modules)
 // and HardwareContext (cameras/lenses/lights/controllers).
 // Templates are managed via usePPTTemplates hook.
@@ -15,6 +22,7 @@ interface Store {
   selectedProjectId: string | null;
   selectedWorkstationId: string | null;
   selectedModuleId: string | null;
+  selectedProductAssetId: string | null;
   currentView: ViewType;
   isGeneratingPPT: boolean;
   pptProgress: number;
@@ -26,7 +34,7 @@ interface Store {
   annotationAssetId: string | null;
   annotationScope: 'workstation' | 'module';
   annotationWorkstationId: string | null;
-  annotationExistingData: { annotations: Array<{ id: string; type: string; x: number; y: number; number?: number; name: string; category: string; description: string; width?: number; height?: number; radius?: number }>; remark: string | null; recordId: string } | null;
+  annotationExistingData: AnnotationExistingData | null;
 
   // AI Form Fill from chat
   pendingAIFill: { targetType: 'project' | 'workstation' | 'module'; targetId: string; fields: Record<string, string> } | null;
@@ -39,9 +47,9 @@ interface Store {
   patchModuleLiveForm: (moduleId: string, patch: Partial<ModuleFormState>) => void;
   clearModuleLiveForm: (moduleId: string) => void;
 
-  enterAnnotationMode: (snapshot: string, assetId: string, scope: 'workstation' | 'module', workstationId?: string, existingData?: { annotations: any[]; remark: string | null; recordId: string }) => void;
+  enterAnnotationMode: (snapshot: string, assetId: string, scope: 'workstation' | 'module', workstationId?: string, existingData?: AnnotationExistingData) => void;
   /** Leaves 3D viewer and opens annotation UI in one update (avoids one frame with neither viewer nor annotation). */
-  transitionViewerToAnnotation: (snapshot: string, assetId: string, scope: 'workstation' | 'module', workstationId?: string, existingData?: { annotations: any[]; remark: string | null; recordId: string }) => void;
+  transitionViewerToAnnotation: (snapshot: string, assetId: string, scope: 'workstation' | 'module', workstationId?: string, existingData?: AnnotationExistingData) => void;
   exitAnnotationMode: () => void;
 
   // Viewer mode (3D/image in central canvas)
@@ -70,6 +78,7 @@ interface Store {
   selectProject: (id: string | null) => void;
   selectWorkstation: (id: string | null) => void;
   selectModule: (id: string | null) => void;
+  selectProductAsset: (id: string | null) => void;
   setCurrentView: (view: ViewType) => void;
   setPPTImageQuality: (quality: 'standard' | 'high' | 'ultra') => void;
 
@@ -158,6 +167,7 @@ export const useAppStore = create<Store>()(
       selectedProjectId: null,
       selectedWorkstationId: null,
       selectedModuleId: null,
+      selectedProductAssetId: null,
       currentView: 'front',
       isGeneratingPPT: false,
       pptProgress: 0,
@@ -273,16 +283,19 @@ export const useAppStore = create<Store>()(
       selectProject: (id) => set({
         selectedProjectId: id,
         selectedWorkstationId: null,
-        selectedModuleId: null
+        selectedModuleId: null,
+        selectedProductAssetId: null,
       }),
 
       selectWorkstation: (id) => set({
         selectedWorkstationId: id,
         selectedModuleId: null,
+        selectedProductAssetId: null,
         currentView: 'front'
       }),
 
       selectModule: (id) => set({ selectedModuleId: id }),
+      selectProductAsset: (id) => set({ selectedProductAssetId: id }),
 
       setCurrentView: (view) => set({ currentView: view }),
 

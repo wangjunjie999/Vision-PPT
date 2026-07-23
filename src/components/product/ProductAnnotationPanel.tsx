@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useData } from '@/contexts/useData';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,9 +27,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Upload,
-  Camera,
-  RotateCcw,
   Star,
   Trash2,
   Edit3,
@@ -38,8 +36,6 @@ import {
   Save,
   Loader2,
   FileImage,
-  Clock,
-  CheckCircle2,
   Plus,
   Info,
   X,
@@ -47,14 +43,27 @@ import {
   ArrowUp,
   ArrowDown,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
-import { getSupportedProductModelHint, type ProductViewerDisplayMode } from '@/utils/productViewer';
+import { getSupportedProductModelHint } from '@/utils/productViewer';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
 import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
+import {
+  formatProductMediaCaption,
+  getProductMediaDisplayUrl,
+  getProductPreviewImageUrls,
+  resolveProductImagesPerPage,
+  sortProductMedia,
+  type ProductMediaRecord,
+} from '@/utils/productAssetMedia';
+import {
+  createProductMedia,
+  deleteProductMedia,
+  loadProductMedia,
+  reorderProductMedia,
+} from '@/services/productMediaService';
 
 interface ProductModelItem {
   name: string;
@@ -84,14 +93,22 @@ interface ProductAsset {
   product_name?: string | null;
   product_code?: string | null;
   product_spec?: string | null;
+  document_images_per_page?: 1 | 2 | number | null;
   is_primary?: boolean;
   sort_order?: number;
   parent_product_id?: string | null;
+  length_mm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  pos_z?: number | null;
 }
 
 interface AnnotationRecord {
   id: string;
   asset_id: string;
+  media_id: string | null;
   snapshot_url: string;
   annotations_json: Annotation[];
   view_meta: {
@@ -102,44 +119,52 @@ interface AnnotationRecord {
   version: number;
   remark: string | null;
   created_at: string;
-  is_default?: boolean;
+  updated_at: string;
+  is_ppt_default: boolean;
+}
+
+interface ProductAnnotationStats {
+  mediaCount: number;
+  annotatedCount: number;
 }
 
 interface ProductAnnotationPanelProps {
   workstationId: string;
 }
 
-function getPreferredDisplayMode(asset: ProductAsset): ProductViewerDisplayMode {
-  if (asset.source_type === 'image') return 'image';
-  if (asset.source_type === 'model') return 'model';
-  return 'auto';
-}
-
-function getSingleViewerMedia(asset: ProductAsset): { modelUrl: string | null; imageUrls: string[] } {
-  const mode = getPreferredDisplayMode(asset);
-  if (mode === 'model') {
-    return { modelUrl: asset.model_file_url, imageUrls: [] };
-  }
-
-  return { modelUrl: null, imageUrls: (asset.preview_images || []).slice(0, 1) };
-}
-
 export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanelProps) {
   const { user } = useAuth();
-  const [products, setProducts] = useState<ProductAsset[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const {
+    productAssets: canonicalProductAssets,
+    addProductAsset,
+    updateProductAsset,
+    deleteProductAsset,
+    setPrimaryProductAsset,
+    reorderProductAssets,
+  } = useData();
+  const selectedProductId = useAppStore(state => state.selectedProductAssetId);
+  const setSelectedProductId = useAppStore(state => state.selectProductAsset);
+  const annotationMode = useAppStore(state => state.annotationMode);
+  const products = useMemo(() => canonicalProductAssets
+    .filter(row => row.scope_type === 'workstation' && row.workstation_id === workstationId)
+    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order)
+    .map(row => ({
+      ...row,
+      preview_images: getProductPreviewImageUrls(row.preview_images),
+      product_models: Array.isArray(row.product_models)
+        ? row.product_models as unknown as ProductModelItem[]
+        : [],
+      detection_requirements: Array.isArray(row.detection_requirements)
+        ? row.detection_requirements as unknown as DetectionRequirementItem[]
+        : [],
+    })) as ProductAsset[], [canonicalProductAssets, workstationId]);
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
+  const [mediaItems, setMediaItems] = useState<ProductMediaRecord[]>([]);
+  const [productAnnotationStats, setProductAnnotationStats] = useState<Map<string, ProductAnnotationStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [currentSnapshot, setCurrentSnapshot] = useState<string | null>(null);
-  const [currentAnnotations, setCurrentAnnotations] = useState<Annotation[]>([]);
-  const [isAnnotating, setIsAnnotating] = useState(false);
-  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [saveRemark, setSaveRemark] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<AnnotationRecord | null>(null);
-  const [defaultRecordId, setDefaultRecordId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState('viewer');
+  const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
+  const [activeTab, setActiveTab] = useState('media');
 
   // Product info state
   const [detectionMethod, setDetectionMethod] = useState('');
@@ -150,10 +175,20 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   // Product management dialog state
   const [productDialogOpen, setProductDialogOpen] = useState(false);
   const [productDialogMode, setProductDialogMode] = useState<'create' | 'edit'>('create');
-  const [productForm, setProductForm] = useState<{ name: string; code: string; spec: string }>({
+  const [productForm, setProductForm] = useState<{
+    name: string;
+    code: string;
+    spec: string;
+    length: string;
+    width: string;
+    height: string;
+  }>({
     name: '',
     code: '',
     spec: '',
+    length: '',
+    width: '',
+    height: '',
   });
   const [savingProduct, setSavingProduct] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -161,6 +196,46 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
   const asset: ProductAsset | null =
     products.find(p => p.id === selectedProductId) || products[0] || null;
+
+  const refreshProductAnnotationStats = useCallback(async () => {
+    const productIds = products.map(product => product.id);
+    if (productIds.length === 0) {
+      setProductAnnotationStats(new Map());
+      return;
+    }
+
+    const [mediaResult, annotationResult] = await Promise.all([
+      supabase
+        .from('product_media')
+        .select('id, asset_id')
+        .in('asset_id', productIds),
+      supabase
+        .from('product_annotations')
+        .select('asset_id, media_id')
+        .in('asset_id', productIds),
+    ]);
+    if (mediaResult.error || annotationResult.error) {
+      console.error('Failed to load product media stats:', mediaResult.error || annotationResult.error);
+      return;
+    }
+
+    const next = new Map<string, ProductAnnotationStats>();
+    for (const product of products) {
+      const productMedia = (mediaResult.data || []).filter(item => item.asset_id === product.id);
+      const mediaIds = new Set(productMedia.map(item => item.id));
+      next.set(product.id, {
+        mediaCount: productMedia.length,
+        annotatedCount: (annotationResult.data || []).filter(item =>
+          item.asset_id === product.id && Boolean(item.media_id && mediaIds.has(item.media_id))
+        ).length,
+      });
+    }
+    setProductAnnotationStats(next);
+  }, [products]);
+
+  useEffect(() => {
+    void refreshProductAnnotationStats();
+  }, [refreshProductAnnotationStats]);
 
   // Sync product info from asset
   useEffect(() => {
@@ -175,61 +250,41 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     }
   }, [asset]);
 
-  // Load all products for this workstation, plus annotations for the selected one
+  // Product rows come from DataContext; this helper only refreshes product selection
+  // and the annotation records belonging to that shared selection.
   const loadData = useCallback(async (preferredProductId?: string | null) => {
     if (!workstationId || !user) return;
     setLoading(true);
     try {
-      const { data: rows, error: assetError } = await supabase
-        .from('product_assets')
-        .select('*')
-        .eq('workstation_id', workstationId)
-        .eq('scope_type', 'workstation')
-        .order('is_primary', { ascending: false })
-        .order('sort_order', { ascending: true })
-        .order('created_at', { ascending: true });
-
-      if (assetError) throw assetError;
-
-      const list: ProductAsset[] = (rows || []).map(r => ({
-        ...r,
-        preview_images: Array.isArray(r.preview_images) ? (r.preview_images as string[]) : [],
-        product_models: Array.isArray(r.product_models)
-          ? (r.product_models as unknown as ProductModelItem[])
-          : [],
-        detection_requirements: Array.isArray(r.detection_requirements)
-          ? (r.detection_requirements as unknown as DetectionRequirementItem[])
-          : [],
-      })) as ProductAsset[];
-      setProducts(list);
-
       // Choose next selected product
       const nextSelected =
-        (preferredProductId && list.find(p => p.id === preferredProductId)?.id) ||
-        (selectedProductId && list.find(p => p.id === selectedProductId)?.id) ||
-        list[0]?.id ||
+        preferredProductId ||
+        (selectedProductId && products.find(p => p.id === selectedProductId)?.id) ||
+        products[0]?.id ||
         null;
       setSelectedProductId(nextSelected);
 
       if (nextSelected) {
-        const { data: annotData, error: annotError } = await supabase
-          .from('product_annotations')
-          .select('*')
-          .eq('asset_id', nextSelected)
-          .order('version', { ascending: false });
+        const [productMedia, annotationResult] = await Promise.all([
+          loadProductMedia([nextSelected]),
+          supabase
+            .from('product_annotations')
+            .select('*')
+            .eq('asset_id', nextSelected)
+            .order('updated_at', { ascending: false }),
+        ]);
+        if (annotationResult.error) throw annotationResult.error;
 
-        if (annotError) throw annotError;
-
-        const records = (annotData || []).map(a => ({
+        const records = (annotationResult.data || []).map(a => ({
           ...a,
           annotations_json: a.annotations_json as unknown as Annotation[],
           view_meta: a.view_meta as AnnotationRecord['view_meta'],
         }));
+        setMediaItems(productMedia);
         setAnnotations(records);
-        setDefaultRecordId(records.length > 0 ? records[0].id : null);
       } else {
+        setMediaItems([]);
         setAnnotations([]);
-        setDefaultRecordId(null);
       }
     } catch (error) {
       console.error('Failed to load product data:', error);
@@ -237,39 +292,54 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     } finally {
       setLoading(false);
     }
-  }, [workstationId, user, selectedProductId]);
+  }, [products, selectedProductId, setSelectedProductId, user, workstationId]);
 
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workstationId, user]);
 
+  useEffect(() => {
+    if (selectedProductId && products.some(product => product.id === selectedProductId)) return;
+    setSelectedProductId(products[0]?.id || null);
+  }, [products, selectedProductId, setSelectedProductId]);
+
+  useEffect(() => {
+    if (!annotationMode && selectedProductId) {
+      void loadData(selectedProductId);
+      void refreshProductAnnotationStats();
+    }
+  }, [annotationMode, selectedProductId, loadData, refreshProductAnnotationStats]);
+
   // When user switches selected product, reload its annotations
   useEffect(() => {
     if (!selectedProductId) {
+      setMediaItems([]);
       setAnnotations([]);
-      setDefaultRecordId(null);
       return;
     }
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from('product_annotations')
-        .select('*')
-        .eq('asset_id', selectedProductId)
-        .order('version', { ascending: false });
+      const [productMedia, annotationResult] = await Promise.all([
+        loadProductMedia([selectedProductId]),
+        supabase
+          .from('product_annotations')
+          .select('*')
+          .eq('asset_id', selectedProductId)
+          .order('updated_at', { ascending: false }),
+      ]);
       if (cancelled) return;
-      if (error) {
-        console.error(error);
+      if (annotationResult.error) {
+        console.error(annotationResult.error);
         return;
       }
-      const records = (data || []).map(a => ({
+      const records = (annotationResult.data || []).map(a => ({
         ...a,
         annotations_json: a.annotations_json as unknown as Annotation[],
         view_meta: a.view_meta as AnnotationRecord['view_meta'],
       }));
+      setMediaItems(productMedia);
       setAnnotations(records);
-      setDefaultRecordId(records.length > 0 ? records[0].id : null);
     })();
     return () => {
       cancelled = true;
@@ -279,7 +349,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   // ---------- Product management ----------
   const openCreateProduct = () => {
     setProductDialogMode('create');
-    setProductForm({ name: `产品 ${products.length + 1}`, code: '', spec: '' });
+    setProductForm({ name: `产品 ${products.length + 1}`, code: '', spec: '', length: '', width: '', height: '' });
     setProductDialogOpen(true);
   };
   const openEditProduct = () => {
@@ -289,6 +359,9 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       name: asset.product_name || '',
       code: asset.product_code || '',
       spec: asset.product_spec || '',
+      length: asset.length_mm?.toString() || '',
+      width: asset.width_mm?.toString() || '',
+      height: asset.height_mm?.toString() || '',
     });
     setProductDialogOpen(true);
   };
@@ -299,6 +372,15 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       toast.error('产品名称必填');
       return;
     }
+    const dimensions = {
+      length_mm: productForm.length.trim() ? Number(productForm.length) : null,
+      width_mm: productForm.width.trim() ? Number(productForm.width) : null,
+      height_mm: productForm.height.trim() ? Number(productForm.height) : null,
+    };
+    if (Object.values(dimensions).some(value => value != null && (!Number.isFinite(value) || value <= 0))) {
+      toast.error('产品尺寸必须大于 0');
+      return;
+    }
     setSavingProduct(true);
     try {
       if (productDialogMode === 'create') {
@@ -307,35 +389,31 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
             ? 0
             : Math.max(...products.map(p => p.sort_order ?? 0)) + 1;
         const makePrimary = products.length === 0;
-        const { data, error } = await supabase
-          .from('product_assets')
-          .insert({
+        const data = await addProductAsset({
             workstation_id: workstationId,
             scope_type: 'workstation',
             source_type: 'image',
             product_name: name,
             product_code: productForm.code.trim() || null,
             product_spec: productForm.spec.trim() || null,
+            ...dimensions,
+            pos_x: 0,
+            pos_y: products.length === 0 ? 0 : products.length * 100,
+            pos_z: 0,
             sort_order: nextOrder,
             is_primary: makePrimary,
-            user_id: user.id,
-          } as never)
-          .select('id')
-          .single();
-        if (error) throw error;
+            document_images_per_page: 1,
+          });
         setProductDialogOpen(false);
-        await loadData(data?.id ?? null);
+        await loadData(data.id);
         toast.success('产品已创建');
       } else if (asset) {
-        const { error } = await supabase
-          .from('product_assets')
-          .update({
+        await updateProductAsset(asset.id, {
             product_name: name,
             product_code: productForm.code.trim() || null,
             product_spec: productForm.spec.trim() || null,
-          } as never)
-          .eq('id', asset.id);
-        if (error) throw error;
+            ...dimensions,
+          });
         setProductDialogOpen(false);
         await loadData(asset.id);
         toast.success('产品已更新');
@@ -351,19 +429,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const setAsPrimary = async () => {
     if (!asset) return;
     try {
-      // Clear existing primary in this workstation first (partial unique index enforces one).
-      const { error: clearErr } = await supabase
-        .from('product_assets')
-        .update({ is_primary: false } as never)
-        .eq('workstation_id', workstationId)
-        .eq('scope_type', 'workstation')
-        .neq('id', asset.id);
-      if (clearErr) throw clearErr;
-      const { error } = await supabase
-        .from('product_assets')
-        .update({ is_primary: true } as never)
-        .eq('id', asset.id);
-      if (error) throw error;
+      await setPrimaryProductAsset(workstationId, asset.id);
       await loadData(asset.id);
       toast.success('已设为主产品');
     } catch (e) {
@@ -377,19 +443,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     const idx = products.findIndex(p => p.id === asset.id);
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (idx < 0 || targetIdx < 0 || targetIdx >= products.length) return;
-    const a = products[idx];
-    const b = products[targetIdx];
     try {
-      const { error: e1 } = await supabase
-        .from('product_assets')
-        .update({ sort_order: b.sort_order ?? targetIdx } as never)
-        .eq('id', a.id);
-      if (e1) throw e1;
-      const { error: e2 } = await supabase
-        .from('product_assets')
-        .update({ sort_order: a.sort_order ?? idx } as never)
-        .eq('id', b.id);
-      if (e2) throw e2;
+      const reordered = products.map(product => product.id);
+      [reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]];
+      await reorderProductAssets(workstationId, reordered);
       await loadData(asset.id);
     } catch (e) {
       console.error(e);
@@ -401,23 +458,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     if (!deleteConfirmId) return;
     setDeletingProduct(true);
     try {
-      const target = products.find(p => p.id === deleteConfirmId);
-      const wasPrimary = target?.is_primary === true;
-      const { error } = await supabase
-        .from('product_assets')
-        .delete()
-        .eq('id', deleteConfirmId);
-      if (error) throw error;
-      // If removed primary and other products remain, promote first remaining.
       const remaining = products.filter(p => p.id !== deleteConfirmId);
-      if (wasPrimary && remaining.length > 0) {
-        await supabase
-          .from('product_assets')
-          .update({ is_primary: true } as never)
-          .eq('id', remaining[0].id);
-      }
+      await deleteProductAsset(deleteConfirmId);
       setDeleteConfirmId(null);
-      await loadData(null);
+      await loadData(remaining[0]?.id || null);
       toast.success('产品已删除');
     } catch (e) {
       console.error(e);
@@ -427,229 +471,171 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     }
   };
 
-  // Upload 3D model or images
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0 || !user) return;
-    if (files.length > 1) {
-      toast.error('一次只能上传一个文件，请选择一个 3D 模型或一张图片');
-      event.target.value = '';
+  // Images are independent records; model upload remains one file per product.
+  const handleFilesUpload = async (files: File[]) => {
+    if (files.length === 0 || !user) return;
+    const modelFiles = files.filter(file => /\.(glb|gltf)$/i.test(file.name));
+    const imageFiles = files.filter(file => /\.(jpg|jpeg|png|webp)$/i.test(file.name));
+    if (modelFiles.length > 1 || (modelFiles.length > 0 && files.length > 1)) {
+      toast.error('3D 模型需单独上传；产品图片可一次选择多张');
       return;
     }
-
+    if (modelFiles.length + imageFiles.length !== files.length) {
+      toast.error('不支持的文件格式，请上传 GLB/GLTF 或 JPG/PNG/WEBP');
+      return;
+    }
     setUploading(true);
     try {
-      const file = files[0];
-      const isModel = file.name.match(/\.(glb|gltf)$/i);
-      const isImage = file.name.match(/\.(jpg|jpeg|png|webp)$/i);
-
-      const cadExts = /\.(sldprt|sldasm|step|stp|iges|igs|x_t|x_b|sat|catpart|catproduct|prt|asm)$/i;
-      if (cadExts.test(file.name)) {
-        const ext = file.name.split('.').pop()?.toUpperCase() || '';
-        toast.error(
-          `${ext} 是 CAD 原始格式，浏览器无法直接加载。请先将模型转换为 GLB 格式后再上传。`,
-          { duration: 8000 }
-        );
-        return;
-      }
-
-      if (!isModel && !isImage) {
-        toast.error('不支持的文件格式，请上传 3D 模型(GLB/GLTF)或图片');
-        return;
-      }
-
       // Ensure a product row exists to attach media to.
       let targetProductId = asset?.id ?? null;
       if (!targetProductId) {
-        const { data: created, error: createErr } = await supabase
-          .from('product_assets')
-          .insert({
+        const created = await addProductAsset({
             workstation_id: workstationId,
             scope_type: 'workstation',
-            source_type: isModel ? 'model' : 'image',
+            source_type: modelFiles.length > 0 ? 'model' : 'image',
             product_name: `产品 ${products.length + 1}`,
             sort_order: 0,
             is_primary: true,
-            user_id: user.id,
-          } as never)
-          .select('id')
-          .single();
-        if (createErr) throw createErr;
-        targetProductId = created!.id;
+            document_images_per_page: 1,
+          });
+        targetProductId = created.id;
       }
 
-      // GLB: use same bucket + policies as hardware center (3d-models via uploadGLBFile).
-      // GLTF + images: keep product-models direct upload.
-      let fileUrl: string;
-      const isGlb = /\.glb$/i.test(file.name);
-      if (isModel && isGlb) {
-        const { uploadGLBFile } = await import('@/utils/glbUpload');
-        const url = await uploadGLBFile(file, 'workstation-product');
-        if (!url) return;
-        fileUrl = url;
-      } else {
-        const bucket = 'product-models';
-        const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
-          fallbackBase: isModel ? 'model' : 'image',
-          fallbackExtension: isModel ? 'gltf' : 'png',
-        })}`;
-        const { publicUrl } = await uploadStorageFile(bucket, path, file, {
-          contentType: file.type || undefined,
-        });
-        fileUrl = publicUrl;
-      }
-
-      const updateData: any = { updated_at: new Date().toISOString() };
-      if (isModel) {
-        updateData.model_file_url = fileUrl;
-        updateData.preview_images = [];
-        updateData.source_type = 'model';
-      } else {
-        updateData.model_file_url = null;
-        updateData.preview_images = [fileUrl];
-        updateData.source_type = 'image';
-      }
-      const { error } = await supabase
-        .from('product_assets')
-        .update(updateData)
-        .eq('id', targetProductId);
-      if (error) throw error;
-
-      await loadData(targetProductId);
-      toast.success('文件上传成功');
-
-      // Auto enter viewer mode after upload
-      const { data: latestAsset } = await supabase
-        .from('product_assets')
-        .select('*')
-        .eq('id', targetProductId)
-        .maybeSingle();
-      if (latestAsset) {
-        const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
-        const latestProductAsset = {
-          ...latestAsset,
-          preview_images: images,
-        } as unknown as ProductAsset;
-        const viewerMedia = getSingleViewerMedia(latestProductAsset);
-        if (viewerMedia.modelUrl || viewerMedia.imageUrls.length > 0) {
-          useAppStore.getState().enterViewerMode(
-            viewerMedia.modelUrl,
-            viewerMedia.imageUrls,
-            latestAsset.id,
-            'workstation',
-            getPreferredDisplayMode(latestProductAsset)
-          );
+      if (modelFiles.length === 1) {
+        const file = modelFiles[0];
+        let fileUrl: string;
+        if (/\.glb$/i.test(file.name)) {
+          const { uploadGLBFile } = await import('@/utils/glbUpload');
+          const url = await uploadGLBFile(file, 'workstation-product');
+          if (!url) return;
+          fileUrl = url;
+        } else {
+          const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
+            fallbackBase: 'model',
+            fallbackExtension: 'gltf',
+          })}`;
+          fileUrl = (await uploadStorageFile('product-models', path, file, {
+            contentType: file.type || undefined,
+          })).publicUrl;
         }
+        await updateProductAsset(targetProductId, {
+          model_file_url: fileUrl,
+          source_type: 'model',
+          updated_at: new Date().toISOString(),
+        }, { silent: true });
+        toast.success('3D 模型上传成功');
+      } else {
+        const currentMedia = await loadProductMedia([targetProductId]);
+        const nextOrder = currentMedia.length === 0
+          ? 0
+          : Math.max(...currentMedia.map(item => item.sort_order)) + 1;
+        const uploadedRows = [];
+        for (let index = 0; index < imageFiles.length; index += 1) {
+          const file = imageFiles[index];
+          const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
+            fallbackBase: 'product-image',
+            fallbackExtension: 'png',
+          })}`;
+          const { publicUrl } = await uploadStorageFile('product-models', path, file, {
+            contentType: file.type || undefined,
+          });
+          uploadedRows.push({
+            user_id: user.id,
+            asset_id: targetProductId,
+            workstation_id: workstationId,
+            original_url: publicUrl,
+            file_name: file.name,
+            sort_order: nextOrder + index,
+          });
+        }
+        await createProductMedia(uploadedRows);
+        await updateProductAsset(targetProductId, {
+          source_type: asset?.model_file_url ? 'model' : 'image',
+          updated_at: new Date().toISOString(),
+        }, { silent: true });
+        toast.success(`已上传 ${uploadedRows.length} 张产品图片`);
       }
+      await loadData(targetProductId);
+      await refreshProductAnnotationStats();
     } catch (error) {
       console.error('Upload failed:', error);
       const msg = error instanceof Error ? error.message : String(error);
       toast.error(msg ? `上传失败: ${msg}` : '上传失败');
     } finally {
       setUploading(false);
-      event.target.value = '';
     }
   };
 
-  // Save annotation record
-  const handleSaveAnnotation = async () => {
-    if (!currentSnapshot || !asset || !user) return;
-
-    setSaving(true);
+  const handleDeleteMedia = async (mediaId: string) => {
+    if (!asset) return;
     try {
-      // Upload snapshot to storage
-      const blob = await fetch(currentSnapshot).then(r => r.blob());
-      const path = `${workstationId}/${asset.id}/snapshots/${Date.now()}.png`;
-      const { error: uploadError } = await supabase.storage
-        .from('product-snapshots')
-        .upload(path, blob, { contentType: 'image/png' });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('product-snapshots').getPublicUrl(path);
-      const snapshotUrl = urlData.publicUrl;
-
-      // Calculate next version
-      const nextVersion = annotations.length > 0
-        ? Math.max(...annotations.map(a => a.version)) + 1
-        : 1;
-
-      // Insert annotation record
-      const { error } = await supabase.from('product_annotations').insert({
-        asset_id: asset.id,
-        snapshot_url: snapshotUrl,
-        annotations_json: currentAnnotations as unknown as any,
-        view_meta: { viewName: `版本${nextVersion}` },
-        version: nextVersion,
-        remark: saveRemark || null,
-        user_id: user.id,
-      });
-
-      if (error) throw error;
-
+      await deleteProductMedia(mediaId);
       await loadData(asset.id);
-      setIsAnnotating(false);
-      setCurrentSnapshot(null);
-      setCurrentAnnotations([]);
-      setSaveDialogOpen(false);
-      setSaveRemark('');
-      setActiveTab('records');
-      toast.success('标注已保存');
-    } catch (error) {
-      console.error('Save failed:', error);
-      toast.error('保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Set record as default for PPT
-  const handleSetDefault = async (recordId: string) => {
-    setDefaultRecordId(recordId);
-    setAnnotations(prev => {
-      const idx = prev.findIndex(a => a.id === recordId);
-      if (idx <= 0) return prev;
-      const copy = [...prev];
-      const [target] = copy.splice(idx, 1);
-      copy.unshift(target);
-      return copy;
-    });
-    toast.success('已标记为首选（PPT将包含所有标注记录）');
-  };
-
-  // Delete annotation record
-  const handleDeleteRecord = async (recordId: string) => {
-    try {
-      const { error } = await supabase
-        .from('product_annotations')
-        .delete()
-        .eq('id', recordId);
-
-      if (error) throw error;
-
-      await loadData(asset?.id ?? null);
-      toast.success('记录已删除');
+      await refreshProductAnnotationStats();
+      toast.success('产品图片及其标注已删除');
     } catch (error) {
       console.error('Delete failed:', error);
       toast.error('删除失败');
     }
   };
 
-  // View existing annotation record - jump to canvas
-  const handleViewRecord = (record: AnnotationRecord) => {
+  const handleMoveMedia = async (mediaId: string, direction: 'up' | 'down') => {
     if (!asset) return;
+    const ordered = sortProductMedia(mediaItems, asset.id);
+    const index = ordered.findIndex(item => item.id === mediaId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
+    try {
+      await reorderProductMedia(asset.id, ordered.map(item => item.id));
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('图片排序失败');
+    }
+  };
+
+  const handlePaginationModeChange = async (value: string) => {
+    if (!asset) return;
+    const nextMode: 1 | 2 = value === '2' ? 2 : 1;
+    if (resolveProductImagesPerPage(asset) === nextMode) return;
+    setUpdatingPaginationMode(true);
+    try {
+      await updateProductAsset(asset.id, {
+        document_images_per_page: nextMode,
+        updated_at: new Date().toISOString(),
+      }, { silent: true });
+      toast.success(nextMode === 1 ? '已切换为单页单图' : '已切换为单页双图');
+    } catch (error) {
+      console.error(error);
+      toast.error('文档分页方式保存失败');
+    } finally {
+      setUpdatingPaginationMode(false);
+    }
+  };
+
+  const handleAnnotateMedia = (media: ProductMediaRecord) => {
+    if (!asset) return;
+    const annotation = annotations.find(record => record.media_id === media.id);
     useAppStore.getState().enterAnnotationMode(
-      record.snapshot_url,
+      media.original_url,
       asset.id,
       'workstation',
       workstationId,
       {
-        annotations: record.annotations_json || [],
-        remark: record.remark,
-        recordId: record.id,
+        mediaId: media.id,
+        annotations: annotation?.annotations_json || [],
+        remark: annotation?.remark || null,
+        recordId: annotation?.id,
       }
     );
-    toast.success('已进入标注查看模式');
+  };
+
+  const handleViewMedia = (media: ProductMediaRecord) => {
+    if (!asset) return;
+    const annotation = annotations.find(record => record.media_id === media.id);
+    const displayUrl = getProductMediaDisplayUrl({ media, annotation });
+    useAppStore.getState().enterViewerMode(null, [displayUrl], asset.id, 'workstation', 'image');
   };
 
   if (loading) {
@@ -658,7 +644,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Box className="h-4 w-4 text-primary" />
-            产品3D与特征标注
+            产品图片与特征标注
           </CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-center py-8">
@@ -673,7 +659,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       <CardHeader className="pb-3">
         <CardTitle className="text-sm flex items-center gap-2">
           <Box className="h-4 w-4 text-primary" />
-          产品3D与特征标注
+          产品图片与特征标注
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -690,17 +676,25 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 <SelectValue placeholder={products.length === 0 ? '暂无产品' : '选择产品'} />
               </SelectTrigger>
               <SelectContent>
-                {products.map(p => (
-                  <SelectItem key={p.id} value={p.id} className="text-xs">
-                    <span className="flex items-center gap-1">
-                      {p.is_primary && <Star className="h-3 w-3 text-primary" />}
-                      {p.product_name || '未命名产品'}
-                      {p.product_code ? (
-                        <span className="text-muted-foreground">· {p.product_code}</span>
-                      ) : null}
-                    </span>
-                  </SelectItem>
-                ))}
+                {products.map(p => {
+                  const stats = productAnnotationStats.get(p.id);
+                  return (
+                    <SelectItem key={p.id} value={p.id} className="text-xs">
+                      <span className="flex min-w-0 flex-col gap-0.5 py-0.5">
+                        <span className="flex items-center gap-1">
+                          {p.is_primary && <Star className="h-3 w-3 text-primary" />}
+                          <span className="truncate">{p.product_name || '未命名产品'}</span>
+                          {p.product_code ? (
+                            <span className="text-muted-foreground">· {p.product_code}</span>
+                          ) : null}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          图片 {stats?.mediaCount ?? 0} · 已标注 {stats?.annotatedCount ?? 0}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
             <Button size="sm" variant="outline" className="h-8 px-2" onClick={openCreateProduct}>
@@ -709,6 +703,12 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           </div>
           {asset && (
             <div className="flex flex-wrap items-center gap-1">
+              <Badge variant="outline" className="text-[10px] h-5">
+                图片 {productAnnotationStats.get(asset.id)?.mediaCount ?? mediaItems.length}
+              </Badge>
+              <Badge variant="outline" className="text-[10px] h-5">
+                已标注 {productAnnotationStats.get(asset.id)?.annotatedCount ?? annotations.filter(item => item.media_id).length}
+              </Badge>
               <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={openEditProduct}>
                 <Edit3 className="h-3 w-3 mr-1" /> 编辑
               </Button>
@@ -758,93 +758,196 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-3 h-8">
-            <TabsTrigger value="viewer" className="text-xs">
-              <Eye className="h-3 w-3 mr-1" />
-              3D查看
+            <TabsTrigger value="media" className="text-xs">
+              <FileImage className="h-3 w-3 mr-1" />
+              产品图片({mediaItems.length})
+            </TabsTrigger>
+            <TabsTrigger value="model" className="text-xs">
+              <Box className="h-3 w-3 mr-1" />
+              3D模型
             </TabsTrigger>
             <TabsTrigger value="info" className="text-xs">
               <Info className="h-3 w-3 mr-1" />
               产品信息
             </TabsTrigger>
-            <TabsTrigger value="records" className="text-xs">
-              <FileImage className="h-3 w-3 mr-1" />
-              记录({annotations.length})
-            </TabsTrigger>
           </TabsList>
 
-          {/* 3D Viewer Tab */}
-          <TabsContent value="viewer" className="mt-3 space-y-3">
-            {/* Upload Area */}
+          <TabsContent value="media" className="mt-3 space-y-3">
             <div className="space-y-2">
-              <Label className="text-xs">素材上传</Label>
-              <DragDropUpload
-                accept=".glb,.gltf,.jpg,.jpeg,.png,.webp"
-                maxSize={50}
+	              <div className="flex items-center justify-between gap-2">
+	                <div>
+	                  <Label className="text-xs">产品图片</Label>
+	                  <p className="text-[10px] text-muted-foreground">支持单张或批量上传；每张图片可独立标注一次并持续编辑。</p>
+	                </div>
+	              </div>
+	              <div className="rounded-lg border bg-muted/30 p-3">
+	                <div className="flex flex-wrap items-center justify-between gap-2">
+	                  <div>
+	                    <Label className="text-xs font-medium">文档分页方式</Label>
+	                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+	                      仅作用于当前工位的当前产品；切换不会修改图片、排序或标注。
+	                    </p>
+	                  </div>
+	                  <div className="flex items-center gap-2">
+	                    <Select
+	                      value={String(resolveProductImagesPerPage(asset))}
+	                      onValueChange={handlePaginationModeChange}
+	                      disabled={!asset || updatingPaginationMode}
+	                    >
+	                      <SelectTrigger className="h-8 w-[176px] text-xs">
+	                        <SelectValue />
+	                      </SelectTrigger>
+	                      <SelectContent>
+	                        <SelectItem value="1">单页单图（大图）</SelectItem>
+	                        <SelectItem value="2">单页双图（紧凑）</SelectItem>
+	                      </SelectContent>
+	                    </Select>
+	                    {updatingPaginationMode && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+	                  </div>
+	                </div>
+	                <div className="mt-2 text-[10px] text-muted-foreground">
+	                  当前 {mediaItems.length} 张图片，预计生成{' '}
+	                  {mediaItems.length === 0
+	                    ? 0
+	                    : Math.ceil(mediaItems.length / resolveProductImagesPerPage(asset))}{' '}
+	                  页
+	                </div>
+	              </div>
+	              <DragDropUpload
+                accept=".jpg,.jpeg,.png,.webp"
+                multiple
+                maxFiles={null}
+                maxSize={20}
                 showPreview={false}
                 uploading={uploading}
-                label="拖拽 3D 模型或图片到此处"
-                hint="支持 .glb / .gltf / jpg / png / webp"
-                onUpload={async (files) => {
-                  const file = files[0];
-                  if (!file) return;
-                  const fakeEvent = { target: { files: [file], value: '' } } as unknown as React.ChangeEvent<HTMLInputElement>;
-                  await handleFileUpload(fakeEvent);
-                }}
+                label="拖拽或选择产品图片"
+                hint="支持 JPG / PNG / WEBP，可重复上传同一文件"
+                onUpload={handleFilesUpload}
               />
-              {asset && (
-                <div className="text-xs text-muted-foreground flex items-center gap-2">
-                  <Clock className="h-3 w-3" />
-                  更新于 {new Date(asset.updated_at).toLocaleString('zh-CN')}
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">{getSupportedProductModelHint()}</p>
             </div>
 
-            {/* 3D Viewer */}
-            {(asset?.model_file_url || (asset?.preview_images && asset.preview_images.length > 0)) ? (
-              <div className="space-y-2">
-                {/* Thumbnail preview */}
-                <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
-                  {asset.preview_images?.length > 0 ? (
-                    <img
-                      src={toLocalProxyUrl(asset.preview_images[0])}
-                      alt="产品预览"
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                      <Box className="h-8 w-8" />
-                    </div>
+            {mediaItems.length > 0 ? (
+              <ScrollArea className="h-[360px] pr-2">
+                <div className="grid grid-cols-1 gap-3">
+                  {sortProductMedia(mediaItems, asset?.id).map((media, index, ordered) => {
+                    const annotation = annotations.find(record => record.media_id === media.id) || null;
+                    const displayUrl = getProductMediaDisplayUrl({ media, annotation });
+                    return (
+                      <div key={media.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                        <div className="grid grid-cols-[112px_1fr] gap-3 p-3">
+                          <button
+                            type="button"
+                            className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
+                            onClick={() => handleViewMedia(media)}
+                          >
+                            <img
+                              src={toLocalProxyUrl(displayUrl)}
+                              alt={media.file_name || `产品图片 ${index + 1}`}
+                              className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                            />
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+                              <Eye className="h-5 w-5" />
+                            </span>
+                          </button>
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-medium">{index + 1}. {media.file_name || '产品图片'}</p>
+                                <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-[10px] text-muted-foreground">
+                                  {formatProductMediaCaption({ media, annotation })}
+                                </p>
+                              </div>
+                              <Badge variant={annotation ? 'default' : 'outline'} className="shrink-0 text-[10px]">
+                                {annotation ? '已标注' : '未标注'}
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleAnnotateMedia(media)}>
+                                <Edit3 className="mr-1 h-3 w-3" />
+                                {annotation ? '编辑标注' : '进入标注'}
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleViewMedia(media)}>
+                                <Maximize2 className="mr-1 h-3 w-3" /> 查看
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                disabled={index === 0}
+                                onClick={() => handleMoveMedia(media.id, 'up')}
+                              >
+                                <ArrowUp className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                disabled={index === ordered.length - 1}
+                                onClick={() => handleMoveMedia(media.id, 'down')}
+                              >
+                                <ArrowDown className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() => handleDeleteMedia(media.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-muted-foreground">
+                <ImageIcon className="mb-2 h-10 w-10 opacity-30" />
+                <p className="text-xs">当前产品还没有图片</p>
+                <p className="text-[10px]">未上传图片的产品不会生成 PPT 空白页</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="model" className="mt-3 space-y-3">
+            <DragDropUpload
+              accept=".glb,.gltf"
+              maxSize={50}
+              showPreview={false}
+              uploading={uploading}
+              label="上传产品 3D 模型"
+              hint="支持 GLB / GLTF；模型不作为产品图片页"
+              onUpload={handleFilesUpload}
+            />
+            {asset?.model_file_url ? (
+              <div className="space-y-3">
+                <div className="flex aspect-video items-center justify-center rounded-lg bg-muted">
+                  <Box className="h-10 w-10 text-muted-foreground" />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => useAppStore.getState().enterViewerMode(
+                    asset.model_file_url,
+                    [],
+                    asset.id,
+                    'workstation',
+                    'model',
                   )}
-                </div>
-                <div className="flex gap-2 justify-center">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      if (asset) {
-                        const viewerMedia = getSingleViewerMedia(asset);
-                        useAppStore.getState().enterViewerMode(
-                          viewerMedia.modelUrl,
-                          viewerMedia.imageUrls,
-                          asset.id,
-                          'workstation',
-                          getPreferredDisplayMode(asset)
-                        );
-                      }
-                    }}
-                    className="gap-1"
-                  >
-                    <Maximize2 className="h-4 w-4" />
-                    在画布中查看
-                  </Button>
-                </div>
+                  className="w-full gap-1"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                  在画布中查看 3D 模型
+                </Button>
+                <p className="text-xs text-muted-foreground">{getSupportedProductModelHint()}</p>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <ImageIcon className="h-12 w-12 mb-2 opacity-30" />
-                <p className="text-xs">暂无产品素材</p>
-                <p className="text-xs">请上传3D模型或多角度图片</p>
+                <Box className="mb-2 h-10 w-10 opacity-30" />
+                <p className="text-xs">暂无 3D 模型</p>
               </div>
             )}
           </TabsContent>
@@ -997,17 +1100,12 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
 
                       setSavingInfo(true);
                       try {
-                        const { error } = await supabase
-                          .from('product_assets')
-                          .update({
+                        await updateProductAsset(asset.id, {
                             detection_method: detectionMethod || null,
                             product_models: productModels as unknown as any,
                             detection_requirements: detectionRequirements as unknown as any,
                             updated_at: new Date().toISOString(),
-                          })
-                          .eq('id', asset.id);
-
-                        if (error) throw error;
+                          }, { silent: true });
                       await loadData(asset.id);
                         toast.success('产品信息已保存');
                       } catch (error) {
@@ -1028,117 +1126,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
             </ScrollArea>
           </TabsContent>
 
-          {/* Records Tab */}
-          <TabsContent value="records" className="mt-3">
-            {annotations.length > 0 ? (
-              <ScrollArea className="h-[300px]">
-                <div className="space-y-2">
-                  {annotations.map((record) => (
-                    <div
-                      key={record.id}
-                      className={cn(
-                        "flex items-start gap-3 p-2 rounded-lg border cursor-pointer transition-colors",
-                        "hover:bg-secondary/50",
-                        defaultRecordId === record.id && "border-primary bg-primary/5"
-                      )}
-                      onClick={() => handleViewRecord(record)}
-                    >
-                      <img
-                        src={toLocalProxyUrl(record.snapshot_url)}
-                        alt={`版本${record.version}`}
-                        className="w-16 h-12 object-cover rounded border"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium">版本 {record.version}</span>
-                          {defaultRecordId === record.id && (
-                            <Badge variant="default" className="text-[10px] h-4 px-1">
-                              <Star className="h-2.5 w-2.5 mr-0.5" />
-                              PPT默认
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {record.remark || '无备注'}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {new Date(record.created_at).toLocaleString('zh-CN')}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {(record.annotations_json || []).length} 个标注
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {defaultRecordId !== record.id && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSetDefault(record.id);
-                            }}
-                          >
-                            <Star className="h-3 w-3" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteRecord(record.id);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <FileImage className="h-8 w-8 mb-2 opacity-30" />
-                <p className="text-xs">暂无标注记录</p>
-                <p className="text-xs">请先截图并添加标注</p>
-              </div>
-            )}
-          </TabsContent>
         </Tabs>
-
-        {/* Save Dialog */}
-        <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>保存标注</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>备注说明</Label>
-                <Textarea
-                  value={saveRemark}
-                  onChange={(e) => setSaveRemark(e.target.value)}
-                  placeholder="例如：正面视角、第二版标注..."
-                  rows={3}
-                />
-              </div>
-              <div className="text-xs text-muted-foreground">
-                共 {currentAnnotations.length} 个标注点
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleSaveAnnotation} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-                保存
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* Product create / edit dialog */}
         <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
@@ -1175,6 +1163,31 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                   onChange={(e) => setProductForm({ ...productForm, spec: e.target.value })}
                   placeholder="例如：120 × 80 × 12 mm"
                 />
+              </div>
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                <div>
+                  <Label className="text-xs font-medium">产品尺寸 (mm)</Label>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">留空时沿用工位默认尺寸；填写后将同步到机械布局。</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ['length', 'L'],
+                    ['width', 'W'],
+                    ['height', 'H'],
+                  ] as const).map(([field, label]) => (
+                    <div key={field} className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">{label}</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={productForm[field]}
+                        onChange={(e) => setProductForm({ ...productForm, [field]: e.target.value })}
+                        placeholder="默认"
+                        className="font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
             <DialogFooter>

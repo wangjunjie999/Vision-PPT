@@ -14,16 +14,19 @@ type DbProject = Database['public']['Tables']['projects']['Row'];
 type DbWorkstation = Database['public']['Tables']['workstations']['Row'];
 type DbLayout = Database['public']['Tables']['mechanical_layouts']['Row'];
 type DbModule = Database['public']['Tables']['function_modules']['Row'];
+type DbProductAsset = Database['public']['Tables']['product_assets']['Row'];
 
 type ProjectInsert = Database['public']['Tables']['projects']['Insert'];
 type WorkstationInsert = Database['public']['Tables']['workstations']['Insert'];
 type LayoutInsert = Database['public']['Tables']['mechanical_layouts']['Insert'];
 type ModuleInsert = Database['public']['Tables']['function_modules']['Insert'];
+type ProductAssetInsert = Database['public']['Tables']['product_assets']['Insert'];
 
 type ProjectUpdate = Database['public']['Tables']['projects']['Update'];
 type WorkstationUpdate = Database['public']['Tables']['workstations']['Update'];
 type LayoutUpdate = Database['public']['Tables']['mechanical_layouts']['Update'];
 type ModuleUpdate = Database['public']['Tables']['function_modules']['Update'];
+type ProductAssetUpdate = Database['public']['Tables']['product_assets']['Update'];
 
 interface MutationOptions {
   silent?: boolean;
@@ -35,6 +38,7 @@ interface DataContextType {
   workstations: DbWorkstation[];
   layouts: DbLayout[];
   modules: DbModule[];
+  productAssets: DbProductAsset[];
   loading: boolean;
   
   // Selection state
@@ -73,10 +77,19 @@ interface DataContextType {
   duplicateModule: (id: string) => Promise<DbModule>;
   reorderModules: (workstationId: string, orderedIds: string[]) => Promise<void>;
   moveModule: (id: string, targetWorkstationId: string, orderedIds: string[]) => Promise<void>;
+
+  // Product asset CRUD. Workstation-scoped products are the canonical layout products.
+  addProductAsset: (asset: Omit<ProductAssetInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbProductAsset>;
+  updateProductAsset: (id: string, updates: ProductAssetUpdate, options?: MutationOptions) => Promise<DbProductAsset>;
+  deleteProductAsset: (id: string) => Promise<void>;
+  setPrimaryProductAsset: (workstationId: string, id: string) => Promise<void>;
+  reorderProductAssets: (workstationId: string, orderedIds: string[]) => Promise<void>;
   
   // Helpers
   getProjectWorkstations: (projectId: string) => DbWorkstation[];
   getWorkstationModules: (workstationId: string) => DbModule[];
+  getWorkstationProductAssets: (workstationId: string) => DbProductAsset[];
+  getModuleProductAssets: (moduleId: string) => DbProductAsset[];
   refetch: () => Promise<void>;
 }
 
@@ -125,6 +138,14 @@ function getNextSortOrder<T extends { sort_order?: number | null }>(items: T[]) 
   return existing.length > 0 ? Math.max(...existing) + 1 : items.length;
 }
 
+function sortProductAssets(items: DbProductAsset[]) {
+  return [...items].sort((a, b) =>
+    Number(b.is_primary) - Number(a.is_primary)
+    || (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    || a.created_at.localeCompare(b.created_at)
+  );
+}
+
 function applySortOrder<T extends { id: string; sort_order?: number | null }>(
   items: T[],
   orderedIds: string[],
@@ -152,6 +173,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [workstations, setWorkstations] = useState<DbWorkstation[]>([]);
   const [layouts, setLayouts] = useState<DbLayout[]>([]);
   const [modules, setModules] = useState<DbModule[]>([]);
+  const [productAssets, setProductAssets] = useState<DbProductAsset[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialSelectionRef.current.selectedProjectId);
@@ -166,17 +188,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (cacheLoadedRef.current) return;
     
     try {
-      const [cachedProjects, cachedWorkstations, cachedLayouts, cachedModules] = await Promise.all([
+      const [cachedProjects, cachedWorkstations, cachedLayouts, cachedModules, cachedProductAssets] = await Promise.all([
         offlineCache.get<DbProject[]>('projects'),
         offlineCache.get<DbWorkstation[]>('workstations'),
         offlineCache.get<DbLayout[]>('layouts'),
         offlineCache.get<DbModule[]>('modules'),
+        offlineCache.get<DbProductAsset[]>('productAssets'),
       ]);
 
       if (cachedProjects) setProjects(sortByEntityOrder(cachedProjects, 'createdDesc'));
       if (cachedWorkstations) setWorkstations(sortByEntityOrder(cachedWorkstations, 'code'));
       if (cachedLayouts) setLayouts(cachedLayouts);
       if (cachedModules) setModules(sortByEntityOrder(cachedModules, 'createdAsc'));
+      if (cachedProductAssets) setProductAssets(sortProductAssets(cachedProductAssets));
       
       // If we have cached data, don't show loading state
       if (cachedProjects || cachedWorkstations) {
@@ -201,27 +225,31 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setLoading(true);
       }
       
-      const [projectsRes, workstationsRes, layoutsRes, modulesRes] = await Promise.all([
+      const [projectsRes, workstationsRes, layoutsRes, modulesRes, productAssetsRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
         supabase.from('workstations').select('*').order('created_at', { ascending: true }),
         supabase.from('mechanical_layouts').select('*'),
         supabase.from('function_modules').select('*').order('created_at', { ascending: true }),
+        supabase.from('product_assets').select('*').order('created_at', { ascending: true }),
       ]);
 
       if (projectsRes.error) throw projectsRes.error;
       if (workstationsRes.error) throw workstationsRes.error;
       if (layoutsRes.error) throw layoutsRes.error;
       if (modulesRes.error) throw modulesRes.error;
+      if (productAssetsRes.error) throw productAssetsRes.error;
 
       const projectsData = sortByEntityOrder(projectsRes.data || [], 'createdDesc');
       const workstationsData = sortByEntityOrder(workstationsRes.data || [], 'code');
       const layoutsData = layoutsRes.data || [];
       const modulesData = sortByEntityOrder(modulesRes.data || [], 'createdAsc');
+      const productAssetsData = sortProductAssets(productAssetsRes.data || []);
 
       setProjects(projectsData);
       setWorkstations(workstationsData);
       setLayouts(layoutsData);
       setModules(modulesData);
+      setProductAssets(productAssetsData);
 
       // Update cache in background
       Promise.all([
@@ -229,6 +257,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         offlineCache.set('workstations', workstationsData, CACHE_TTL),
         offlineCache.set('layouts', layoutsData, CACHE_TTL),
         offlineCache.set('modules', modulesData, CACHE_TTL),
+        offlineCache.set('productAssets', productAssetsData, CACHE_TTL),
       ]).catch(console.error);
       
     } catch (err) {
@@ -378,20 +407,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const { id: wsId, created_at: wsCreated, updated_at: wsUpdated, sort_order: wsSortOrder, project_id, ...wsRest } = ws;
       const newWs = await addWorkstation({ ...wsRest, project_id: newProject.id, sort_order: wsIndex });
       
-      // Duplicate layout
-      const layout = layouts.find(l => l.workstation_id === wsId);
-      if (layout) {
-        const { id: layoutId, created_at: lCreated, updated_at: lUpdated, workstation_id, ...layoutRest } = layout;
-        await addLayout({ ...layoutRest, workstation_id: newWs.id });
-      }
-      
-      // Duplicate modules
-      const wsModules = sortByEntityOrder(modules.filter(m => m.workstation_id === wsId), 'createdAsc');
-      for (let modIndex = 0; modIndex < wsModules.length; modIndex++) {
-        const mod = wsModules[modIndex];
-        const { id: modId, created_at: mCreated, updated_at: mUpdated, sort_order: modSortOrder, workstation_id: modWsId, ...modRest } = mod;
-        await addModule({ ...modRest, workstation_id: newWs.id, sort_order: modIndex });
-      }
+      await cloneWorkstationGraph(wsId, newWs.id);
     }
     
     toast.success('项目复制成功');
@@ -422,8 +438,242 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const { data, error } = await supabase.from('workstations').insert({ ...workstation, sort_order, user_id: user.id }).select().single();
     if (error) throw error;
     setWorkstations(prev => sortByEntityOrder([...prev, data], 'code'));
+    const { data: initializedAssets, error: assetsError } = await supabase
+      .from('product_assets')
+      .select('*')
+      .eq('workstation_id', data.id)
+      .eq('scope_type', 'workstation')
+      .order('sort_order', { ascending: true });
+    if (assetsError) throw assetsError;
+    let createdAssets = initializedAssets || [];
+    if (createdAssets.length === 0) {
+      const dimensions = (workstation.product_dimensions || {}) as Record<string, unknown>;
+      const { data: fallbackAsset, error: fallbackError } = await supabase
+        .from('product_assets')
+        .insert({
+          user_id: user.id,
+          scope_type: 'workstation',
+          workstation_id: data.id,
+          source_type: 'reference',
+          product_name: '产品 1',
+          sort_order: 0,
+          is_primary: true,
+          length_mm: Number(dimensions.length) || 100,
+          width_mm: Number(dimensions.width) || 100,
+          height_mm: Number(dimensions.height) || 50,
+          pos_x: 0,
+          pos_y: 0,
+          pos_z: 0,
+        })
+        .select()
+        .single();
+      if (fallbackError) throw fallbackError;
+      createdAssets = [fallbackAsset];
+    }
+    setProductAssets(prev => sortProductAssets([
+      ...prev.filter(asset => asset.workstation_id !== data.id),
+      ...createdAssets,
+    ]));
     toast.success('工位创建成功');
     return data;
+  };
+
+  const cloneWorkstationGraph = async (sourceWorkstationId: string, targetWorkstationId: string) => {
+    if (!user) throw new Error('User not authenticated');
+
+    // New workstations receive an automatic default product. Remove it before cloning so
+    // the copied workstation mirrors the source exactly, including an explicit zero state.
+    const { error: clearDefaultError } = await supabase
+      .from('product_assets')
+      .delete()
+      .eq('workstation_id', targetWorkstationId)
+      .eq('scope_type', 'workstation');
+    if (clearDefaultError) throw clearDefaultError;
+    setProductAssets(current => current.filter(asset => asset.workstation_id !== targetWorkstationId));
+
+    const moduleIdMap = new Map<string, string>();
+    const sourceModules = sortByEntityOrder(
+      modules.filter(module => module.workstation_id === sourceWorkstationId),
+      'createdAsc',
+    );
+    for (let index = 0; index < sourceModules.length; index += 1) {
+      const sourceModule = sourceModules[index];
+      const {
+        id: sourceModuleId,
+        created_at,
+        updated_at,
+        sort_order,
+        workstation_id,
+        user_id,
+        ...moduleFields
+      } = sourceModule;
+      const copiedModule = await addModule({
+        ...moduleFields,
+        workstation_id: targetWorkstationId,
+        sort_order: index,
+      });
+      moduleIdMap.set(sourceModuleId, copiedModule.id);
+    }
+
+    const productIdMap = new Map<string, string>();
+    const copiedAssets: DbProductAsset[] = [];
+    const sourceWorkstationAssets = sortProductAssets(productAssets.filter(asset =>
+      asset.scope_type === 'workstation' && asset.workstation_id === sourceWorkstationId
+    ));
+
+    for (const sourceAsset of sourceWorkstationAssets) {
+      const {
+        id: sourceAssetId,
+        created_at,
+        updated_at,
+        user_id,
+        workstation_id,
+        module_id,
+        parent_product_id,
+        ...assetFields
+      } = sourceAsset;
+      const { data: copiedAsset, error } = await supabase
+        .from('product_assets')
+        .insert({
+          ...assetFields,
+          user_id: user.id,
+          workstation_id: targetWorkstationId,
+          module_id: null,
+          parent_product_id: null,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      productIdMap.set(sourceAssetId, copiedAsset.id);
+      copiedAssets.push(copiedAsset);
+    }
+
+    const sourceModuleIds = new Set(sourceModules.map(module => module.id));
+    const sourceModuleAssets = sortProductAssets(productAssets.filter(asset =>
+      asset.scope_type === 'module' && !!asset.module_id && sourceModuleIds.has(asset.module_id)
+    ));
+    for (const sourceAsset of sourceModuleAssets) {
+      const targetModuleId = sourceAsset.module_id ? moduleIdMap.get(sourceAsset.module_id) : undefined;
+      if (!targetModuleId) continue;
+      const {
+        id: sourceAssetId,
+        created_at,
+        updated_at,
+        user_id,
+        workstation_id,
+        module_id,
+        parent_product_id,
+        ...assetFields
+      } = sourceAsset;
+      const { data: copiedAsset, error } = await supabase
+        .from('product_assets')
+        .insert({
+          ...assetFields,
+          user_id: user.id,
+          workstation_id: targetWorkstationId,
+          module_id: targetModuleId,
+          parent_product_id: parent_product_id ? productIdMap.get(parent_product_id) || null : null,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      productIdMap.set(sourceAssetId, copiedAsset.id);
+      copiedAssets.push(copiedAsset);
+    }
+    setProductAssets(current => sortProductAssets([...current, ...copiedAssets]));
+
+    const sourceAssetIds = Array.from(productIdMap.keys());
+    if (sourceAssetIds.length > 0) {
+      const mediaIdMap = new Map<string, string>();
+      const { data: sourceMedia, error: sourceMediaError } = await supabase
+        .from('product_media')
+        .select('*')
+        .in('asset_id', sourceAssetIds)
+        .order('sort_order', { ascending: true });
+      if (sourceMediaError) throw sourceMediaError;
+      for (const media of sourceMedia || []) {
+        const targetAssetId = productIdMap.get(media.asset_id);
+        if (!targetAssetId) continue;
+        const {
+          id: sourceMediaId,
+          created_at,
+          updated_at,
+          user_id,
+          asset_id,
+          workstation_id,
+          ...mediaFields
+        } = media;
+        const { data: copiedMedia, error: copiedMediaError } = await supabase
+          .from('product_media')
+          .insert({
+            ...mediaFields,
+            user_id: user.id,
+            asset_id: targetAssetId,
+            workstation_id: targetWorkstationId,
+          })
+          .select()
+          .single();
+        if (copiedMediaError) throw copiedMediaError;
+        mediaIdMap.set(sourceMediaId, copiedMedia.id);
+      }
+
+      const { data: annotations, error: annotationsError } = await supabase
+        .from('product_annotations')
+        .select('*')
+        .in('asset_id', sourceAssetIds);
+      if (annotationsError) throw annotationsError;
+      if (annotations?.length) {
+        const annotationCopies = annotations
+          .slice()
+          .sort((left, right) => Number(right.is_ppt_default) - Number(left.is_ppt_default))
+          .map(annotation => ({
+          asset_id: productIdMap.get(annotation.asset_id)!,
+          media_id: annotation.media_id ? mediaIdMap.get(annotation.media_id) || null : null,
+          snapshot_url: annotation.snapshot_url,
+          annotations_json: annotation.annotations_json,
+          view_meta: annotation.view_meta,
+          version: annotation.version,
+          remark: annotation.remark,
+          is_ppt_default: annotation.is_ppt_default,
+          user_id: user.id,
+          workstation_id: targetWorkstationId,
+        }));
+        const { error: copyAnnotationsError } = await supabase
+          .from('product_annotations')
+          .insert(annotationCopies);
+        if (copyAnnotationsError) throw copyAnnotationsError;
+      }
+    }
+
+    const sourceLayout = layouts.find(layout => layout.workstation_id === sourceWorkstationId);
+    if (sourceLayout) {
+      const {
+        id,
+        created_at,
+        updated_at,
+        workstation_id,
+        user_id,
+        layout_objects,
+        ...layoutFields
+      } = sourceLayout;
+      const parsedObjects = typeof layout_objects === 'string'
+        ? JSON.parse(layout_objects)
+        : layout_objects;
+      const rewrittenObjects = Array.isArray(parsedObjects)
+        ? parsedObjects.flatMap((object: Record<string, unknown>) => {
+            if (object.type !== 'product') return [object];
+            const oldAssetId = typeof object.productAssetId === 'string' ? object.productAssetId : null;
+            const newAssetId = oldAssetId ? productIdMap.get(oldAssetId) : undefined;
+            if (!newAssetId) return [];
+            return [{ ...object, id: `product-${newAssetId}`, productAssetId: newAssetId }];
+          })
+        : parsedObjects;
+      await addLayout({
+        ...layoutFields,
+        layout_objects: rewrittenObjects,
+        workstation_id: targetWorkstationId,
+      });
+    }
   };
 
   const updateWorkstation = async (id: string, updates: WorkstationUpdate, options?: MutationOptions) => {
@@ -442,6 +692,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setWorkstations(prev => prev.filter(w => w.id !== id));
     setLayouts(prev => prev.filter(l => l.workstation_id !== id));
     setModules(prev => prev.filter(m => m.workstation_id !== id));
+    setProductAssets(prev => prev.filter(asset => asset.workstation_id !== id));
     if (selectedWorkstationId === id) setSelectedWorkstationId(null);
     toast.success('工位删除成功');
   };
@@ -457,20 +708,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       name: `${original.name} (副本)`,
     });
     
-    // Duplicate layout
-    const layout = layouts.find(l => l.workstation_id === id);
-    if (layout) {
-      const { id: layoutId, created_at: lCreated, updated_at: lUpdated, workstation_id, ...layoutRest } = layout;
-      await addLayout({ ...layoutRest, workstation_id: newWs.id });
-    }
-    
-    // Duplicate modules
-    const wsModules = sortByEntityOrder(modules.filter(m => m.workstation_id === id), 'createdAsc');
-    for (let modIndex = 0; modIndex < wsModules.length; modIndex++) {
-      const mod = wsModules[modIndex];
-      const { id: modId, created_at: mCreated, updated_at: mUpdated, sort_order: modSortOrder, workstation_id: modWsId, ...modRest } = mod;
-      await addModule({ ...modRest, workstation_id: newWs.id, sort_order: modIndex });
-    }
+    await cloneWorkstationGraph(id, newWs.id);
     
     return newWs;
   };
@@ -744,6 +982,114 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Product asset CRUD
+  const addProductAsset = async (
+    asset: Omit<ProductAssetInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>,
+  ) => {
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase
+      .from('product_assets')
+      .insert({ ...asset, user_id: user.id })
+      .select()
+      .single();
+    if (error) throw error;
+    setProductAssets(prev => sortProductAssets([...prev, data]));
+    return data;
+  };
+
+  const updateProductAsset = async (
+    id: string,
+    updates: ProductAssetUpdate,
+    options?: MutationOptions,
+  ) => {
+    const previous = productAssets;
+    setProductAssets(prev => sortProductAssets(prev.map(asset => asset.id === id ? { ...asset, ...updates } : asset)));
+    const { data, error } = await supabase
+      .from('product_assets')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) {
+      setProductAssets(previous);
+      throw error;
+    }
+    setProductAssets(prev => sortProductAssets(prev.map(asset => asset.id === id ? data : asset)));
+    if (!options?.silent) toast.success('产品已更新');
+    return data;
+  };
+
+  const deleteProductAsset = async (id: string) => {
+    const target = productAssets.find(asset => asset.id === id);
+    if (!target) return;
+    const previous = productAssets;
+    const remaining = productAssets.filter(asset => asset.id !== id);
+    setProductAssets(remaining);
+    try {
+      const { error } = await supabase.from('product_assets').delete().eq('id', id);
+      if (error) throw error;
+      if (target.scope_type === 'workstation' && target.is_primary) {
+        const replacement = sortProductAssets(remaining.filter(asset =>
+          asset.scope_type === 'workstation' && asset.workstation_id === target.workstation_id
+        ))[0];
+        if (replacement) {
+          const { data, error: promoteError } = await supabase
+            .from('product_assets')
+            .update({ is_primary: true })
+            .eq('id', replacement.id)
+            .select()
+            .single();
+          if (promoteError) throw promoteError;
+          setProductAssets(current => sortProductAssets(current.map(asset => asset.id === replacement.id ? data : asset)));
+        }
+      }
+    } catch (error) {
+      setProductAssets(previous);
+      throw error;
+    }
+  };
+
+  const setPrimaryProductAsset = async (workstationId: string, id: string) => {
+    const previous = productAssets;
+    setProductAssets(current => sortProductAssets(current.map(asset =>
+      asset.scope_type === 'workstation' && asset.workstation_id === workstationId
+        ? { ...asset, is_primary: asset.id === id }
+        : asset
+    )));
+    try {
+      const { error: clearError } = await supabase
+        .from('product_assets')
+        .update({ is_primary: false })
+        .eq('workstation_id', workstationId)
+        .eq('scope_type', 'workstation')
+        .neq('id', id);
+      if (clearError) throw clearError;
+      const { error } = await supabase.from('product_assets').update({ is_primary: true }).eq('id', id);
+      if (error) throw error;
+    } catch (error) {
+      setProductAssets(previous);
+      throw error;
+    }
+  };
+
+  const reorderProductAssets = async (workstationId: string, orderedIds: string[]) => {
+    const previous = productAssets;
+    const validIds = orderedIds.filter(id => productAssets.some(asset =>
+      asset.id === id && asset.scope_type === 'workstation' && asset.workstation_id === workstationId
+    ));
+    if (validIds.length !== orderedIds.length) throw new Error('只能调整同一工位下的产品顺序');
+    setProductAssets(current => sortProductAssets(applySortOrder(current, validIds)));
+    try {
+      const results = await Promise.all(validIds.map((id, index) =>
+        supabase.from('product_assets').update({ sort_order: index }).eq('id', id)
+      ));
+      await assertNoSupabaseErrors(results);
+    } catch (error) {
+      setProductAssets(previous);
+      throw error;
+    }
+  };
+
   // Helpers
   const getProjectWorkstations = useCallback((projectId: string) => {
     const filtered = workstations.filter(ws => ws.project_id === projectId);
@@ -754,12 +1100,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return sortByEntityOrder(modules.filter(m => m.workstation_id === workstationId), 'createdAsc');
   }, [modules]);
 
+  const getWorkstationProductAssets = useCallback((workstationId: string) => (
+    sortProductAssets(productAssets.filter(asset =>
+      asset.scope_type === 'workstation' && asset.workstation_id === workstationId
+    ))
+  ), [productAssets]);
+
+  const getModuleProductAssets = useCallback((moduleId: string) => (
+    sortProductAssets(productAssets.filter(asset =>
+      asset.scope_type === 'module' && asset.module_id === moduleId
+    ))
+  ), [productAssets]);
+
   return (
     <DataContext.Provider value={{
       projects,
       workstations,
       layouts,
       modules,
+      productAssets,
       loading,
       selectedProjectId,
       selectedWorkstationId,
@@ -788,8 +1147,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       duplicateModule,
       reorderModules,
       moveModule,
+      addProductAsset,
+      updateProductAsset,
+      deleteProductAsset,
+      setPrimaryProductAsset,
+      reorderProductAssets,
       getProjectWorkstations,
       getWorkstationModules,
+      getWorkstationProductAssets,
+      getModuleProductAssets,
       refetch: fetchAll,
     }}>
       {children}

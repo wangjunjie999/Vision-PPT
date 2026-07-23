@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EditableSelect } from '@/components/ui/editable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle, RotateCcw, Plus, Minus } from 'lucide-react';
+import { AlertTriangle, Settings2, ImageIcon, Timer, CheckCircle2, XCircle, RotateCcw, Plus, Minus, Ruler, Link2 } from 'lucide-react';
 import { calculateCycleTime } from '@/utils/visionCalcEngine';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { HardwareConfigPanel, HardwareItemData } from '@/components/hardware/HardwareConfigPanel';
 import { toast } from 'sonner';
 import { ProductAnnotationPanel } from '@/components/product/ProductAnnotationPanel';
+import { ProductLayoutFormPanel } from './ProductLayoutFormPanel';
 import { LayoutViewsPreview } from '@/components/canvas/LayoutViewsPreview';
 import {
   Tooltip,
@@ -542,6 +543,14 @@ export function WorkstationForm() {
         return;
       }
 
+      const defaultProductDimensions = [wsForm.length, wsForm.width, wsForm.height].map(Number);
+      if (defaultProductDimensions.some(value => !Number.isFinite(value) || value <= 0)) {
+        toast.error('默认产品长、宽、高必须大于 0');
+        setSaving(false);
+        setCurrentStep(0);
+        return;
+      }
+
       // Update workstation using DataContext to sync state
       await updateWorkstation(workstation.id, { 
         code: wsForm.code,
@@ -811,33 +820,51 @@ export function WorkstationForm() {
           </SelectContent>
         </Select>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="space-y-2 rounded-lg border border-border/70 bg-muted/25 p-3">
+        <div className="flex items-start gap-2">
+          <Ruler className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div>
+            <Label className="text-xs font-semibold">默认产品尺寸 (mm)</Label>
+            <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+              用作新增产品的初始值，以及单个产品尺寸留空时的回落值；不会覆盖已填写的独立产品尺寸。
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">产品长 (mm)</Label>
+          <Label className="text-xs font-medium">默认长 L</Label>
           <Input 
             type="number" 
+            min="1"
             value={wsForm.length} 
             onChange={e => setWsForm(p => ({ ...p, length: e.target.value }))} 
             className="h-9" 
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">产品宽 (mm)</Label>
+          <Label className="text-xs font-medium">默认宽 W</Label>
           <Input 
             type="number" 
+            min="1"
             value={wsForm.width} 
             onChange={e => setWsForm(p => ({ ...p, width: e.target.value }))} 
             className="h-9" 
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium">产品高 (mm)</Label>
+          <Label className="text-xs font-medium">默认高 H</Label>
           <Input 
             type="number" 
+            min="1"
             value={wsForm.height} 
             onChange={e => setWsForm(p => ({ ...p, height: e.target.value }))} 
             className="h-9" 
           />
+        </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Link2 className="h-3 w-3 text-emerald-500" />
+          独立产品尺寸请在下一步“机械布局 → 布局产品”中维护
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -1283,6 +1310,18 @@ export function WorkstationForm() {
         </div>
       </div>
 
+      {/* Product assets are edited here because they are the source of truth for layout products. */}
+      {selectedWorkstationId && (
+        <ProductLayoutFormPanel
+          workstationId={selectedWorkstationId}
+          defaultDimensions={{
+            length: Number(wsForm.length) || 100,
+            width: Number(wsForm.width) || 100,
+            height: Number(wsForm.height) || 100,
+          }}
+        />
+      )}
+
       {/* Layout Views Preview */}
       {selectedWorkstationId && (
         <div className="mt-3">
@@ -1386,4 +1425,3 @@ export function WorkstationForm() {
     />
   );
 }
-

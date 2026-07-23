@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useData } from '@/contexts/useData';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -49,6 +50,8 @@ import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
 import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
+import { getProductPreviewImageUrls } from '@/utils/productAssetMedia';
+import { setPptDefaultAnnotation } from '@/services/productAnnotationService';
 
 interface ProductAsset {
   id: string;
@@ -82,7 +85,7 @@ interface AnnotationRecord {
   version: number;
   remark: string | null;
   created_at: string;
-  is_default?: boolean;
+  is_ppt_default: boolean;
 }
 
 interface ModuleAnnotationPanelProps {
@@ -107,8 +110,16 @@ function getSingleViewerMedia(asset: ProductAsset): { modelUrl: string | null; i
 
 export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotationPanelProps) {
   const { user } = useAuth();
-  const [parentProducts, setParentProducts] = useState<ProductAsset[]>([]);
-  const [selectedParentProductId, setSelectedParentProductId] = useState<string | null>(null);
+  const { productAssets: canonicalProductAssets, addProductAsset, updateProductAsset, refetch } = useData();
+  const selectedParentProductId = useAppStore(state => state.selectedProductAssetId);
+  const setSelectedParentProductId = useAppStore(state => state.selectProductAsset);
+  const parentProducts = useMemo(() => canonicalProductAssets
+    .filter(row => row.scope_type === 'workstation' && row.workstation_id === workstationId)
+    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order)
+    .map(row => ({
+      ...row,
+      preview_images: getProductPreviewImageUrls(row.preview_images),
+    })) as ProductAsset[], [canonicalProductAssets, workstationId]);
   const [moduleAsset, setModuleAsset] = useState<ProductAsset | null>(null);
   const [workstationAsset, setWorkstationAsset] = useState<ProductAsset | null>(null);
   const [moduleAnnotations, setModuleAnnotations] = useState<AnnotationRecord[]>([]);
@@ -124,29 +135,9 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
   const [saving, setSaving] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AnnotationRecord | null>(null);
   const [defaultRecordId, setDefaultRecordId] = useState<string | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('viewer');
   const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
-
-  // Load all workstation-scoped products (parent products) for this workstation.
-  const loadParents = useCallback(async () => {
-    if (!workstationId || !user) return [] as ProductAsset[];
-    const { data, error } = await supabase
-      .from('product_assets')
-      .select('*')
-      .eq('workstation_id', workstationId)
-      .eq('scope_type', 'workstation')
-      .order('is_primary', { ascending: false })
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true });
-    if (error) {
-      console.error('Failed to load parent products:', error);
-      return [];
-    }
-    return (data || []).map((r) => ({
-      ...r,
-      preview_images: Array.isArray(r.preview_images) ? (r.preview_images as string[]) : [],
-    })) as ProductAsset[];
-  }, [workstationId, user]);
 
   // Load module asset + annotations scoped to the currently selected parent product,
   // plus workstation-side reference annotations for that same parent.
@@ -165,6 +156,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
           .from('product_annotations')
           .select('*')
           .eq('asset_id', wsAsset.id)
+          .order('is_ppt_default', { ascending: false })
           .order('version', { ascending: false });
         setWorkstationAnnotations(
           (wsAnnotData || []).map((a) => ({
@@ -180,46 +172,34 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       // Module asset scoped by parent product.
       let moduleAssetData: any = null;
       if (parentId) {
-        const { data } = await supabase
-          .from('product_assets')
-          .select('*')
-          .eq('module_id', moduleId)
-          .eq('scope_type', 'module')
-          .eq('parent_product_id', parentId)
-          .maybeSingle();
-        moduleAssetData = data;
+        moduleAssetData = canonicalProductAssets.find(row =>
+          row.module_id === moduleId
+          && row.scope_type === 'module'
+          && row.parent_product_id === parentId
+        ) || null;
 
         // Legacy fallback: an old module asset without parent_product_id — attach it to the primary product.
         if (!moduleAssetData && wsAsset?.is_primary) {
-          const { data: legacy } = await supabase
-            .from('product_assets')
-            .select('*')
-            .eq('module_id', moduleId)
-            .eq('scope_type', 'module')
-            .is('parent_product_id', null)
-            .maybeSingle();
+          const legacy = canonicalProductAssets.find(row =>
+            row.module_id === moduleId
+            && row.scope_type === 'module'
+            && !row.parent_product_id
+          );
           if (legacy) {
-            const { data: upgraded } = await supabase
-              .from('product_assets')
-              .update({ parent_product_id: parentId } as never)
-              .eq('id', legacy.id)
-              .select()
-              .maybeSingle();
-            moduleAssetData = upgraded || legacy;
+            moduleAssetData = await updateProductAsset(legacy.id, { parent_product_id: parentId }, { silent: true });
           }
         }
       }
 
       if (moduleAssetData) {
-        const previewImages = Array.isArray(moduleAssetData.preview_images)
-          ? (moduleAssetData.preview_images as string[])
-          : [];
+        const previewImages = getProductPreviewImageUrls(moduleAssetData.preview_images);
         setModuleAsset({ ...moduleAssetData, preview_images: previewImages } as ProductAsset);
 
         const { data: annotData } = await supabase
           .from('product_annotations')
           .select('*')
           .eq('asset_id', moduleAssetData.id)
+          .order('is_ppt_default', { ascending: false })
           .order('version', { ascending: false });
         const records = (annotData || []).map((a) => ({
           ...a,
@@ -227,7 +207,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
           view_meta: a.view_meta as AnnotationRecord['view_meta'],
         }));
         setModuleAnnotations(records);
-        setDefaultRecordId(records[0]?.id ?? null);
+        setDefaultRecordId(records.find(record => record.is_ppt_default)?.id || records[0]?.id || null);
       } else {
         setModuleAsset(null);
         setModuleAnnotations([]);
@@ -239,23 +219,44 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
     } finally {
       setLoading(false);
     }
-  }, [moduleId, workstationId, user, parentProducts]);
+  }, [canonicalProductAssets, moduleId, parentProducts, updateProductAsset, user, workstationId]);
 
   const loadData = useCallback(async () => {
-    const parents = await loadParents();
-    setParentProducts(parents);
+    await refetch();
     const nextParentId =
-      (selectedParentProductId && parents.find((p) => p.id === selectedParentProductId)?.id) ||
-      parents[0]?.id ||
+      (selectedParentProductId && parentProducts.find((p) => p.id === selectedParentProductId)?.id) ||
+      parentProducts[0]?.id ||
       null;
     setSelectedParentProductId(nextParentId);
-  }, [loadParents, selectedParentProductId]);
+  }, [parentProducts, refetch, selectedParentProductId, setSelectedParentProductId]);
+
+  const refreshModuleAnnotations = useCallback(async (assetId: string) => {
+    const { data, error } = await supabase
+      .from('product_annotations')
+      .select('*')
+      .eq('asset_id', assetId)
+      .order('is_ppt_default', { ascending: false })
+      .order('version', { ascending: false });
+    if (error) throw error;
+    const records = (data || []).map(annotation => ({
+      ...annotation,
+      annotations_json: annotation.annotations_json as unknown as Annotation[],
+      view_meta: annotation.view_meta as AnnotationRecord['view_meta'],
+    }));
+    setModuleAnnotations(records);
+    setDefaultRecordId(records.find(record => record.is_ppt_default)?.id || records[0]?.id || null);
+  }, []);
 
   // Initial + reload on module/workstation change.
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleId, workstationId, user]);
+
+  useEffect(() => {
+    if (selectedParentProductId && parentProducts.some(product => product.id === selectedParentProductId)) return;
+    setSelectedParentProductId(parentProducts[0]?.id || null);
+  }, [parentProducts, selectedParentProductId, setSelectedParentProductId]);
 
   // Reload assets/annotations whenever the selected parent product (or the parent list) changes.
   useEffect(() => {
@@ -270,7 +271,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedParentProductId, parentProducts]);
+  }, [canonicalProductAssets, selectedParentProductId, parentProducts]);
 
   // Upload image for module
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -306,43 +307,29 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
         contentType: file.type || undefined,
       });
 
-      if (moduleAsset) {
-        const { error } = await supabase
-          .from('product_assets')
-          .update({
+      const latestAsset = moduleAsset
+        ? await updateProductAsset(moduleAsset.id, {
             model_file_url: null,
             preview_images: [fileUrl],
             source_type: 'image',
             updated_at: new Date().toISOString(),
-          })
-          .eq('id', moduleAsset.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('product_assets').insert({
+          }, { silent: true })
+        : await addProductAsset({
           module_id: moduleId,
+          workstation_id: workstationId,
           scope_type: 'module',
           source_type: 'image',
           model_file_url: null,
           preview_images: [fileUrl],
-          user_id: user.id,
           parent_product_id: selectedParentProductId,
         });
-        if (error) throw error;
-      }
 
       await loadData();
       toast.success('图片上传成功');
 
       // Auto enter viewer mode after upload
-      const { data: latestAsset } = await supabase
-        .from('product_assets')
-        .select('*')
-        .eq('module_id', moduleId)
-        .eq('scope_type', 'module')
-        .eq('parent_product_id', selectedParentProductId)
-        .maybeSingle();
       if (latestAsset) {
-        const images = Array.isArray(latestAsset.preview_images) ? latestAsset.preview_images as string[] : [];
+        const images = getProductPreviewImageUrls(latestAsset.preview_images);
         const latestProductAsset = {
           ...latestAsset,
           preview_images: images,
@@ -412,18 +399,13 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       // Create module asset if not exists
       let assetId = moduleAsset?.id;
       if (!assetId) {
-        const { data: newAsset, error: assetError } = await supabase
-          .from('product_assets')
-          .insert({
+        const newAsset = await addProductAsset({
             module_id: moduleId,
+            workstation_id: workstationId,
             scope_type: 'module',
             source_type: 'reference',
-            user_id: user.id,
             parent_product_id: selectedParentProductId,
-          })
-          .select()
-          .single();
-        if (assetError) throw assetError;
+          });
         assetId = newAsset.id;
       }
 
@@ -474,18 +456,13 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
       // Create module asset if not exists
       let assetId = moduleAsset?.id;
       if (!assetId) {
-        const { data: newAsset, error: assetError } = await supabase
-          .from('product_assets')
-          .insert({
+        const newAsset = await addProductAsset({
             module_id: moduleId,
+            workstation_id: workstationId,
             scope_type: 'module',
             source_type: 'image',
-            user_id: user.id,
             parent_product_id: selectedParentProductId,
-          })
-          .select()
-          .single();
-        if (assetError) throw assetError;
+          });
         assetId = newAsset.id;
       }
 
@@ -505,19 +482,23 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
         ? Math.max(...moduleAnnotations.map(a => a.version)) + 1
         : 1;
 
-      const { error } = await supabase.from('product_annotations').insert({
+      const { data: savedAnnotation, error } = await supabase.from('product_annotations').insert({
         asset_id: assetId,
+        workstation_id: workstationId,
         snapshot_url: snapshotUrl,
         annotations_json: currentAnnotations as unknown as any,
         view_meta: { viewName: `版本${nextVersion}` },
         version: nextVersion,
         remark: saveRemark || null,
         user_id: user.id,
-      });
+        is_ppt_default: false,
+      }).select('id').single();
 
       if (error) throw error;
+      await setPptDefaultAnnotation(assetId, savedAnnotation.id);
 
       await loadData();
+      await refreshModuleAnnotations(assetId);
       setIsAnnotating(false);
       setCurrentSnapshot(null);
       setCurrentAnnotations([]);
@@ -533,9 +514,20 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
     }
   };
 
-  const handleSetDefault = (recordId: string) => {
-    setDefaultRecordId(recordId);
-    toast.success('已设为PPT默认使用');
+  const handleSetDefault = async (recordId: string) => {
+    if (!moduleAsset) return;
+    setSettingDefaultId(recordId);
+    try {
+      await setPptDefaultAnnotation(moduleAsset.id, recordId);
+      await loadData();
+      await refreshModuleAnnotations(moduleAsset.id);
+      toast.success('PPT默认版本已保存');
+    } catch (error) {
+      console.error('Failed to set PPT default annotation:', error);
+      toast.error('设置PPT默认版本失败');
+    } finally {
+      setSettingDefaultId(null);
+    }
   };
 
   const handleDeleteRecord = async (recordId: string) => {
@@ -547,6 +539,7 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
 
       if (error) throw error;
       await loadData();
+      if (moduleAsset) await refreshModuleAnnotations(moduleAsset.id);
       toast.success('记录已删除');
     } catch (error) {
       console.error('Delete failed:', error);
@@ -822,12 +815,17 @@ export function ModuleAnnotationPanel({ moduleId, workstationId }: ModuleAnnotat
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
+                            disabled={settingDefaultId !== null}
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleSetDefault(record.id);
+                              void handleSetDefault(record.id);
                             }}
                           >
-                            <Star className="h-3 w-3" />
+                            {settingDefaultId === record.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Star className="h-3 w-3" />
+                            )}
                           </Button>
                         )}
                         <Button

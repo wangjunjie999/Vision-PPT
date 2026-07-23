@@ -14,7 +14,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
+import { isProductLayoutObject, ObjectPropertyPanel, type LayoutObject } from './ObjectPropertyPanel';
 import { ObjectListPanel } from './ObjectListPanel';
 import { CanvasControls } from './CanvasControls';
 import { AlignmentGuides, calculateSnapPosition } from './AlignmentGuides';
@@ -50,6 +50,8 @@ import { CameraRenderer } from './CameraRenderer';
 import { ResizeHandles } from './ResizeHandles';
 import { safeHardwareArray } from '@/utils/safeDataAccess';
 import { CANVAS_WHEEL_ZOOM_STEP, getNextZoom } from '@/utils/canvasZoom';
+import type { WorkstationProductAsset } from '@/lib/productLayoutSync';
+import { useAppStore } from '@/store/useAppStore';
 
 interface DraggableLayoutCanvasProps {
   workstationId: string;
@@ -95,11 +97,28 @@ function isUsableImageDataUrl(dataUrl: string | null | undefined) {
     && dataUrl.length > 5000;
 }
 
+function toProductAssetPatch(object: LayoutObject, updates: Partial<LayoutObject> = {}) {
+  const next = { ...object, ...updates };
+  const patch: Record<string, string | number | null> = {};
+  if ('name' in updates) patch.product_name = next.name.trim() || '未命名产品';
+  if ('productLength' in updates) patch.length_mm = next.productLength ?? null;
+  if ('productWidth' in updates) patch.width_mm = next.productWidth ?? null;
+  if ('productHeight' in updates) patch.height_mm = next.productHeight ?? null;
+  if ('posX' in updates) patch.pos_x = next.posX ?? 0;
+  if ('posY' in updates) patch.pos_y = next.posY ?? 0;
+  if ('posZ' in updates) patch.pos_z = next.posZ ?? 0;
+  if ('model3dUrl' in updates) patch.model_file_url = next.model3dUrl ?? null;
+  return patch;
+}
+
 export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasProps) {
   const {
     workstations, layouts, getLayoutByWorkstation, updateLayout, addLayout,
-    updateWorkstation,
+    loading: productsLoading, productAssets: allProductAssets,
+    getWorkstationProductAssets, addProductAsset, updateProductAsset, deleteProductAsset,
   } = useData();
+  const selectedProductAssetId = useAppStore(state => state.selectedProductAssetId);
+  const selectProductAsset = useAppStore(state => state.selectProductAsset);
   const { mechanisms, getEnabledMechanisms } = useMechanisms();
 
   const workstation = workstations.find(ws => ws.id === workstationId) as any;
@@ -117,6 +136,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   // ========== State ==========
   const [currentView, setCurrentView] = useState<ViewType>('front');
   const [objects, setObjects] = useState<LayoutObject[]>([]);
+  const productAssets = useMemo(
+    () => getWorkstationProductAssets(workstationId),
+    [allProductAssets, getWorkstationProductAssets, workstationId],
+  );
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -153,6 +177,10 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     failedModelCount: 0,
   });
   const [cameraPickerOpen, setCameraPickerOpen] = useState(false);
+  const pendingProductUpdatesRef = useRef<Record<string, {
+    timer: ReturnType<typeof setTimeout>;
+    patch: Record<string, string | number | null>;
+  }>>({});
 
   // Undo/Redo history
   const { pushState: pushHistory, undo: undoHistory, redo: redoHistory, canUndo, canRedo, reset: resetHistory } = useCanvasHistory<LayoutObject[]>([]);
@@ -252,13 +280,22 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const canvasWidth = 1200;
   const canvasHeight = 800;
 
-  const productDimensions = workstation?.product_dimensions as { length: number; width: number; height: number } || { length: 300, width: 200, height: 100 };
+  const productDimensions = useMemo(() => {
+    const dimensions = workstation?.product_dimensions as Partial<{ length: number; width: number; height: number }> | null;
+    return {
+      length: dimensions?.length ?? 100,
+      width: dimensions?.width ?? 100,
+      height: dimensions?.height ?? 50,
+    };
+  }, [workstation?.product_dimensions]);
 
-  // Local product position state (only persisted on explicit save)
-  const [localProductPosition, setLocalProductPosition] = useState<{ posX: number; posY: number; posZ: number }>(() => {
-    const pp = (workstation as any)?.product_position as any;
-    return pp && typeof pp === 'object' ? { posX: pp.posX ?? 0, posY: pp.posY ?? 0, posZ: pp.posZ ?? 0 } : { posX: 0, posY: 0, posZ: 0 };
-  });
+  useEffect(() => {
+    if (!selectedProductAssetId) return;
+    const objectId = `product-${selectedProductAssetId}`;
+    if (!objects.some(object => object.id === objectId)) return;
+    setSelectedIds(current => current[0] === objectId ? current : [objectId]);
+    setShowPropertyPanel(true);
+  }, [objects, selectedProductAssetId]);
 
   // ========== Auto-scale ==========
   const autoScaleResult = useMemo(() => {
@@ -279,13 +316,6 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       }
     };
 
-    const pHalfL = productDimensions.length / 2;
-    const pHalfW = productDimensions.width / 2;
-    const pHalfH = productDimensions.height / 2;
-    [{ x: -pHalfL, y: -pHalfW, z: -pHalfH }, { x: pHalfL, y: pHalfW, z: pHalfH }].forEach(c => {
-      allPoints.push(projectForView(c.x, c.y, c.z, currentView));
-    });
-
     objects.forEach(obj => {
       const p = projectForView(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
       // For products with custom dimensions, include their actual bounding box.
@@ -293,10 +323,18 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         const hL = (obj.productLength ?? productDimensions.length) / 2;
         const hW = (obj.productWidth ?? productDimensions.width) / 2;
         const hH = (obj.productHeight ?? productDimensions.height) / 2;
-        [{ x: -hL, y: -hW, z: -hH }, { x: hL, y: hW, z: hH }].forEach(c => {
-          const pp = projectForView((obj.posX ?? 0) + c.x, (obj.posY ?? 0) + c.y, (obj.posZ ?? 0) + c.z, currentView);
-          allPoints.push(pp);
-        });
+        for (const x of [-hL, hL]) {
+          for (const y of [-hW, hW]) {
+            for (const z of [-hH, hH]) {
+              allPoints.push(projectForView(
+                (obj.posX ?? 0) + x,
+                (obj.posY ?? 0) + y,
+                (obj.posZ ?? 0) + z,
+                currentView,
+              ));
+            }
+          }
+        }
       } else {
         allPoints.push({ x: p.x - iconMargin, y: p.y - iconMargin });
         allPoints.push({ x: p.x + iconMargin, y: p.y + iconMargin });
@@ -367,12 +405,74 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     }
   }, [centerX, centerY, scale]);
 
+  const queueProductAssetUpdate = useCallback((assetId: string, patch: Record<string, string | number | null>) => {
+    if (Object.keys(patch).length === 0) return;
+    const pending = pendingProductUpdatesRef.current[assetId];
+    if (pending) clearTimeout(pending.timer);
+    const mergedPatch = { ...(pending?.patch || {}), ...patch };
+    const timer = setTimeout(async () => {
+      delete pendingProductUpdatesRef.current[assetId];
+      try {
+        await updateProductAsset(assetId, mergedPatch, { silent: true });
+      } catch (error) {
+        console.error('Failed to sync product layout data:', error);
+        toast.error('产品参数同步失败');
+      }
+    }, 450);
+    pendingProductUpdatesRef.current[assetId] = { timer, patch: mergedPatch };
+  }, [updateProductAsset]);
+
+  const flushPendingProductUpdates = useCallback(async () => {
+    const entries = Object.entries(pendingProductUpdatesRef.current);
+    pendingProductUpdatesRef.current = {};
+    await Promise.all(entries.map(async ([assetId, pending]) => {
+      clearTimeout(pending.timer);
+      await updateProductAsset(assetId, pending.patch, { silent: true });
+    }));
+  }, [updateProductAsset]);
+
+  const syncProductAssetsFromObjects = useCallback(async (sourceObjects: LayoutObject[]) => {
+    const linkedProducts = sourceObjects.filter(isProductLayoutObject).filter(object => object.productAssetId);
+    await Promise.all(linkedProducts.map(async object => {
+      const patch = {
+        product_name: object.name.trim() || '未命名产品',
+        length_mm: object.productLength ?? productDimensions.length,
+        width_mm: object.productWidth ?? productDimensions.width,
+        height_mm: object.productHeight ?? productDimensions.height,
+        pos_x: object.posX ?? 0,
+        pos_y: object.posY ?? 0,
+        pos_z: object.posZ ?? 0,
+      };
+      await updateProductAsset(object.productAssetId!, patch, { silent: true });
+    }));
+  }, [productDimensions.height, productDimensions.length, productDimensions.width, updateProductAsset]);
+
   // ========== Object CRUD ==========
   const updateObject = useCallback((id: string, updates: Partial<LayoutObject>) => {
     setObjects(prev => prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj));
-  }, []);
+    const currentObject = objects.find(object => object.id === id);
+    if (currentObject?.type === 'product' && currentObject.productAssetId) {
+      queueProductAssetUpdate(currentObject.productAssetId, toProductAssetPatch(currentObject, updates));
+    }
+  }, [objects, queueProductAssetUpdate]);
 
   const updateObjectWithFollowers = useCallback((id: string, updates: Partial<LayoutObject>) => {
+    const currentObject = objects.find(object => object.id === id);
+    if (currentObject?.type === 'product' && currentObject.productAssetId) {
+      queueProductAssetUpdate(currentObject.productAssetId, toProductAssetPatch(currentObject, updates));
+    }
+    if (currentObject?.type === 'mechanism') {
+      const deltaX = (updates.posX ?? currentObject.posX ?? 0) - (currentObject.posX ?? 0);
+      const deltaY = (updates.posY ?? currentObject.posY ?? 0) - (currentObject.posY ?? 0);
+      const deltaZ = (updates.posZ ?? currentObject.posZ ?? 0) - (currentObject.posZ ?? 0);
+      objects
+        .filter(object => object.type === 'product' && object.productAssetId && object.mountedToMechanismId === id)
+        .forEach(product => queueProductAssetUpdate(product.productAssetId!, toProductAssetPatch(product, {
+          posX: (product.posX ?? 0) + deltaX,
+          posY: (product.posY ?? 0) + deltaY,
+          posZ: (product.posZ ?? 0) + deltaZ,
+        })));
+    }
     setObjects(prev => {
       const targetObj = prev.find(o => o.id === id);
       if (!targetObj) return prev;
@@ -394,9 +494,18 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       }
       return prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj);
     });
-  }, [project3DTo2D, currentView]);
+  }, [currentView, objects, project3DTo2D, queueProductAssetUpdate]);
 
-  const deleteObject = useCallback((id: string) => {
+  const deleteObject = useCallback(async (id: string) => {
+    const target = objects.find(object => object.id === id);
+    if (target?.type === 'product' && target.productAssetId) {
+      await flushPendingProductUpdates();
+      await deleteProductAsset(target.productAssetId);
+      selectProductAsset(null);
+      setSelectedIds([]);
+      setShowPropertyPanel(false);
+      return;
+    }
     setObjects(prev => prev.filter(o => o.id !== id));
     setSelectedIds(prev => {
       const newIds = prev.filter(i => i !== id);
@@ -404,9 +513,14 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       return newIds;
     });
     setHiddenIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-  }, []);
+  }, [deleteProductAsset, flushPendingProductUpdates, objects, selectProductAsset]);
 
   const duplicateObject = useCallback((id: string) => {
+    const selectedObject = objects.find(object => object.id === id);
+    if (selectedObject?.type === 'product' && selectedObject.productAssetId) {
+      toast.info('请使用“添加产品”创建独立产品，系统会自动建立数据关联');
+      return;
+    }
     setObjects(prev => {
       const obj = prev.find(o => o.id === id);
       if (!obj) return prev;
@@ -426,10 +540,68 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       setSelectedIds([newObj.id]);
       return [...prev, newObj];
     });
-  }, []);
+  }, [objects]);
+
+  const reconcileProductObjects = useCallback((baseObjects: LayoutObject[], assets: WorkstationProductAsset[]) => {
+    if (assets.length === 0) return baseObjects.filter(object => object.type !== 'product');
+    const layoutProducts = baseObjects.filter(isProductLayoutObject);
+    const unusedLegacyProducts = layoutProducts.filter(object => !object.productAssetId);
+    const linkedProducts = assets.map((asset, index) => {
+      const existing = layoutProducts.find(object => object.productAssetId === asset.id) || unusedLegacyProducts[index];
+      const fallbackY = index === 0
+        ? 0
+        : (index % 2 === 0 ? 1 : -1) * Math.ceil(index / 2) * (productDimensions.width + 100);
+      const posX = asset.pos_x ?? existing?.posX ?? 0;
+      const posY = asset.pos_y ?? existing?.posY ?? fallbackY;
+      const posZ = asset.pos_z ?? existing?.posZ ?? 0;
+      const canvasPosition = project3DTo2D(posX, posY, posZ, currentView);
+      const length = asset.length_mm ?? existing?.productLength ?? productDimensions.length;
+      const width = asset.width_mm ?? existing?.productWidth ?? productDimensions.width;
+      const height = asset.height_mm ?? existing?.productHeight ?? productDimensions.height;
+      return {
+        ...(existing || {}),
+        id: `product-${asset.id}`,
+        type: 'product' as const,
+        productAssetId: asset.id,
+        productIsPrimary: asset.is_primary,
+        name: asset.product_name || existing?.name || `产品 ${index + 1}`,
+        posX,
+        posY,
+        posZ,
+        x: canvasPosition.x,
+        y: canvasPosition.y,
+        width: length,
+        height,
+        rotation: existing?.rotation ?? 0,
+        locked: existing?.locked ?? false,
+        productLength: length,
+        productWidth: width,
+        productHeight: height,
+        model3dUrl: asset.model_file_url || existing?.model3dUrl,
+      } satisfies LayoutObject;
+    });
+    return [...baseObjects.filter(object => object.type !== 'product'), ...linkedProducts];
+  }, [currentView, productDimensions.height, productDimensions.length, productDimensions.width, project3DTo2D]);
+
+  const layoutHydrationRef = useRef({
+    currentView,
+    productAssets,
+    productDimensions,
+    project3DTo2D,
+    reconcileProductObjects,
+  });
+  layoutHydrationRef.current = {
+    currentView,
+    productAssets,
+    productDimensions,
+    project3DTo2D,
+    reconcileProductObjects,
+  };
 
   // ========== Effects ==========
   useEffect(() => {
+    if (productsLoading) return;
+    const hydration = layoutHydrationRef.current;
     if (layout?.layout_objects) {
       try {
         const loadedObjects = typeof layout.layout_objects === 'string'
@@ -440,29 +612,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             posX: obj.posX ?? 0, posY: obj.posY ?? 0,
             posZ: obj.posZ ?? (obj.type === 'camera' ? 300 : 0),
           }));
-          const hasProduct = migratedObjects.some((o: any) => o.type === 'product');
-          if (!hasProduct) {
-            const productCanvasPos = project3DTo2D(0, 0, 0, currentView);
-            migratedObjects.push({
-              id: 'product-main', type: 'product', name: '产品',
-              posX: 0, posY: 0, posZ: 0,
-              x: productCanvasPos.x, y: productCanvasPos.y,
-              width: productDimensions.length, height: productDimensions.height,
-              rotation: 0, locked: false,
-            });
-          }
-          setObjects(migratedObjects);
+          setObjects(hydration.reconcileProductObjects(migratedObjects, hydration.productAssets));
         }
       } catch (e) { console.error('Failed to parse layout objects:', e); }
     } else {
-      const productCanvasPos = project3DTo2D(0, 0, 0, currentView);
-      setObjects([{
-        id: 'product-main', type: 'product', name: '产品',
-        posX: 0, posY: 0, posZ: 0,
-        x: productCanvasPos.x, y: productCanvasPos.y,
-        width: productDimensions.length, height: productDimensions.height,
-        rotation: 0, locked: false,
-      }]);
+      setObjects(hydration.reconcileProductObjects([], hydration.productAssets));
     }
     if (layout?.grid_enabled !== undefined) setGridEnabled(layout.grid_enabled);
     if (layout?.snap_enabled !== undefined) setSnapEnabled(layout.snap_enabled);
@@ -473,7 +627,16 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       top: layout?.top_view_saved || false,
       isometric: !!(layout as any).isometric_view_saved,
     });
-  }, [layout]);
+  }, [layout, productsLoading]);
+
+  useEffect(() => {
+    if (productsLoading) return;
+    if (productAssets.length === 0) {
+      setObjects(current => current.filter(object => object.type !== 'product'));
+      return;
+    }
+    setObjects(current => reconcileProductObjects(current, productAssets));
+  }, [productAssets, productsLoading, reconcileProductObjects]);
 
   useEffect(() => {
     setObjects(prev => {
@@ -590,11 +753,14 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     }
     setSelectedIds([obj.id]);
     setShowPropertyPanel(true);
+    if (obj.type === 'product' && obj.productAssetId) {
+      selectProductAsset(obj.productAssetId);
+    }
     // Record mouse down position; don't start dragging yet
     const pos = screenToSvg(e.clientX, e.clientY);
     mouseDownPos.current = { x: e.clientX, y: e.clientY, objId: obj.id };
     setDragOffset({ x: pos.x - obj.x, y: pos.y - obj.y });
-  }, [panMode, isIsometric, selectedId, screenToSvg]);
+  }, [panMode, isIsometric, screenToSvg, selectedId, workstationId]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning && panMode) {
@@ -701,6 +867,13 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
       // Product -> mechanism snapping
       if (currentObj?.type === 'product') {
+        if (currentObj.productAssetId) {
+          queueProductAssetUpdate(currentObj.productAssetId, toProductAssetPatch(currentObj, {
+            posX: currentObj.posX,
+            posY: currentObj.posY,
+            posZ: currentObj.posZ,
+          }));
+        }
         const nearestProductMount = findNearestProductMountPoint(currentObj.x, currentObj.y, objects, currentView as StandardViewType, 80);
         if (nearestProductMount) {
           const mountPos = getProductMountPointWorldPosition(nearestProductMount.mechanism, nearestProductMount.mountPoint.id, currentView as StandardViewType);
@@ -721,15 +894,10 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             mountOffsetX: 0,
             mountOffsetY: 0,
             mountOffsetZ: surfaceZ,
-            posZ: correctPosZ,
-            ...(mountPos ? { x: mountPos.x, y: mountPos.y } : {}),
-          });
-
-          // Sync 3D product position
-          setLocalProductPosition({
             posX: mechPosX,
             posY: mechPosY,
             posZ: correctPosZ,
+            ...(mountPos ? { x: mountPos.x, y: mountPos.y } : {}),
           });
 
           toast.success(`产品已吸附到 ${mech.name}`);
@@ -741,6 +909,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           });
           if (mechObj) toast.info(`产品已从 ${mechObj.name} 解除吸附`);
         }
+
       }
     }
     // Push history after drag completes
@@ -847,36 +1016,49 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     toast.success(`已添加 ${newMech.name}`);
   }, [objects, project3DTo2D, currentView, productDimensions.width]);
 
-  const addProduct = useCallback(() => {
-    const productCount = objects.filter(o => o.type === 'product').length;
-    // Space additional products next to existing ones along Y so they don't overlap.
-    const defaultPosX = 0;
+  const addProduct = useCallback(async () => {
+    if (isCreatingProduct) return;
+    setIsCreatingProduct(true);
+    const productCount = productAssets.length;
     const defaultPosY = productCount === 0
       ? 0
       : (productCount % 2 === 0 ? 1 : -1) * Math.ceil(productCount / 2) * (productDimensions.width + 100);
-    const defaultPosZ = 0;
-    const canvasPos = project3DTo2D(defaultPosX, defaultPosY, defaultPosZ, currentView);
-    const newProduct: LayoutObject = {
-      id: `product-${Date.now()}`,
-      type: 'product',
-      name: `产品${productCount + 1}`,
-      posX: defaultPosX, posY: defaultPosY, posZ: defaultPosZ,
-      x: canvasPos.x, y: canvasPos.y,
-      width: productDimensions.length, height: productDimensions.height,
-      rotation: 0, locked: false,
-      productLength: productDimensions.length,
-      productWidth: productDimensions.width,
-      productHeight: productDimensions.height,
-    };
-    setObjects(prev => [...prev, newProduct]);
-    setSelectedIds([newProduct.id]);
-    setShowPropertyPanel(true);
-    toast.success(`已添加 ${newProduct.name}`);
-  }, [objects, project3DTo2D, currentView, productDimensions]);
+    try {
+      const nextOrder = productAssets.length
+        ? Math.max(...productAssets.map(product => product.sort_order ?? 0)) + 1
+        : 0;
+      const data = await addProductAsset({
+          workstation_id: workstationId,
+          scope_type: 'workstation',
+          source_type: 'image',
+          product_name: `产品 ${productCount + 1}`,
+          sort_order: nextOrder,
+          is_primary: productCount === 0,
+          length_mm: productDimensions.length,
+          width_mm: productDimensions.width,
+          height_mm: productDimensions.height,
+          pos_x: 0,
+          pos_y: defaultPosY,
+          pos_z: 0,
+        });
+      const objectId = `product-${data.id}`;
+      setSelectedIds([objectId]);
+      setShowPropertyPanel(true);
+      selectProductAsset(data.id);
+      toast.success(`${data.product_name} 已添加并同步到产品表单`);
+    } catch (error) {
+      console.error(error);
+      toast.error('添加产品失败');
+    } finally {
+      setIsCreatingProduct(false);
+    }
+  }, [addProductAsset, isCreatingProduct, productAssets, productDimensions.height, productDimensions.length, productDimensions.width, selectProductAsset, workstationId]);
 
   // ========== Stage (save data only, no screenshots) ==========
   const handleStageLayout = useCallback(async () => {
     try {
+      await flushPendingProductUpdates();
+      await syncProductAssetsFromObjects(objects);
       const updates = { layout_objects: objects, grid_enabled: gridEnabled, snap_enabled: snapEnabled, show_distances: showDistances };
       let layoutId = layout?.id;
       if (layoutId) { await updateLayout(layoutId, updates as any); }
@@ -884,13 +1066,12 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         const newLayout = await addLayout({ workstation_id: workstationId, name: workstation?.name || 'Layout', ...updates } as any);
         layoutId = (newLayout as any)?.id;
       }
-      await updateWorkstation(workstationId, { product_position: localProductPosition as any }, { silent: true });
       toast.success('布局数据已暂存（未截图）');
     } catch (err) {
       toast.error('暂存失败');
       console.error(err);
     }
-  }, [objects, gridEnabled, snapEnabled, showDistances, layout, workstationId, workstation, localProductPosition, updateLayout, addLayout, updateWorkstation]);
+  }, [objects, gridEnabled, snapEnabled, showDistances, layout, workstationId, workstation, updateLayout, addLayout, syncProductAssetsFromObjects, flushPendingProductUpdates]);
 
   // ========== Save ==========
   const handleSaveAll = async () => {
@@ -900,6 +1081,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     const originalView = currentView;
     let isometricSkipReason: 'model-failed' | 'model-timeout' | 'invalid-image' | null = null;
     try {
+      await flushPendingProductUpdates();
+      await syncProductAssetsFromObjects(objects);
       const updates = { layout_objects: objects, grid_enabled: gridEnabled, snap_enabled: snapEnabled, show_distances: showDistances };
       let layoutId = layout?.id;
       if (layoutId) { await updateLayout(layoutId, updates as any); }
@@ -1016,9 +1199,6 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           ...(didSaveIsometric ? { isometric: true } : {}),
         }));
       }
-      // Persist product position
-      await updateWorkstation(workstationId, { product_position: localProductPosition as any }, { silent: true });
-
       setSaveProgress(100);
       if (isometricSkipReason === 'model-failed' || isometricSkipReason === 'model-timeout') {
         toast.warning('布局视图已保存，等轴测图 3D 模型未加载完成，已跳过，请稍后重试');
@@ -1042,8 +1222,33 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   };
 
   const resetLayout = () => {
-    if (!confirm('确定要重置布局吗？所有对象将被清除')) return;
-    setObjects([]);
+    if (!confirm('确定要重置布局吗？相机和机构将被清除，已关联产品会保留并恢复默认排布。')) return;
+    const resetProducts = objects
+      .filter(object => object.type === 'product')
+      .map((product, index) => {
+        const posY = index === 0
+          ? 0
+          : (index % 2 === 0 ? 1 : -1) * Math.ceil(index / 2) * (productDimensions.width + 100);
+        const canvasPosition = project3DTo2D(0, posY, 0, currentView);
+        return {
+          ...product,
+          posX: 0,
+          posY,
+          posZ: 0,
+          x: canvasPosition.x,
+          y: canvasPosition.y,
+          mountedToMechanismId: undefined,
+          mountPointId: undefined,
+          mountOffsetX: undefined,
+          mountOffsetY: undefined,
+          mountOffsetZ: undefined,
+        };
+      });
+    setObjects(resetProducts);
+    syncProductAssetsFromObjects(resetProducts).catch(error => {
+      console.error('Failed to sync reset product positions:', error);
+      toast.error('产品默认位置同步失败');
+    });
     setSelectedIds([]);
     setShowPropertyPanel(false);
     setHiddenIds(new Set());
@@ -1104,6 +1309,10 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const deselectAllObjects = useCallback(() => { setSelectedIds([]); setShowPropertyPanel(false); }, []);
 
   const handleSelectObject = useCallback((id: string, multiSelect?: boolean) => {
+    const target = objects.find(object => object.id === id);
+    if (target?.type === 'product' && target.productAssetId) {
+      selectProductAsset(target.productAssetId);
+    }
     if (multiSelect) {
       setSelectedIds(prev => {
         if (prev.includes(id)) { const newIds = prev.filter(i => i !== id); if (newIds.length === 0) setShowPropertyPanel(false); return newIds; }
@@ -1113,7 +1322,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       setSelectedIds([id]);
       setShowPropertyPanel(true);
     }
-  }, []);
+  }, [objects, workstationId]);
 
   const fitToScreen = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
@@ -1163,6 +1372,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         settingsCollapsed={settingsCollapsed} setSettingsCollapsed={setSettingsCollapsed}
         addCamera={addCamera} addMechanism={addMechanism}
         addProduct={addProduct}
+        productCount={productAssets.length}
+        productsLoading={productsLoading}
+        isCreatingProduct={isCreatingProduct}
         autoArrangeObjects={autoArrangeObjects} resetLayout={resetLayout}
         gridSize={gridSize} setGridSize={setGridSize}
         gridEnabled={gridEnabled} setGridEnabled={setGridEnabled}
@@ -1187,21 +1399,19 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         {isIsometric ? (
           <Layout3DPreview
             objects={objects}
-            productDimensions={productDimensions}
             onUpdateObject={updateObjectWithFollowers}
             selectedObjectId={selectedId}
             onSelectObject={(id) => {
               setSelectedIds(id ? [id] : []);
               setShowPropertyPanel(!!id);
-            }}
-            onUpdateProductDimensions={(dims) => {
-              updateWorkstation(workstationId, { product_dimensions: dims as any }, { silent: true });
+              const selectedProduct = id ? objects.find(object => object.id === id) : undefined;
+              if (selectedProduct?.type === 'product' && selectedProduct.productAssetId) {
+                selectProductAsset(selectedProduct.productAssetId);
+              }
             }}
             onScreenshotReady={(fn) => { isometricScreenshotFnRef.current = fn; }}
             onFitAllReady={(fn) => { fitAllFnRef.current = fn; }}
             onIsometricSceneStatusChange={(status) => { isometricSceneStatusRef.current = status; }}
-            productPosition={localProductPosition}
-            onUpdateProductPosition={setLocalProductPosition}
             onStageLayout={handleStageLayout}
           />
         ) : (
@@ -1365,11 +1575,6 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             currentView={currentView as StandardViewType} allObjects={objects}
             isIsometric={isIsometric}
             productDimensions={productDimensions}
-            onUpdateProductDimensions={(dims) => {
-              updateWorkstation(workstationId, { product_dimensions: dims as any }, { silent: true });
-            }}
-            productPosition={localProductPosition}
-            onUpdateProductPosition={setLocalProductPosition}
           />
         )}
 
@@ -1409,4 +1614,3 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     </div>
   );
 }
-

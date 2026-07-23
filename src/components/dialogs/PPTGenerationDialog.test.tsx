@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveScopedGenerationData,
   deriveScopedMedia,
+  getAssetsMissingProductMedia,
   getScopeSelectionPrompt,
   hasRequiredScopeSelection,
 } from './pptGenerationScope';
@@ -148,5 +149,21 @@ describe('PPTGenerationDialog scope derivation', () => {
 
     expect(media.productAssets.map(item => item.id)).toEqual(['asset-mod-2', 'asset-mod-3']);
     expect(media.annotations.map(item => item.id)).toEqual(['annotation-mod-2', 'annotation-mod-3']);
+  });
+
+  it('does not admit an annotation from another product in the same workstation', () => {
+    const assets = [
+      { id: 'product-1', scope_type: 'workstation', workstation_id: 'ws-1', preview_images: ['p1.png'] },
+      { id: 'product-2', scope_type: 'workstation', workstation_id: 'ws-1', preview_images: [] },
+    ];
+    const annotations = [
+      { id: 'annotation-1', asset_id: 'product-1', scope_type: 'workstation', workstation_id: 'ws-1', snapshot_url: 'p1-annotation.png' },
+      { id: 'annotation-outside', asset_id: 'outside-product', scope_type: 'workstation', workstation_id: 'ws-1', snapshot_url: 'outside.png' },
+    ];
+    const scoped = { workstations: [workstations[0]], modules: [] };
+    const media = deriveScopedMedia({ scope: 'workstations', scoped, productAssets: assets, annotations });
+
+    expect(media.annotations.map(item => item.id)).toEqual(['annotation-1']);
+    expect(getAssetsMissingProductMedia(media.productAssets, media.annotations).map(item => item.id)).toEqual(['product-2']);
   });
 });

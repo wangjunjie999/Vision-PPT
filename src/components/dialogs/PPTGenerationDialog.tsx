@@ -61,10 +61,16 @@ import { buildModuleVisionChecklistTemplateFields } from '@/utils/moduleVisionCh
 import {
   deriveScopedGenerationData,
   deriveScopedMedia,
+  getAssetsMissingProductMedia,
   getScopeSelectionPrompt,
   hasRequiredScopeSelection,
   type GenerationScope,
 } from './pptGenerationScope';
+import {
+  buildProductMediaItems,
+  normalizeProductPreviewImages,
+} from '@/utils/productAssetMedia';
+import type { ProductMediaRow } from '@/services/productMediaService';
 
 type OutputLanguage = 'zh' | 'en';
 type ImageQuality = 'standard' | 'high' | 'ultra';
@@ -107,6 +113,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   // State for annotations and product assets
   const [annotations, setAnnotations] = useState<any[]>([]);
   const [productAssets, setProductAssets] = useState<any[]>([]);
+  const [productMedia, setProductMedia] = useState<ProductMediaRow[]>([]);
 
   const [stage, setStage] = useState<'config' | 'generating' | 'complete' | 'error'>('config');
   const [mode, setMode] = useState<GenerationMode>('final');
@@ -217,9 +224,11 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     scoped: scopedSelection,
     productAssets,
     annotations,
-  }), [scope, scopedSelection, productAssets, annotations]);
+    productMedia,
+  }), [scope, scopedSelection, productAssets, annotations, productMedia]);
   const scopedProductAssets = scopedMedia.productAssets;
   const scopedAnnotations = scopedMedia.annotations;
+  const scopedProductMedia = scopedMedia.productMedia;
 
   // Check generation readiness using pptReadiness service
   const readinessResult = useMemo(() => {
@@ -237,6 +246,27 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   }, [projects, allWorkstations, allLayouts, allModules, selectedProjectId, mode, scope, selectedWorkstations, selectedModules]);
 
   const { draftReady, finalReady, missing, warnings } = readinessResult;
+  const mediaWarnings = useMemo(() => {
+    return getAssetsMissingProductMedia(scopedProductAssets, scopedAnnotations, scopedProductMedia).map(asset => {
+      const isModule = asset.scope_type === 'module';
+      const ownerName = isModule
+        ? scopedSelection.modules.find(module => module.id === asset.module_id)?.name
+        : scopedSelection.workstations.find(workstation => workstation.id === asset.workstation_id)?.name;
+      const siblingProducts = scopedProductAssets
+        .filter(item => isModule
+          ? item.scope_type === 'module' && item.module_id === asset.module_id
+          : item.scope_type !== 'module' && item.workstation_id === asset.workstation_id)
+        .sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || (left.sort_order ?? 0) - (right.sort_order ?? 0));
+      const productName = asset.product_name || asset.product_code || `产品 ${siblingProducts.findIndex(item => item.id === asset.id) + 1}`;
+      return {
+        level: isModule ? 'module' as const : 'workstation' as const,
+        id: asset.id,
+        name: ownerName ? `${ownerName} / ${productName}` : productName,
+        warning: `${productName}：未上传产品图片，本次将跳过该产品页`,
+      };
+    });
+  }, [scopedProductAssets, scopedAnnotations, scopedProductMedia, scopedSelection]);
+  const allWarnings = useMemo(() => [...warnings, ...mediaWarnings], [warnings, mediaWarnings]);
 
   // Handle jump to missing item
   const handleJumpToMissing = (item: typeof missing[0]) => {
@@ -329,12 +359,17 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           gwm(w.id).forEach(m => modIds.push(m.id));
         });
         
-        if (wsIds.length === 0) return;
+        if (wsIds.length === 0) {
+          setProductAssets([]);
+          setProductMedia([]);
+          setAnnotations([]);
+          return;
+        }
         
         // Get product assets with all fields including new detection info
         const { data: assets } = await supabase
           .from('product_assets')
-          .select('id, workstation_id, module_id, scope_type, model_file_url, preview_images, detection_method, product_models, detection_requirements, product_name, product_code, product_spec, is_primary, sort_order, parent_product_id')
+          .select('id, workstation_id, module_id, scope_type, model_file_url, preview_images, detection_method, product_models, detection_requirements, product_name, product_code, product_spec, is_primary, sort_order, parent_product_id, length_mm, width_mm, height_mm, pos_x, pos_y, pos_z, document_images_per_page')
           .eq('user_id', user.id)
           .or(`workstation_id.in.(${wsIds.join(',')}),module_id.in.(${modIds.join(',')})`);
         
@@ -346,9 +381,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             module_id: asset.module_id,
             scope_type: asset.scope_type as 'workstation' | 'module',
             model_file_url: asset.model_file_url,
-            preview_images: Array.isArray(asset.preview_images) 
-              ? (asset.preview_images as string[]).map(url => ({ url, name: '' }))
-              : [],
+            preview_images: normalizeProductPreviewImages(asset.preview_images),
             detection_method: asset.detection_method,
             product_models: Array.isArray(asset.product_models) ? asset.product_models : [],
             detection_requirements: Array.isArray(asset.detection_requirements) ? asset.detection_requirements : [],
@@ -358,10 +391,31 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             is_primary: asset.is_primary ?? false,
             sort_order: asset.sort_order ?? 0,
             parent_product_id: asset.parent_product_id ?? null,
+            length_mm: asset.length_mm ?? null,
+            width_mm: asset.width_mm ?? null,
+            height_mm: asset.height_mm ?? null,
+            pos_x: asset.pos_x ?? null,
+            pos_y: asset.pos_y ?? null,
+            pos_z: asset.pos_z ?? null,
+            document_images_per_page: Number(asset.document_images_per_page) === 2 ? 2 : 1,
           }));
           setProductAssets(mappedAssets);
           
           const assetIds = assets.map(a => a.id);
+          const { data: mediaRows, error: mediaError } = await supabase
+            .from('product_media')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('asset_id', assetIds)
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: true });
+          if (mediaError) {
+            console.error('Failed to load product media:', mediaError);
+            setProductMedia([]);
+          } else {
+            setProductMedia(mediaRows || []);
+          }
+
           const { data: annotationsData } = await supabase
             .from('product_annotations')
             .select('*')
@@ -383,6 +437,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           }
         } else {
           setProductAssets([]);
+          setProductMedia([]);
           setAnnotations([]);
         }
       };
@@ -421,7 +476,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           schematic_image_url: m.schematic_image_url,
         })),
         scopedAnnotations.map(a => ({ snapshot_url: a.snapshot_url })),
-        scopedProductAssets.map(a => ({ preview_images: a.preview_images }))
+        scopedProductAssets
+          .filter(asset => !scopedProductMedia.some(media => media.asset_id === asset.id))
+          .map(a => ({ preview_images: a.preview_images })),
+        scopedProductMedia,
       );
 
       if (imagesToCheck.length === 0) {
@@ -507,15 +565,13 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
     // Product previews and annotation snapshots must follow the same scoped
     // selection as report generation.
-    scopedProductAssets.forEach(asset => {
-      (asset.preview_images || []).forEach((image, index) => {
-        if (!image.url) return;
-        itemsToCache.push({
-          type: 'product',
-          relatedId: `${asset.id}:${index}`,
-          url: image.url,
-          label: `产品图片 ${index + 1}`,
-        });
+    scopedProductMedia.forEach(media => {
+      if (!media.original_url) return;
+      itemsToCache.push({
+        type: 'product',
+        relatedId: media.id,
+        url: media.original_url,
+        label: media.file_name || '产品图片',
       });
     });
     scopedAnnotations.forEach(annotation => {
@@ -699,19 +755,37 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         module_id: a.module_id,
         scope_type: a.scope_type,
         model_file_url: a.model_file_url,
-        preview_images: a.preview_images,
+        preview_images: normalizeProductPreviewImages(a.preview_images),
         detection_method: a.detection_method,
         product_models: a.product_models,
         detection_requirements: a.detection_requirements,
+        product_name: a.product_name,
+        product_code: a.product_code,
+        product_spec: a.product_spec,
+        is_primary: a.is_primary,
+        sort_order: a.sort_order,
+        parent_product_id: a.parent_product_id,
+        length_mm: a.length_mm,
+        width_mm: a.width_mm,
+        height_mm: a.height_mm,
+        pos_x: a.pos_x,
+        pos_y: a.pos_y,
+        pos_z: a.pos_z,
+        document_images_per_page: Number(a.document_images_per_page) === 2 ? 2 : 1,
       }));
 
       // Prepare annotation inputs
       const annotationInputs: AnnotationInput[] = scopedAnnotations.map(a => ({
         id: a.id,
         asset_id: a.asset_id,
+        media_id: a.media_id ?? null,
         snapshot_url: a.snapshot_url,
         remark: a.remark,
         annotations_json: a.annotations_json,
+        is_ppt_default: a.is_ppt_default ?? false,
+        version: a.version ?? null,
+        created_at: a.created_at ?? null,
+        updated_at: a.updated_at ?? null,
         scope_type: a.scope_type,
         workstation_id: a.workstation_id,
         module_id: a.module_id,
@@ -725,6 +799,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         modules: modsToProcess as any[],
         hardware: hardwareLibrary,
         productAssets: productAssetInputs,
+        productMedia: scopedProductMedia,
         annotations: annotationInputs,
         language,
       });
@@ -815,12 +890,20 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           image_url: light.image_url,
         })),
         selected_controller: (() => {
-          const controller = safeController(l.selected_controller);
+          const controller = safeController(l.selected_controller) as any;
+          const libraryController = controller
+            ? controllers.find(item => item.id === controller.id)
+            : null;
           return controller ? {
             id: controller.id,
-            brand: controller.brand,
-            model: controller.model,
-            image_url: controller.image_url,
+            brand: libraryController?.brand || controller.brand,
+            model: libraryController?.model || controller.model,
+            image_url: libraryController?.image_url || controller.image_url,
+            cpu: libraryController?.cpu || controller.cpu || null,
+            // Hardware library is authoritative: clearing GPU there must clear the PPT note.
+            gpu: libraryController ? (libraryController.gpu || null) : (controller.gpu || null),
+            memory: libraryController?.memory || controller.memory || null,
+            storage: libraryController?.storage || controller.storage || null,
           } : null;
         })(),
         front_view_image_url: l.front_view_image_url,
@@ -891,16 +974,35 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         workstation_id: a.workstation_id,
         module_id: a.module_id,
         scope_type: a.scope_type as 'workstation' | 'module',
-        preview_images: a.preview_images || [],
+        preview_images: normalizeProductPreviewImages(a.preview_images),
         model_file_url: a.model_file_url,
+        product_name: a.product_name ?? null,
+        product_code: a.product_code ?? null,
+        product_spec: a.product_spec ?? null,
+        is_primary: a.is_primary ?? false,
+        sort_order: a.sort_order ?? 0,
+        parent_product_id: a.parent_product_id ?? null,
+        length_mm: a.length_mm ?? null,
+        width_mm: a.width_mm ?? null,
+        height_mm: a.height_mm ?? null,
+        pos_x: a.pos_x ?? null,
+        pos_y: a.pos_y ?? null,
+        pos_z: a.pos_z ?? null,
+        document_images_per_page: Number(a.document_images_per_page) === 2 ? 2 : 1,
       }));
+      const productMediaData = scopedProductMedia.map(media => ({ ...media }));
 
       const annotationData = scopedAnnotations.map(a => ({
         id: a.id,
         asset_id: a.asset_id,
+        media_id: a.media_id ?? null,
         snapshot_url: a.snapshot_url,
         remark: a.remark,
         annotations_json: a.annotations_json,
+        is_ppt_default: a.is_ppt_default ?? false,
+        version: a.version ?? null,
+        created_at: a.created_at ?? null,
+        updated_at: a.updated_at ?? null,
       }));
 
       // Word文档生成（快速）
@@ -947,13 +1049,14 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             if (log) addLog('info', log);
           },
           productAssetData,
-          annotationData
+          annotationData,
+          productMediaData,
         );
 
         generatedBlobRef.current = blob;
 
         // Count images included
-        const imageCount = productAssetData.reduce((acc, a) => acc + (a.preview_images?.length || 0), 0) + annotationData.length;
+        const imageCount = productMediaData.length;
 
         setGenerationResult({
           pageCount: 1,
@@ -1041,7 +1144,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
               model: c.model || fullCtrl?.model || '',
               image_url: c.image_url || fullCtrl?.image_url || null,
               cpu: c.cpu || fullCtrl?.cpu || '',
-              gpu: c.gpu || fullCtrl?.gpu || null,
+              gpu: fullCtrl ? (fullCtrl.gpu || null) : (c.gpu || null),
               memory: c.memory || fullCtrl?.memory || '',
               storage: c.storage || fullCtrl?.storage || '',
             };
@@ -1082,13 +1185,14 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             if (log) addLog('info', log);
           },
           productAssetData,
-          annotationData
+          annotationData,
+          productMediaData,
         );
 
         generatedBlobRef.current = blob;
 
         // Count images included
-        const imageCount = productAssetData.reduce((acc, a) => acc + (a.preview_images?.length || 0), 0) + annotationData.length;
+        const imageCount = productMediaData.length;
         const pdfPageCount = Math.ceil((wsToProcess.length + 3) * 1.5);
 
         setGenerationResult({
@@ -1139,45 +1243,80 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         setProgress(10);
         setCurrentStep('准备模板生成数据');
 
+        const toTemplateAnnotation = (annotation: typeof scopedAnnotations[number]) => ({
+          id: annotation.id,
+          asset_id: annotation.asset_id,
+          media_id: annotation.media_id ?? null,
+          snapshot_url: annotation.snapshot_url,
+          annotations_json: Array.isArray(annotation.annotations_json) ? annotation.annotations_json : [],
+          remark: annotation.remark,
+          is_ppt_default: annotation.is_ppt_default ?? false,
+          version: annotation.version ?? null,
+          created_at: annotation.created_at ?? null,
+          updated_at: annotation.updated_at ?? null,
+        });
+
         const modulesForTemplate = moduleData.map(mod => {
           const moduleProductAsset = productAssetData.find(
             asset => asset.scope_type === 'module' && asset.module_id === mod.id,
           ) || null;
-          const moduleAnnotation = scopedAnnotations.find(
-            annotation => annotation.scope_type === 'module' && annotation.module_id === mod.id,
-          ) || null;
+          const moduleMediaItems = moduleProductAsset
+            ? buildProductMediaItems(moduleProductAsset.id, productMediaData, scopedAnnotations, moduleProductAsset.preview_images)
+            : [];
+          const moduleAnnotations = moduleMediaItems
+            .map(item => item.annotation)
+            .filter((item): item is typeof scopedAnnotations[number] => Boolean(item));
 
           return {
             ...mod,
-            product_asset: moduleProductAsset,
-            product_annotation: moduleAnnotation ? {
-              snapshot_url: moduleAnnotation.snapshot_url,
-              annotations_json: Array.isArray(moduleAnnotation.annotations_json) ? moduleAnnotation.annotations_json : [],
-              remark: moduleAnnotation.remark,
+            product_asset: moduleProductAsset ? {
+              ...moduleProductAsset,
+              product_media: moduleMediaItems.map(item => ({
+                ...item.media,
+                product_annotation: item.annotation ? toTemplateAnnotation(item.annotation) : null,
+              })),
+              product_annotations: moduleAnnotations.map(toTemplateAnnotation),
             } : null,
+            product_annotation: moduleAnnotations[0] ? toTemplateAnnotation(moduleAnnotations[0]) : null,
+            product_annotations: moduleAnnotations.map(toTemplateAnnotation),
           };
         });
 
         const workstationsForTemplate = workstationData.map(ws => {
           const wsModules = modulesForTemplate.filter(m => m.workstation_id === ws.id);
           const wsLayout = layoutData.find(l => l.workstation_id === ws.id) || null;
-          const wsProductAsset = productAssetData.find(
-            asset => asset.scope_type === 'workstation' && asset.workstation_id === ws.id,
-          ) || null;
-          const wsAnnotation = scopedAnnotations.find(
-            annotation => annotation.scope_type === 'workstation' && annotation.workstation_id === ws.id,
-          ) || null;
+          const wsProductAssets = productAssetData
+            .filter(asset => asset.scope_type === 'workstation' && asset.workstation_id === ws.id)
+            .sort((a, b) =>
+              Number(b.is_primary ?? false) - Number(a.is_primary ?? false)
+              || (a.sort_order ?? 0) - (b.sort_order ?? 0)
+            )
+            .map(asset => {
+              const assetMediaItems = buildProductMediaItems(asset.id, productMediaData, scopedAnnotations, asset.preview_images);
+              const assetAnnotations = assetMediaItems
+                .map(item => item.annotation)
+                .filter((item): item is typeof scopedAnnotations[number] => Boolean(item));
+              return {
+                ...asset,
+                product_media: assetMediaItems.map(item => ({
+                  ...item.media,
+                  product_annotation: item.annotation ? toTemplateAnnotation(item.annotation) : null,
+                })),
+                product_annotation: assetAnnotations[0] ? toTemplateAnnotation(assetAnnotations[0]) : null,
+                product_annotations: assetAnnotations.map(toTemplateAnnotation),
+              };
+            });
+          const wsProductAsset = wsProductAssets[0] || null;
+          const wsAnnotation = wsProductAsset?.product_annotation || null;
 
           return {
             ...ws,
             modules: wsModules,
             layout: wsLayout,
             product_asset: wsProductAsset,
-            product_annotation: wsAnnotation ? {
-              snapshot_url: wsAnnotation.snapshot_url,
-              annotations_json: Array.isArray(wsAnnotation.annotations_json) ? wsAnnotation.annotations_json : [],
-              remark: wsAnnotation.remark,
-            } : null,
+            product_assets: wsProductAssets,
+            product_annotation: wsAnnotation,
+            product_annotations: wsProductAssets.flatMap(asset => asset.product_annotations),
           };
         });
 
@@ -1277,7 +1416,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           hardwareData,
           readinessResult,
           scopedAnnotations,
-          scopedProductAssets
+          scopedProductAssets,
+          scopedProductMedia,
         );
 
         generatedBlobRef.current = blob;
@@ -1291,9 +1431,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             }, 0)
           : 0;
         const moduleOnlyPageCount = moduleData.length + lightingPhotoPageCount;
-        const pptPageCount = scope === 'modules'
+        const estimatedPageCount = scope === 'modules'
           ? moduleOnlyPageCount
           : 2 + wsToProcess.length + modsToProcess.length + 2 + lightingPhotoPageCount;
+        const pptPageCount = blob.slideCount || estimatedPageCount;
         // Set result
         setGenerationResult({
           pageCount: pptPageCount,
@@ -1588,7 +1729,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             )}
 
             {/* Delivery Check Panel */}
-            {(missing.length > 0 || warnings.length > 0) && (
+            {(missing.length > 0 || allWarnings.length > 0) && (
               <Collapsible open={checkPanelOpen} onOpenChange={setCheckPanelOpen}>
                 <CollapsibleTrigger asChild>
                   <Button variant="outline" className="w-full justify-between">
@@ -1598,7 +1739,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         mode === 'final' && !finalReady ? "text-destructive" : "text-warning"
                       )} />
                       <span className="text-sm font-medium">
-                        交付检查 ({missing.length} 项缺失 / {warnings.length} 项警告)
+                        交付检查 ({missing.length} 项缺失 / {allWarnings.length} 项警告)
                       </span>
                     </div>
                     {checkPanelOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1651,7 +1792,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   )}
 
                   {/* Warnings */}
-                  {warnings.length > 0 && (
+                  {allWarnings.length > 0 && (
                     <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
                       <div className="flex items-start gap-2 mb-2">
                         <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
@@ -1661,7 +1802,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                         </div>
                       </div>
                       <div className="space-y-2 mt-3">
-                        {warnings.map((item, idx) => (
+                        {allWarnings.map((item, idx) => (
                           <div key={idx} className="flex items-start gap-2 p-2 bg-background rounded border border-warning/20">
                             <Badge variant="outline" className="text-xs shrink-0">
                               {item.level === 'project' ? '项目' : item.level === 'workstation' ? '工位' : '模块'}

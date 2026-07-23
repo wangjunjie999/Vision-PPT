@@ -8,6 +8,7 @@ export const MIGRATABLE_TABLES = [
   'function_modules',
   'ppt_templates',
   'product_assets',
+  'product_media',
   'product_annotations',
   'asset_registry',
   'cameras',
@@ -153,6 +154,7 @@ export async function exportAllTables(): Promise<{
     'function_modules',
     'ppt_templates',
     'product_assets',
+    'product_media',
     'product_annotations',
     'asset_registry',
     'user_roles'
@@ -254,6 +256,7 @@ export function generateUserIdReplacementSQL(oldUserId: string, newUserId: strin
     'mechanical_layouts',
     'ppt_templates',
     'product_assets',
+    'product_media',
     'product_annotations',
     'asset_registry'
   ];

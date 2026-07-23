@@ -2,8 +2,99 @@ import { describe, expect, it } from 'vitest';
 import {
   buildModuleOpticalSlideTextContent,
   buildWorkstationTechnicalRequirementTables,
+  formatControllerGpuNote,
+  generateBOMSlide,
+  getBOMSlideCount,
   type WorkstationSlideData,
 } from './workstationSlides';
+
+describe('formatControllerGpuNote', () => {
+  it('keeps the BOM note blank when GPU is not filled in the hardware library', () => {
+    expect(formatControllerGpuNote({ gpu: null }, true)).toBe('');
+    expect(formatControllerGpuNote({ gpu: '' }, true)).toBe('');
+    expect(formatControllerGpuNote({ gpu: '   ' }, false)).toBe('');
+  });
+
+  it('shows the actual GPU information when it is filled', () => {
+    expect(formatControllerGpuNote({ gpu: ' RTX 3060 ' }, true)).toBe('GPU：RTX 3060');
+    expect(formatControllerGpuNote({ gpu: 'RTX 3060' }, false)).toBe('GPU: RTX 3060');
+  });
+});
+
+describe('BOM pagination', () => {
+  it.each([
+    [0, 1],
+    [1, 1],
+    [11, 2],
+    [21, 3],
+  ])('uses %i records to create %i consistently titled page(s)', (recordCount, expectedPages) => {
+    const lights = Array.from({ length: recordCount }, (_, index) => ({
+      brand: 'Brand',
+      model: `L-${index + 1}`,
+    }));
+    expect(getBOMSlideCount({
+      workstation_id: 'ws-1',
+      conveyor_type: null,
+      camera_count: 0,
+      camera_mounts: null,
+      mechanisms: null,
+      selected_lights: lights,
+    } as any)).toBe(expectedPages);
+  });
+
+  it('repeats the same header, keeps serial numbers continuous and uses total-page titles', () => {
+    const slides: Array<{
+      texts: string[];
+      tables: Array<Array<Array<{ text: string }>>>;
+    }> = [];
+    const pptx = {
+      addSlide: () => {
+        const record = { texts: [] as string[], tables: [] as Array<Array<Array<{ text: string }>>> };
+        slides.push(record);
+        return {
+          addText: (text: string) => record.texts.push(text),
+          addTable: (rows: Array<Array<{ text: string }>>) => record.tables.push(rows as any),
+          addShape: () => undefined,
+          addImage: () => undefined,
+        };
+      },
+    };
+
+    generateBOMSlide({
+      pptx,
+      isZh: true,
+      wsCode: 'WS-1',
+      wsName: '测试工位',
+      responsible: null,
+    } as any, {
+      layout: {
+        workstation_id: 'ws-1',
+        conveyor_type: null,
+        camera_count: 0,
+        camera_mounts: null,
+        mechanisms: null,
+        selected_lights: Array.from({ length: 21 }, (_, index) => ({
+          brand: 'Brand',
+          model: `L-${index + 1}`,
+        })),
+      },
+    } as any);
+
+    expect(slides.map(slide => slide.texts[1])).toEqual([
+      'BOM清单 (1/3)',
+      'BOM清单 (2/3)',
+      'BOM清单 (3/3)',
+    ]);
+    expect(slides.map(slide => slide.tables[0][0].map(cell => cell.text))).toEqual([
+      ['序号', '设备名称', '型号', '数量', '单价', '备注'],
+      ['序号', '设备名称', '型号', '数量', '单价', '备注'],
+      ['序号', '设备名称', '型号', '数量', '单价', '备注'],
+    ]);
+    expect(slides.flatMap(slide => slide.tables[0].slice(1).map(row => row[0].text))).toEqual(
+      Array.from({ length: 21 }, (_, index) => String(index + 1)),
+    );
+  });
+});
 
 const baseWorkstation = {
   id: 'ws-1',
@@ -75,6 +166,24 @@ describe('buildWorkstationTechnicalRequirementTables', () => {
       ['尺寸测量'],
       ['外观检测'],
     ]);
+  });
+
+  it('uses each linked product dimension instead of the workstation fallback', () => {
+    const tables = buildWorkstationTechnicalRequirementTables({
+      isZh: true,
+      wsCode: 'DB260101.803',
+      wsName: 'Station',
+      ws: baseWorkstation as any,
+      modules: [measurementModule] as any,
+      productAssets: [
+        { id: 'p1', product_name: 'Product A', length_mm: 120, width_mm: 80, height_mm: 12, preview_images: [] },
+        { id: 'p2', product_name: 'Product B', length_mm: 200, width_mm: 90, height_mm: 30, preview_images: [] },
+      ],
+    });
+
+    expect(tables.basicInfoRows[6][0]).toContain('2');
+    expect(tables.basicInfoRows[6][1]).toContain('Product A: 120 × 80 × 12 mm');
+    expect(tables.basicInfoRows[6][1]).toContain('Product B: 200 × 90 × 30 mm');
   });
 
   it('uses workstation remarks for the right-side note panel', () => {

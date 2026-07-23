@@ -4,6 +4,8 @@
  * and enable fallback strategies for local deployments
  */
 
+import { normalizeProductPreviewImages } from '@/utils/productAssetMedia';
+
 export interface ImageCheckResult {
   url: string;
   accessible: boolean;
@@ -160,8 +162,12 @@ export function collectWorkstationImageUrls(
     snapshot_url?: string;
   }>,
   productAssets?: Array<{
-    preview_images?: Array<{ url: string; name?: string }> | null;
-  }>
+    preview_images?: unknown;
+  }>,
+  productMedia?: Array<{
+    original_url?: string | null;
+    file_name?: string | null;
+  }>,
 ): Array<{ url: string; type: ImageCheckResult['type']; label: string }> {
   const images: Array<{ url: string; type: ImageCheckResult['type']; label: string }> = [];
 
@@ -215,12 +221,21 @@ export function collectWorkstationImageUrls(
 
   // Product assets
   productAssets?.forEach((asset, index) => {
-    asset.preview_images?.forEach((img, imgIndex) => {
+    normalizeProductPreviewImages(asset.preview_images).forEach((img, imgIndex) => {
       images.push({ 
         url: img.url, 
         type: 'product', 
         label: img.name || `产品图片 ${index + 1}-${imgIndex + 1}` 
       });
+    });
+  });
+
+  productMedia?.forEach((media, index) => {
+    if (!media.original_url) return;
+    images.push({
+      url: media.original_url,
+      type: 'product',
+      label: media.file_name || `产品图片 ${index + 1}`,
     });
   });
 

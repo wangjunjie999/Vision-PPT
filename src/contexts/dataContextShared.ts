@@ -5,16 +5,19 @@ type DbProject = Database['public']['Tables']['projects']['Row'];
 type DbWorkstation = Database['public']['Tables']['workstations']['Row'];
 type DbLayout = Database['public']['Tables']['mechanical_layouts']['Row'];
 type DbModule = Database['public']['Tables']['function_modules']['Row'];
+type DbProductAsset = Database['public']['Tables']['product_assets']['Row'];
 
 type ProjectInsert = Database['public']['Tables']['projects']['Insert'];
 type WorkstationInsert = Database['public']['Tables']['workstations']['Insert'];
 type LayoutInsert = Database['public']['Tables']['mechanical_layouts']['Insert'];
 type ModuleInsert = Database['public']['Tables']['function_modules']['Insert'];
+type ProductAssetInsert = Database['public']['Tables']['product_assets']['Insert'];
 
 type ProjectUpdate = Database['public']['Tables']['projects']['Update'];
 type WorkstationUpdate = Database['public']['Tables']['workstations']['Update'];
 type LayoutUpdate = Database['public']['Tables']['mechanical_layouts']['Update'];
 type ModuleUpdate = Database['public']['Tables']['function_modules']['Update'];
+type ProductAssetUpdate = Database['public']['Tables']['product_assets']['Update'];
 
 export interface MutationOptions {
   silent?: boolean;
@@ -25,6 +28,7 @@ export interface DataContextType {
   workstations: DbWorkstation[];
   layouts: DbLayout[];
   modules: DbModule[];
+  productAssets: DbProductAsset[];
   loading: boolean;
   selectedProjectId: string | null;
   selectedWorkstationId: string | null;
@@ -53,8 +57,15 @@ export interface DataContextType {
   duplicateModule: (id: string) => Promise<DbModule>;
   reorderModules: (workstationId: string, orderedIds: string[]) => Promise<void>;
   moveModule: (id: string, targetWorkstationId: string, orderedIds: string[]) => Promise<void>;
+  addProductAsset: (asset: Omit<ProductAssetInsert, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<DbProductAsset>;
+  updateProductAsset: (id: string, updates: ProductAssetUpdate, options?: MutationOptions) => Promise<DbProductAsset>;
+  deleteProductAsset: (id: string) => Promise<void>;
+  setPrimaryProductAsset: (workstationId: string, id: string) => Promise<void>;
+  reorderProductAssets: (workstationId: string, orderedIds: string[]) => Promise<void>;
   getProjectWorkstations: (projectId: string) => DbWorkstation[];
   getWorkstationModules: (workstationId: string) => DbModule[];
+  getWorkstationProductAssets: (workstationId: string) => DbProductAsset[];
+  getModuleProductAssets: (moduleId: string) => DbProductAsset[];
   refetch: () => Promise<void>;
 }
 

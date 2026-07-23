@@ -145,7 +145,17 @@ function formatJsonConfig(label: string, config: any): string {
 }
 
 function buildProjectContext(data: ReturnType<typeof useData>): string {
-  const { selectedProjectId, projects, workstations, modules, layouts, getProjectWorkstations, getWorkstationModules } = data;
+  const {
+    selectedProjectId,
+    projects,
+    workstations,
+    modules,
+    layouts,
+    productAssets,
+    getProjectWorkstations,
+    getWorkstationModules,
+    getWorkstationProductAssets,
+  } = data;
 
   const parts: string[] = [];
 
@@ -180,10 +190,25 @@ function buildProjectContext(data: ReturnType<typeof useData>): string {
       if (ws.enclosed) parts.push(`    封闭环境: 是`);
       if (ws.shot_count) parts.push(`    拍照次数: ${ws.shot_count}`);
       if (ws.status) parts.push(`    状态: ${ws.status}`);
-      const dims = ws.product_dimensions as any;
-      if (dims && (dims.length || dims.width || dims.height)) {
-        parts.push(`    产品尺寸: ${dims.length || '?'}×${dims.width || '?'}×${dims.height || '?'} mm`);
-      }
+      const defaultDims = ws.product_dimensions as any;
+      const workstationProducts = getWorkstationProductAssets(ws.id);
+      parts.push(`    产品数量: ${workstationProducts.length}`);
+      workstationProducts.forEach((product, productIndex) => {
+        const linkedModuleNames = productAssets
+          .filter(asset => asset.scope_type === 'module' && asset.parent_product_id === product.id)
+          .map(asset => modules.find(module => module.id === asset.module_id)?.name)
+          .filter((name): name is string => Boolean(name));
+        const length = product.length_mm ?? defaultDims?.length ?? 100;
+        const width = product.width_mm ?? defaultDims?.width ?? 100;
+        const height = product.height_mm ?? defaultDims?.height ?? 50;
+        parts.push(
+          `      产品${productIndex + 1}${product.is_primary ? '(主产品)' : ''}: ${product.product_name || '未命名'}`
+          + `, 编号=${product.product_code || '-'}, 规格=${product.product_spec || '-'}`
+          + `, 尺寸=${length}×${width}×${height} mm`
+          + `, XYZ=(${product.pos_x ?? 0}, ${product.pos_y ?? 0}, ${product.pos_z ?? 0}) mm`
+          + `, 关联模块=${linkedModuleNames.length ? linkedModuleNames.join('/') : '无'}`,
+        );
+      });
       const installSpace = ws.install_space as any;
       if (installSpace && (installSpace.length || installSpace.width || installSpace.height)) {
         parts.push(`    安装空间: ${installSpace.length || '?'}×${installSpace.width || '?'}×${installSpace.height || '?'} mm`);
@@ -303,7 +328,7 @@ export function AIChatPanel() {
   const dataCtx = useData();
   const { setPendingAIFill } = useAppStore();
   const projectContext = useMemo(() => buildProjectContext(dataCtx), [
-    dataCtx.selectedProjectId, dataCtx.projects, dataCtx.workstations, dataCtx.modules, dataCtx.layouts,
+    dataCtx.selectedProjectId, dataCtx.projects, dataCtx.workstations, dataCtx.modules, dataCtx.layouts, dataCtx.productAssets,
   ]);
 
   const scrollToBottom = useCallback(() => {
@@ -784,4 +809,3 @@ export function AIChatPanel() {
     </>
   );
 }
-

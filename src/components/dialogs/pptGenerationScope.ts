@@ -1,4 +1,10 @@
 import type { GenerationScope } from '@/types/generation';
+import {
+  buildProductMediaItems,
+  hasProductVisualMedia,
+  type ProductAnnotationMedia,
+  type ProductMediaRecord,
+} from '@/utils/productAssetMedia';
 
 export type { GenerationScope } from '@/types/generation';
 
@@ -28,6 +34,8 @@ type ScopedAnnotation = {
   workstation_id?: string | null;
   module_id?: string | null;
 };
+
+type ScopedProductMedia = ProductMediaRecord;
 
 export function deriveScopedGenerationData<
   TWorkstation extends ScopedWorkstation,
@@ -91,16 +99,19 @@ export function hasRequiredScopeSelection(
 export function deriveScopedMedia<
   TAsset extends ScopedAsset,
   TAnnotation extends ScopedAnnotation,
+  TMedia extends ScopedProductMedia,
 >({
   scope,
   scoped,
   productAssets,
   annotations,
+  productMedia = [],
 }: {
   scope: GenerationScope;
   scoped: { workstations: ScopedWorkstation[]; modules: ScopedModule[] };
   productAssets: TAsset[];
   annotations: TAnnotation[];
+  productMedia?: TMedia[];
 }) {
   const workstationIds = new Set(scoped.workstations.map(workstation => workstation.id));
   const moduleIds = new Set(scoped.modules.map(module => module.id));
@@ -116,7 +127,7 @@ export function deriveScopedMedia<
   });
   const assetIds = new Set(assets.map(asset => asset.id));
   const scopedAnnotations = annotations.filter(annotation => {
-    if (annotation.asset_id && assetIds.has(annotation.asset_id)) return true;
+    if (annotation.asset_id) return assetIds.has(annotation.asset_id);
     if (scope === 'modules') {
       return annotation.scope_type === 'module'
         && Boolean(annotation.module_id && moduleIds.has(annotation.module_id));
@@ -127,7 +138,23 @@ export function deriveScopedMedia<
     return Boolean(annotation.workstation_id && workstationIds.has(annotation.workstation_id));
   });
 
-  return { productAssets: assets, annotations: scopedAnnotations };
+  const scopedProductMedia = productMedia.filter(media => assetIds.has(media.asset_id));
+  return { productAssets: assets, annotations: scopedAnnotations, productMedia: scopedProductMedia };
+}
+
+export function getAssetsMissingProductMedia<
+  TAsset extends ScopedAsset & { preview_images?: unknown },
+  TAnnotation extends ScopedAnnotation & ProductAnnotationMedia,
+  TMedia extends ProductMediaRecord,
+>(
+  assets: readonly TAsset[],
+  annotations: readonly TAnnotation[],
+  productMedia?: readonly TMedia[],
+): TAsset[] {
+  return assets.filter(asset => productMedia
+    ? buildProductMediaItems(asset.id, productMedia, annotations, asset.preview_images).length === 0
+    : !hasProductVisualMedia(asset.id, annotations, asset.preview_images)
+  );
 }
 
 export function getScopeSelectionPrompt(scope: GenerationScope) {

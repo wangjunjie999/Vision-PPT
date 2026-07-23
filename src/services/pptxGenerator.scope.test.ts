@@ -16,6 +16,7 @@ vi.mock('./pptx/workstationSlides', () => ({
   generateModuleOpticalSlide: slideMocks.module,
   generateLightingPhotosSlide: slideMocks.lighting,
   getLightingPhotoSlideCount: (photoCount: number) => Math.ceil(Math.max(0, photoCount) / 2),
+  getBOMSlideCount: () => 1,
   generateBOMSlide: slideMocks.bom,
 }));
 vi.mock('./pptx/imagePreloader', () => ({
@@ -107,6 +108,29 @@ describe('enterprise PPT module scope', () => {
       false,
     );
 
-    expect(entries.map(entry => entry.targetSlideNumber)).toEqual([13, 17]);
+    // No real products means no phantom product-schematic page.
+    expect(entries.map(entry => entry.targetSlideNumber)).toEqual([12, 16]);
+  });
+
+  it('skips empty product records and reserves pages from media chunks only', () => {
+    const entries = buildModuleTocEntries(
+      'PRJ',
+      [{ id: 'ws-1', code: 'WS-1', name: 'Station A', type: 'line' }] as never,
+      [{ id: 'mod-1', workstation_id: 'ws-1', name: 'Module A', type: 'defect', lighting_photos: [] }] as never,
+      [],
+      10,
+      false,
+      [
+	        { id: 'product-1', workstation_id: 'ws-1', scope_type: 'workstation', document_images_per_page: 2 },
+        { id: 'product-2', workstation_id: 'ws-1', scope_type: 'workstation' },
+      ] as never,
+      [
+        { id: 'media-1', asset_id: 'product-1', original_url: '1.png', file_name: '1.png', sort_order: 0 },
+        { id: 'media-2', asset_id: 'product-1', original_url: '2.png', file_name: '2.png', sort_order: 1 },
+        { id: 'media-3', asset_id: 'product-1', original_url: '3.png', file_name: '3.png', sort_order: 2 },
+      ] as never,
+    );
+
+    expect(entries[0].targetSlideNumber).toBe(14);
   });
 });

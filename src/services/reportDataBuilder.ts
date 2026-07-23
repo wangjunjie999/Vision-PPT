@@ -10,6 +10,7 @@
  */
 
 import type { Database } from '@/integrations/supabase/types';
+import { normalizeProductPreviewImages } from '@/utils/productAssetMedia';
 import {
   MODULE_TYPE_LABELS,
   WS_TYPE_LABELS,
@@ -90,28 +91,42 @@ export interface ProductAssetInput {
   module_id: string | null;
   scope_type: 'workstation' | 'module';
   model_file_url: string | null;
-  preview_images: Array<{ url: string; name?: string }> | null;
+  preview_images: unknown;
   detection_method?: string | null;
   product_models?: Array<{ name: string; spec: string }> | null;
   detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
   product_name?: string | null;
   product_code?: string | null;
   product_spec?: string | null;
+  document_images_per_page?: 1 | 2 | number | null;
   is_primary?: boolean;
   sort_order?: number;
   parent_product_id?: string | null;
+  length_mm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  pos_z?: number | null;
 }
 
 export interface AnnotationInput {
   id: string;
   asset_id: string;
+  media_id?: string | null;
   snapshot_url: string;
   remark: string | null;
   annotations_json: unknown;
+  is_ppt_default?: boolean | null;
+  version?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   scope_type?: 'workstation' | 'module';
   workstation_id?: string | null;
   module_id?: string | null;
 }
+
+export type ProductMediaInput = Database['public']['Tables']['product_media']['Row'];
 
 // 构建输入
 export interface BuilderInput {
@@ -121,6 +136,7 @@ export interface BuilderInput {
   modules: DbModule[];
   hardware: HardwareLibrary;
   productAssets?: ProductAssetInput[];
+  productMedia?: ProductMediaInput[];
   annotations?: AnnotationInput[];
   language?: 'zh' | 'en';
 }
@@ -285,17 +301,29 @@ export interface ReportProductAssetData {
   product_name: string | null;
   product_code: string | null;
   product_spec: string | null;
+  document_images_per_page: 1 | 2;
   is_primary: boolean;
   sort_order: number;
   parent_product_id: string | null;
+  length_mm: number | null;
+  width_mm: number | null;
+  height_mm: number | null;
+  pos_x: number | null;
+  pos_y: number | null;
+  pos_z: number | null;
 }
 
 export interface ReportAnnotationData {
   id: string;
   asset_id: string;
+  media_id: string | null;
   snapshot_url: string;
   remark: string | null;
   annotations_json: unknown;
+  is_ppt_default: boolean;
+  version: number | null;
+  updated_at: string | null;
+  created_at: string | null;
   scope_type: 'workstation' | 'module';
   workstation_id: string | null;
   module_id: string | null;
@@ -308,6 +336,7 @@ export interface ReportData {
   modules: ReportModuleData[];
   hardware: HardwareLibrary;
   productAssets: ReportProductAssetData[];
+  productMedia: ProductMediaInput[];
   annotations: ReportAnnotationData[];
   language: 'zh' | 'en';
   stats: {
@@ -556,7 +585,7 @@ function enrichLayoutController(
  * 这是所有文档生成的唯一数据来源
  */
 export function buildReportData(input: BuilderInput): ReportData {
-  const { project, workstations, layouts, modules, hardware, productAssets = [], annotations = [], language = 'zh' } = input;
+  const { project, workstations, layouts, modules, hardware, productAssets = [], productMedia = [], annotations = [], language = 'zh' } = input;
   const lang = language;
   const projectUses3D = Boolean(project.use_3d);
   
@@ -741,7 +770,7 @@ export function buildReportData(input: BuilderInput): ReportData {
     workstation_id: asset.workstation_id,
     module_id: asset.module_id,
     scope_type: asset.scope_type,
-    preview_images: asset.preview_images,
+    preview_images: normalizeProductPreviewImages(asset.preview_images),
     model_file_url: asset.model_file_url,
     detection_method: asset.detection_method ?? null,
     product_models: asset.product_models ?? null,
@@ -749,18 +778,30 @@ export function buildReportData(input: BuilderInput): ReportData {
     product_name: asset.product_name ?? null,
     product_code: asset.product_code ?? null,
     product_spec: asset.product_spec ?? null,
+    document_images_per_page: Number(asset.document_images_per_page) === 2 ? 2 : 1,
     is_primary: asset.is_primary ?? false,
     sort_order: asset.sort_order ?? 0,
     parent_product_id: asset.parent_product_id ?? null,
+    length_mm: asset.length_mm ?? null,
+    width_mm: asset.width_mm ?? null,
+    height_mm: asset.height_mm ?? null,
+    pos_x: asset.pos_x ?? null,
+    pos_y: asset.pos_y ?? null,
+    pos_z: asset.pos_z ?? null,
   }));
   
   // 转换标注
   const reportAnnotations: ReportAnnotationData[] = annotations.map(ann => ({
     id: ann.id,
     asset_id: ann.asset_id,
+    media_id: ann.media_id ?? null,
     snapshot_url: ann.snapshot_url,
     remark: ann.remark,
     annotations_json: ann.annotations_json,
+    is_ppt_default: ann.is_ppt_default ?? false,
+    version: ann.version ?? null,
+    updated_at: ann.updated_at ?? null,
+    created_at: ann.created_at ?? null,
     scope_type: ann.scope_type || 'workstation',
     workstation_id: ann.workstation_id ?? null,
     module_id: ann.module_id ?? null,
@@ -783,6 +824,7 @@ export function buildReportData(input: BuilderInput): ReportData {
     modules: reportModules,
     hardware,
     productAssets: reportProductAssets,
+    productMedia,
     annotations: reportAnnotations,
     language: lang,
     stats,

@@ -9,6 +9,41 @@ import type { GenerationScope } from '@/types/generation';
 
 // ==================== TYPE DEFINITIONS ====================
 
+interface TemplateProductAnnotation {
+  id?: string;
+  asset_id?: string;
+  media_id?: string | null;
+  snapshot_url: string;
+  annotations_json: Array<{ labelNumber?: number; label?: string }>;
+  remark?: string | null;
+  is_ppt_default?: boolean | null;
+  version?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+interface TemplateProductMedia {
+  id: string;
+  asset_id: string;
+  original_url: string;
+  file_name: string;
+  sort_order: number;
+  product_annotation?: TemplateProductAnnotation | null;
+}
+
+interface TemplateProductAsset {
+  id?: string;
+  document_images_per_page?: 1 | 2 | number | null;
+  preview_images?: unknown;
+  detection_method?: string | null;
+  product_models?: Array<{ name: string; spec: string }> | null;
+  detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
+  product_annotation?: TemplateProductAnnotation | null;
+  product_annotations?: TemplateProductAnnotation[];
+  product_media?: TemplateProductMedia[];
+  [key: string]: unknown;
+}
+
 export interface TemplateGenerationData {
   project: {
     id: string;
@@ -80,17 +115,10 @@ export interface TemplateGenerationData {
       selected_lights?: Array<{ brand: string; model: string; image_url?: string | null }> | null;
       selected_controller?: { brand: string; model: string; image_url?: string | null } | null;
     } | null;
-    product_annotation?: {
-      snapshot_url: string;
-      annotations_json: Array<{ labelNumber?: number; label?: string }>;
-      remark?: string | null;
-    } | null;
-    product_asset?: {
-      preview_images?: Array<{ url: string; name?: string }> | null;
-      detection_method?: string | null;
-      product_models?: Array<{ name: string; spec: string }> | null;
-      detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
-    } | null;
+    product_annotation?: TemplateProductAnnotation | null;
+    product_annotations?: TemplateProductAnnotation[];
+    product_asset?: TemplateProductAsset | null;
+    product_assets?: TemplateProductAsset[];
   }>;
   modules: Array<{
     id: string;
@@ -382,6 +410,7 @@ export const WORKSTATION_PLACEHOLDERS = {
   ws_process_stage_label: '工序阶段',
   ws_enclosed: '是否封闭',
   ws_module_count: '模块数量',
+  ws_product_count: '产品数量',
   ws_product_size: '产品尺寸 (L×W×H)',
   ws_layout_size: '布局尺寸 (W×D×H)',
   ws_camera_count: '相机数量',
@@ -389,6 +418,28 @@ export const WORKSTATION_PLACEHOLDERS = {
   ws_side_view_url: '侧视图URL',
   ws_top_view_url: '俯视图URL',
   ws_product_snapshot_url: '产品标注图URL',
+};
+
+export const PRODUCT_PLACEHOLDERS = {
+  product_page_title: '产品示意图分页标题',
+  product_page_index: '当前产品图片页码',
+  product_page_count: '当前产品图片总页数',
+  product_images_per_page: '当前产品每页图片数量（1或2）',
+  product_pagination_mode: '当前产品分页方式',
+  product_image_1: '当前页左侧产品图片',
+  product_image_2: '当前页右侧产品图片',
+  product_caption_1: '当前页左侧图片说明',
+  product_caption_2: '当前页右侧图片说明',
+  product_name: '产品名称',
+  product_code: '产品编号',
+  product_spec: '产品规格',
+  product_index: '产品序号',
+  product_length: '产品长度 (mm)',
+  product_width: '产品宽度 (mm)',
+  product_height: '产品高度 (mm)',
+  product_dimensions: '产品尺寸 (L×W×H)',
+  product_snapshot: '产品标注图',
+  product_preview: '产品预览图',
 };
 
 /**
@@ -470,6 +521,10 @@ export function getAllAvailablePlaceholders(): Array<{ field: string; label: str
   
   for (const [field, label] of Object.entries(WORKSTATION_PLACEHOLDERS)) {
     placeholders.push({ field: `{{${field}}}`, label, scope: '工位级' });
+  }
+
+  for (const [field, label] of Object.entries(PRODUCT_PLACEHOLDERS)) {
+    placeholders.push({ field: `{{${field}}}`, label, scope: '产品级' });
   }
   
   for (const [field, label] of Object.entries(MODULE_PLACEHOLDERS)) {

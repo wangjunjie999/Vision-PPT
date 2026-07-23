@@ -2,8 +2,8 @@ import { Component, memo, useRef, useCallback, useState, useMemo, useEffect, Sus
 import { Canvas, useThree, useFrame, ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, Box, Cone, Line, Text, Grid, Plane, Sphere, Cylinder, useGLTF, Billboard } from '@react-three/drei';
 import { Button } from '@/components/ui/button';
-import { RotateCcw, X, Magnet, Eye, EyeOff, Save, Lock, Unlock, Maximize2 } from 'lucide-react';
-import type { LayoutObject } from './ObjectPropertyPanel';
+import { RotateCcw, X, Magnet, Eye, EyeOff, Save, Lock, Unlock, Maximize2, Package } from 'lucide-react';
+import { isProductLayoutObject, type LayoutObject } from './ObjectPropertyPanel';
 import { CAMERA_INTERACTION_TYPES, PRODUCT_INTERACTION_TYPES } from './MechanismSVG';
 import * as THREE from 'three';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
@@ -116,6 +116,20 @@ function addLayoutObjectToFitBounds(bounds: FitBounds, obj: LayoutObject) {
   const rotation = computeWorldRotation(obj.rotX ?? 0, obj.rotY ?? 0, obj.rotZ ?? 0);
   const margin = FIT_OBJECT_MARGIN;
 
+  if (obj.type === 'product') {
+    const w = Math.max((obj.productLength ?? 100) * SCALE, 0.1);
+    const h = Math.max((obj.productHeight ?? 50) * SCALE, 0.1);
+    const d = Math.max((obj.productWidth ?? 100) * SCALE, 0.1);
+    addLocalBoxToFitBounds(
+      bounds,
+      origin,
+      new THREE.Vector3(-w / 2 - margin, -margin, -d / 2 - margin),
+      new THREE.Vector3(w / 2 + margin, h + 0.45 + margin, d / 2 + margin),
+      rotation,
+    );
+    return;
+  }
+
   if (obj.type === 'camera') {
     const w = Math.max((obj.width || 50) / 100, 0.42);
     const h = Math.max((obj.height || 55) / 100, 0.45);
@@ -147,36 +161,16 @@ function addLayoutObjectToFitBounds(bounds: FitBounds, obj: LayoutObject) {
 
 export function calculateIsometricFitCamera({
   objects,
-  productPosition,
-  productDimensions,
   fov,
   aspect,
   padding = DEFAULT_ISOMETRIC_FIT_PADDING,
 }: {
   objects: LayoutObject[];
-  productPosition: { posX: number; posY: number; posZ: number };
-  productDimensions: { length: number; width: number; height: number };
   fov: number;
   aspect: number;
   padding?: number;
 }): IsometricCameraAction {
   const bounds = createEmptyFitBounds();
-
-  const productWidth = Math.max((productDimensions.length ?? 100) * SCALE, 0.1);
-  const productHeight = Math.max((productDimensions.height ?? 50) * SCALE, 0.1);
-  const productDepth = Math.max((productDimensions.width ?? 100) * SCALE, 0.1);
-  const productOrigin = new THREE.Vector3(
-    productPosition.posX * SCALE,
-    productPosition.posZ * SCALE,
-    productPosition.posY * SCALE,
-  );
-
-  addLocalBoxToFitBounds(
-    bounds,
-    productOrigin,
-    new THREE.Vector3(-productWidth / 2 - FIT_OBJECT_MARGIN, -FIT_OBJECT_MARGIN, -productDepth / 2 - FIT_OBJECT_MARGIN),
-    new THREE.Vector3(productWidth / 2 + FIT_OBJECT_MARGIN, productHeight + 0.45, productDepth / 2 + FIT_OBJECT_MARGIN),
-  );
 
   for (const obj of objects) {
     addLayoutObjectToFitBounds(bounds, obj);
@@ -239,16 +233,12 @@ export function calculateIsometricFitCamera({
 
 interface Layout3DPreviewProps {
   objects: LayoutObject[];
-  productDimensions: { length: number; width: number; height: number };
   onSelectObject?: (id: string | null) => void;
   selectedObjectId?: string | null;
   onUpdateObject?: (id: string, updates: Partial<LayoutObject>) => void;
-  onUpdateProductDimensions?: (dims: { length: number; width: number; height: number }) => void;
   onScreenshotReady?: (fn: IsometricScreenshotFn | null) => void;
   onFitAllReady?: (fn: IsometricFitAllFn) => void;
   onIsometricSceneStatusChange?: (status: IsometricSceneStatus) => void;
-  productPosition?: { posX: number; posY: number; posZ: number };
-  onUpdateProductPosition?: (pos: { posX: number; posY: number; posZ: number }) => void;
   onStageLayout?: () => void;
 }
 
@@ -276,7 +266,7 @@ export const ISOMETRIC_CAPTURE_FALLBACK_PADDING = 1.32;
 const FIT_OBJECT_MARGIN = 0.18;
 
 export function getIsometricModelLoadKey(obj: LayoutObject): string | null {
-  if (obj.type !== 'mechanism') return null;
+  if (obj.type !== 'mechanism' && obj.type !== 'product') return null;
   const url = String((obj as any).model3dUrl || '').trim();
   return url ? `${obj.id}:${url}` : null;
 }
@@ -321,7 +311,8 @@ export function deriveIsometricSceneStatus(
   });
 
   return {
-    ready: pendingModelCount === 0 && failedModelCount === 0,
+    // A failed model renders the dimension-box fallback, so it must not block capture.
+    ready: pendingModelCount === 0,
     pendingModelCount,
     failedModelCount,
   };
@@ -332,7 +323,7 @@ export function isIsometricCaptureReady(
   hasScreenshotFn: boolean,
   hasFitAllFn: boolean,
 ): boolean {
-  return status.ready && status.failedModelCount === 0 && hasScreenshotFn && hasFitAllFn;
+  return status.ready && hasScreenshotFn && hasFitAllFn;
 }
 
 function ScreenshotHelper({
@@ -448,7 +439,7 @@ function isProductInteraction(mechType: string): boolean {
 
 // --- Compute related IDs for focus mode ---
 function getRelatedIds(selectedId: string | null, objects: LayoutObject[]): Set<string> {
-  if (!selectedId || selectedId === '__product__') return new Set();
+  if (!selectedId) return new Set();
   const related = new Set<string>();
   related.add(selectedId);
   const selectedObj = objects.find(o => o.id === selectedId);
@@ -462,9 +453,6 @@ function getRelatedIds(selectedId: string | null, objects: LayoutObject[]): Set<
       related.add(o.id);
     }
   });
-  if (selectedObj.type === 'mechanism' && isProductInteraction(selectedObj.mechanismType || '')) {
-    related.add('__product__');
-  }
   return related;
 }
 
@@ -1435,6 +1423,7 @@ function GLBModelRenderer({
   d,
   loadKey,
   onLoaded,
+  fitMode = 'contain',
 }: {
   url: string;
   w: number;
@@ -1442,6 +1431,7 @@ function GLBModelRenderer({
   d: number;
   loadKey: string;
   onLoaded?: (loadKey: string) => void;
+  fitMode?: 'contain' | 'stretch';
 }) {
   const proxied = toLocalProxyUrl(url);
   useGLTF.preload(proxied);
@@ -1465,14 +1455,18 @@ function GLBModelRenderer({
     const scaleX = size.x > 0 ? w / size.x : 1;
     const scaleY = size.y > 0 ? h / size.y : 1;
     const scaleZ = size.z > 0 ? d / size.z : 1;
-    const uniformScale = Math.min(scaleX, scaleY, scaleZ);
-
-    cloned.scale.setScalar(uniformScale);
-    cloned.position.set(-center.x * uniformScale, -center.y * uniformScale + h / 2, -center.z * uniformScale);
+    if (fitMode === 'stretch') {
+      cloned.scale.set(scaleX, scaleY, scaleZ);
+      cloned.position.set(-center.x * scaleX, -center.y * scaleY + h / 2, -center.z * scaleZ);
+    } else {
+      const uniformScale = Math.min(scaleX, scaleY, scaleZ);
+      cloned.scale.setScalar(uniformScale);
+      cloned.position.set(-center.x * uniformScale, -center.y * uniformScale + h / 2, -center.z * uniformScale);
+    }
 
     groupRef.current.add(cloned);
     onLoaded?.(loadKey);
-  }, [scene, w, h, d, loadKey, onLoaded]);
+  }, [scene, w, h, d, loadKey, onLoaded, fitMode]);
 
   return <group ref={groupRef} />;
 }
@@ -1599,7 +1593,19 @@ function Mechanism3DModel({ obj, selected, dimmed, hasIllegalMount, objects, xra
   );
 }
 
-function ProductBox({ dimensions, selected, dimmed }: { dimensions: { length: number; width: number; height: number }; selected: boolean; dimmed: boolean }) {
+function ProductBox({
+  dimensions,
+  selected,
+  dimmed,
+  name,
+  color,
+}: {
+  dimensions: { length: number; width: number; height: number };
+  selected: boolean;
+  dimmed: boolean;
+  name: string;
+  color: string;
+}) {
   const w = dimensions.length * SCALE;
   const h = dimensions.height * SCALE;
   const d = dimensions.width * SCALE;
@@ -1631,7 +1637,7 @@ function ProductBox({ dimensions, selected, dimmed }: { dimensions: { length: nu
       <group position={[0, h / 2, 0]}>
         <Box args={[w, h, d]}>
           <meshStandardMaterial
-            color={selected ? highlightColor : '#06b6d4'}
+            color={selected ? highlightColor : color}
             transparent opacity={selected ? 0.7 : 0.4}
             emissive={selected ? highlightColor : '#000000'}
             emissiveIntensity={selected ? 0.3 : 0}
@@ -1642,7 +1648,7 @@ function ProductBox({ dimensions, selected, dimmed }: { dimensions: { length: nu
         {edges.map((edge, i) => (
           <Cylinder key={`edge-${i}`} args={[edgeR, edgeR, edge.len, 4]}
             position={edge.pos} rotation={edge.rot}>
-            <meshStandardMaterial color={selected ? highlightColor : '#22d3ee'} metalness={0.3} roughness={0.5} />
+            <meshStandardMaterial color={selected ? highlightColor : color} metalness={0.3} roughness={0.5} />
           </Cylinder>
         ))}
         <Box args={[w * 0.15, h * 0.15, d * 0.01]} position={[0, 0, d / 2 + 0.005]}>
@@ -1661,10 +1667,84 @@ function ProductBox({ dimensions, selected, dimmed }: { dimensions: { length: nu
           anchorX="center"
           anchorY="bottom"
         >
-          产品
+          {name}
         </Text>
       </Billboard>
     </>
+  );
+}
+
+const PRODUCT_COLORS = ['#06b6d4', '#8b5cf6', '#22c55e', '#f97316', '#ec4899', '#14b8a6'];
+
+function getStableProductColor(id: string) {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = ((hash << 5) - hash + id.charCodeAt(index)) | 0;
+  }
+  return PRODUCT_COLORS[Math.abs(hash) % PRODUCT_COLORS.length];
+}
+
+function Product3DObject({
+  obj,
+  index,
+  selected,
+  dimmed,
+  onModelLoaded,
+  onModelFailed,
+}: {
+  obj: LayoutObject;
+  index: number;
+  selected: boolean;
+  dimmed: boolean;
+  onModelLoaded?: (loadKey: string) => void;
+  onModelFailed?: (loadKey: string, error: unknown) => void;
+}) {
+  const dimensions = {
+    length: Math.max(obj.productLength ?? 100, 1),
+    width: Math.max(obj.productWidth ?? 100, 1),
+    height: Math.max(obj.productHeight ?? 50, 1),
+  };
+  const w = dimensions.length * SCALE;
+  const h = dimensions.height * SCALE;
+  const d = dimensions.width * SCALE;
+  const color = getStableProductColor(obj.productAssetId || obj.id);
+  const label = `${obj.productIsPrimary ? '★ ' : ''}${index + 1}. ${obj.name || `产品 ${index + 1}`} · ${dimensions.length}×${dimensions.width}×${dimensions.height}mm`;
+  const fallback = (
+    <ProductBox dimensions={dimensions} selected={selected} dimmed={dimmed} name={label} color={color} />
+  );
+  const loadKey = getIsometricModelLoadKey(obj);
+
+  if (!obj.model3dUrl || !loadKey) return fallback;
+
+  return (
+    <ModelLoadErrorBoundary loadKey={loadKey} fallback={fallback} onError={onModelFailed}>
+      <Suspense fallback={fallback}>
+        <group>
+          {dimmed && (
+            <Box args={[w + 0.02, h + 0.02, d + 0.02]} position={[0, h / 2, 0]}>
+              <meshBasicMaterial color="#0f172a" transparent opacity={0.7} depthWrite={false} />
+            </Box>
+          )}
+          <GLBModelRenderer
+            url={obj.model3dUrl}
+            w={w}
+            h={h}
+            d={d}
+            loadKey={loadKey}
+            onLoaded={onModelLoaded}
+            fitMode="stretch"
+          />
+          {selected && (
+            <Box args={[w + 0.06, h + 0.06, d + 0.06]} position={[0, h / 2, 0]}>
+              <meshBasicMaterial color="#facc15" wireframe transparent opacity={0.6} />
+            </Box>
+          )}
+          <Billboard position={[0, h + 0.15, 0]}>
+            <Text fontSize={0.18} color="#fafafa" anchorX="center" anchorY="bottom">{label}</Text>
+          </Billboard>
+        </group>
+      </Suspense>
+    </ModelLoadErrorBoundary>
   );
 }
 
@@ -1856,7 +1936,7 @@ function getCameraEndpoint(obj: LayoutObject): [number, number, number] {
   return getConnectionEndpoint3D(obj, new THREE.Vector3(0, 0, 0));
 }
 
-function computeRelLines(objects: LayoutObject[], productPosition?: { posX: number; posY: number; posZ: number }): RelLine[] {
+function computeRelLines(objects: LayoutObject[]): RelLine[] {
   const result: RelLine[] = [];
 
   objects.forEach(obj => {
@@ -1898,33 +1978,6 @@ function computeRelLines(objects: LayoutObject[], productPosition?: { posX: numb
         color: isProductMech ? '#22d3ee' : '#f97316',
         dashed: false,
         label: '产品定位',
-        isIllegal: false,
-        lineType: 'product',
-      });
-    }
-  });
-
-  objects.forEach(obj => {
-    if (obj.type === 'mechanism' && isProductInteraction(obj.mechanismType || '')) {
-      const mechW = (obj.width ?? 100) / 100;
-      const mechH = (obj.height ?? 100) / 100;
-      const mechD = (obj.width ?? 100) / 100;
-      const mechEnd = getConnectionEndpoint3D(obj, getMechMountOffset3D(obj.mechanismType || '', mechW, mechH, mechD));
-      const productPos: [number, number, number] = [
-        (productPosition?.posX ?? 0) * SCALE,
-        (productPosition?.posZ ?? 0) * SCALE,
-        (productPosition?.posY ?? 0) * SCALE,
-      ];
-      const mid: [number, number, number] = [
-        (productPos[0] + mechEnd[0]) / 2,
-        (productPos[1] + mechEnd[1]) / 2 + 0.12,
-        (productPos[2] + mechEnd[2]) / 2,
-      ];
-      result.push({
-        start: productPos, end: mechEnd, midpoint: mid,
-        color: '#22d3ee',
-        dashed: true,
-        label: '产品交互',
         isIllegal: false,
         lineType: 'product',
       });
@@ -2021,9 +2074,9 @@ function RelationshipLineSegment({ line, baseWidth }: { line: RelLine; baseWidth
   );
 }
 
-function RelationshipLines({ objects, xrayMode, productPosition }: { objects: LayoutObject[]; xrayMode: boolean; productPosition?: { posX: number; posY: number; posZ: number } }) {
+function RelationshipLines({ objects, xrayMode }: { objects: LayoutObject[]; xrayMode: boolean }) {
   // Compute lines every render (no useMemo) to ensure real-time sync with drag
-  const lines = computeRelLines(objects, productPosition);
+  const lines = computeRelLines(objects);
   const baseWidth = xrayMode ? 3.5 : 2.5;
 
   return (
@@ -2163,14 +2216,10 @@ function DimInput({ label, value, onChange, allowNegative }: { label: string; va
 // --- FitAll helper: calculates scene bounding box and moves camera ---
 function FitAllHelper({
   objects,
-  productPosition,
-  productDimensions,
   cameraRef,
   onFitAllReady,
 }: {
   objects: LayoutObject[];
-  productPosition: { posX: number; posY: number; posZ: number };
-  productDimensions: { length: number; width: number; height: number };
   cameraRef: React.MutableRefObject<IsometricCameraAction | null>;
   onFitAllReady?: (fn: IsometricFitAllFn) => void;
 }) {
@@ -2182,33 +2231,26 @@ function FitAllHelper({
       const perspCam = camera as THREE.PerspectiveCamera;
       cameraRef.current = calculateIsometricFitCamera({
         objects,
-        productPosition,
-        productDimensions,
         fov: perspCam.fov,
         aspect: perspCam.aspect || 1,
         padding: options.padding,
       });
     });
-  }, [objects, productPosition, productDimensions, camera, cameraRef, onFitAllReady]);
+  }, [objects, camera, cameraRef, onFitAllReady]);
 
   return null;
 }
 
 export const Layout3DPreview = memo(function Layout3DPreview({
   objects,
-  productDimensions,
   onSelectObject,
   selectedObjectId,
   onUpdateObject,
-  onUpdateProductDimensions,
   onScreenshotReady,
   onFitAllReady,
   onIsometricSceneStatusChange,
-  productPosition: productPositionProp,
-  onUpdateProductPosition,
   onStageLayout,
 }: Layout3DPreviewProps) {
-  const productPosition = productPositionProp ?? { posX: 0, posY: 0, posZ: 0 };
   const cameraActionRef = useRef<IsometricCameraAction | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [localSelectedId, setLocalSelectedId] = useState<string | null>(null);
@@ -2321,27 +2363,17 @@ export const Layout3DPreview = memo(function Layout3DPreview({
     // Guard: only allow drag in edit mode and for already-selected objects
     if (!editMode) return;
     if (id !== activeSelectedId) return;
-    if (id === '__product__') {
-      if (!onUpdateProductPosition) return;
-      dragStateRef.current = {
-        isDragging: true,
-        objectId: id,
-        startPoint: point.clone(),
-        startPos: { posX: productPosition.posX, posY: productPosition.posY, posZ: productPosition.posZ },
-      };
-    } else {
-      if (!onUpdateObject) return;
-      const obj = objects.find(o => o.id === id);
-      if (!obj || obj.locked) return;
-      dragStateRef.current = {
-        isDragging: true,
-        objectId: id,
-        startPoint: point.clone(),
-        startPos: { posX: obj.posX ?? 0, posY: obj.posY ?? 0, posZ: obj.posZ ?? 0 },
-      };
-    }
+    if (!onUpdateObject) return;
+    const obj = objects.find(o => o.id === id);
+    if (!obj || obj.locked) return;
+    dragStateRef.current = {
+      isDragging: true,
+      objectId: id,
+      startPoint: point.clone(),
+      startPos: { posX: obj.posX ?? 0, posY: obj.posY ?? 0, posZ: obj.posZ ?? 0 },
+    };
     dragMovedRef.current = false;
-  }, [editMode, activeSelectedId, onUpdateObject, onUpdateProductPosition, objects, productPosition]);
+  }, [editMode, activeSelectedId, onUpdateObject, objects]);
 
   const handleDragMove = useCallback((point: THREE.Vector3) => {
     const state = dragStateRef.current;
@@ -2362,12 +2394,8 @@ export const Layout3DPreview = memo(function Layout3DPreview({
       newPosY = Math.round(newPosY / SNAP_GRID) * SNAP_GRID;
     }
 
-    if (state.objectId === '__product__') {
-      onUpdateProductPosition?.({ posX: newPosX, posY: newPosY, posZ: state.startPos.posZ });
-    } else {
-      onUpdateObject?.(state.objectId, { posX: newPosX, posY: newPosY });
-    }
-  }, [onUpdateObject, onUpdateProductPosition, snapEnabled, SNAP_GRID]);
+    onUpdateObject?.(state.objectId, { posX: newPosX, posY: newPosY });
+  }, [onUpdateObject, snapEnabled, SNAP_GRID]);
 
   const handleDragEnd = useCallback(() => {
     dragStateRef.current = {
@@ -2418,7 +2446,6 @@ export const Layout3DPreview = memo(function Layout3DPreview({
 
       // R + arrows = rotate
       if (rKeyHeld.current && (e.key.startsWith('Arrow'))) {
-        if (id === '__product__') return;
         const obj = objects.find(o => o.id === id);
         if (!obj || obj.locked) return;
         e.preventDefault();
@@ -2438,34 +2465,6 @@ export const Layout3DPreview = memo(function Layout3DPreview({
             break;
         }
         onUpdateObject(id, updates);
-        return;
-      }
-
-      // Product position via keyboard
-      if (id === '__product__') {
-        if (!onUpdateProductPosition) return;
-        const step = snapEnabled ? SNAP_GRID : 5;
-        let dx = 0, dy = 0, dz = 0;
-        switch (e.key) {
-          case 'ArrowLeft': dx = -step; break;
-          case 'ArrowRight': dx = step; break;
-          case 'ArrowUp': if (e.shiftKey) { dz = step; } else { dy = -step; } break;
-          case 'ArrowDown': if (e.shiftKey) { dz = -step; } else { dy = step; } break;
-          default: return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        const np = {
-          posX: productPosition.posX + dx,
-          posY: productPosition.posY + dy,
-          posZ: productPosition.posZ + dz,
-        };
-        if (snapEnabled) {
-          np.posX = Math.round(np.posX / SNAP_GRID) * SNAP_GRID;
-          np.posY = Math.round(np.posY / SNAP_GRID) * SNAP_GRID;
-          np.posZ = Math.round(np.posZ / SNAP_GRID) * SNAP_GRID;
-        }
-        onUpdateProductPosition(np);
         return;
       }
 
@@ -2506,14 +2505,13 @@ export const Layout3DPreview = memo(function Layout3DPreview({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editMode, activeSelectedId, objects, onUpdateObject, onUpdateProductPosition, productPosition, snapEnabled, SNAP_GRID]);
+  }, [editMode, activeSelectedId, objects, onUpdateObject, snapEnabled, SNAP_GRID]);
 
   const selectedObj = activeSelectedId
-    ? (activeSelectedId === '__product__'
-      ? { id: '__product__', type: 'mechanism' as const, name: '产品', posX: productPosition.posX, posY: productPosition.posY, posZ: productPosition.posZ } as LayoutObject
-      : objects.find(o => o.id === activeSelectedId) || null)
+    ? objects.find(o => o.id === activeSelectedId) || null
     : null;
 
+  const products = objects.filter(isProductLayoutObject);
   const mechanisms = objects.filter(o => o.type === 'mechanism');
   const cameras = objects.filter(o => o.type === 'camera');
 
@@ -2561,25 +2559,36 @@ export const Layout3DPreview = memo(function Layout3DPreview({
             onDeselect={() => handleSelect(null)}
           />
 
-          {/* Product — draggable */}
-          <DraggableGroup
-            objectId="__product__"
-            position={[productPosition.posX * SCALE, productPosition.posZ * SCALE, productPosition.posY * SCALE]}
-            dragState={dragStateRef}
-            onDragStart={handleDragStart}
-            onClick={(id) => { handleSelect(id); }}
-            objectClickedRef={objectClickedRef}
-            selectedObjectId={activeSelectedId}
-            editMode={editMode}
-            spaceHeld={spaceHeld}
-            onDragEnd={handleDragEnd}
-          >
-            <ProductBox
-              dimensions={productDimensions}
-              selected={activeSelectedId === '__product__'}
-              dimmed={hasFocus && !relatedIds.has('__product__') && activeSelectedId !== '__product__'}
-            />
-          </DraggableGroup>
+          {/* Products */}
+          {products.map((obj, index) => {
+            const isSelected = activeSelectedId === obj.id;
+            const isDimmed = hasFocus && !relatedIds.has(obj.id) && !isSelected;
+            return (
+              <DraggableGroup
+                key={obj.id}
+                objectId={obj.id}
+                position={[(obj.posX ?? 0) * SCALE, (obj.posZ ?? 0) * SCALE, (obj.posY ?? 0) * SCALE]}
+                rotation={computeWorldRotation(obj.rotX ?? 0, obj.rotY ?? 0, obj.rotZ ?? 0)}
+                dragState={dragStateRef}
+                onDragStart={handleDragStart}
+                onClick={(id) => { handleSelect(id); }}
+                objectClickedRef={objectClickedRef}
+                selectedObjectId={activeSelectedId}
+                editMode={editMode}
+                spaceHeld={spaceHeld}
+                onDragEnd={handleDragEnd}
+              >
+                <Product3DObject
+                  obj={obj}
+                  index={index}
+                  selected={isSelected}
+                  dimmed={isDimmed}
+                  onModelLoaded={markModelLoaded}
+                  onModelFailed={markModelFailed}
+                />
+              </DraggableGroup>
+            );
+          })}
 
           {/* Mechanisms */}
           {mechanisms.map(obj => {
@@ -2638,7 +2647,7 @@ export const Layout3DPreview = memo(function Layout3DPreview({
             );
           })}
 
-          <RelationshipLines objects={objects} xrayMode={xrayMode} productPosition={productPosition} />
+          <RelationshipLines objects={objects} xrayMode={xrayMode} />
           <CameraController cameraRef={cameraActionRef} isDragging={dragStateRef.current.isDragging} spaceHeld={spaceHeld} />
           {onScreenshotReady && (
             <ScreenshotHelper
@@ -2648,8 +2657,6 @@ export const Layout3DPreview = memo(function Layout3DPreview({
           )}
           <FitAllHelper
             objects={objects}
-            productPosition={productPosition}
-            productDimensions={productDimensions}
             cameraRef={cameraActionRef}
             onFitAllReady={(fn) => {
               fitAllFnRef.current = fn;
@@ -2658,6 +2665,16 @@ export const Layout3DPreview = memo(function Layout3DPreview({
           />
         </Suspense>
       </Canvas>
+
+      {products.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
+          <div className="rounded-xl border border-slate-600/60 bg-slate-900/80 px-5 py-4 text-center shadow-xl backdrop-blur-sm">
+            <Package className="mx-auto mb-2 h-7 w-7 text-slate-400" />
+            <div className="text-sm font-medium text-slate-200">暂无产品</div>
+            <div className="mt-1 text-xs text-slate-400">请点击“添加产品”创建布局对象</div>
+          </div>
+        </div>
+      )}
 
       {/* SelectedInfoPanel removed — info now in ObjectPropertyPanel */}
 

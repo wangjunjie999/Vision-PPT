@@ -11,8 +11,10 @@ import {
   generateModuleOpticalSlide,
   generateLightingPhotosSlide,
   getLightingPhotoSlideCount,
+  getBOMSlideCount,
   generateBOMSlide,
 } from './pptx/workstationSlides';
+import { paginateProductMedia, type ProductMediaRecord } from '@/utils/productAssetMedia';
 import {
   COLORS,
   SLIDE_LAYOUT,
@@ -100,7 +102,16 @@ interface LayoutData {
   selected_cameras: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_lenses: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
   selected_lights: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-  selected_controller: { id: string; brand: string; model: string; image_url?: string | null } | null;
+  selected_controller: {
+    id: string;
+    brand: string;
+    model: string;
+    image_url?: string | null;
+    cpu?: string | null;
+    gpu?: string | null;
+    memory?: string | null;
+    storage?: string | null;
+  } | null;
   front_view_image_url?: string | null;
   side_view_image_url?: string | null;
   top_view_image_url?: string | null;
@@ -182,10 +193,10 @@ interface HardwareData {
 }
 
 interface AnnotationItem {
-  id: string;
-  type: 'rect' | 'circle' | 'arrow' | 'text' | 'point' | 'number';
-  x: number;
-  y: number;
+  id?: string;
+  type?: 'rect' | 'circle' | 'arrow' | 'text' | 'point' | 'number';
+  x?: number;
+  y?: number;
   width?: number;
   height?: number;
   radius?: number;
@@ -203,9 +214,14 @@ interface AnnotationItem {
 interface AnnotationData {
   id: string;
   asset_id?: string;
+  media_id?: string | null;
   snapshot_url: string;
   annotations_json: AnnotationItem[];
   remark?: string | null;
+  is_ppt_default?: boolean | null;
+  version?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   scope_type: 'workstation' | 'module';
   workstation_id?: string;
   module_id?: string;
@@ -216,7 +232,7 @@ interface ProductAssetData {
   workstation_id?: string | null;
   module_id?: string | null;
   scope_type: 'workstation' | 'module';
-  preview_images: Array<{ url: string; name?: string }> | null;
+  preview_images: unknown;
   model_file_url?: string | null;
   detection_method?: string | null;
   product_models?: Array<{ name: string; spec: string }> | null;
@@ -224,9 +240,16 @@ interface ProductAssetData {
   product_name?: string | null;
   product_code?: string | null;
   product_spec?: string | null;
+  document_images_per_page?: 1 | 2 | number | null;
   is_primary?: boolean;
   sort_order?: number;
   parent_product_id?: string | null;
+  length_mm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  pos_z?: number | null;
 }
 
 interface ProductModelItem {
@@ -279,6 +302,10 @@ interface GenerationOptions {
   scope?: 'full' | 'workstations' | 'modules';
 }
 
+export interface GeneratedPptxBlob extends Blob {
+  slideCount: number;
+}
+
 type ProgressCallback = (progress: number, step: string, log: string) => void;
 
 interface ModuleTocEntry {
@@ -297,9 +324,23 @@ function getPptxSlideCount(pptx: PptxGenJS): number {
   return Array.isArray((pptx as any)._slides) ? (pptx as any)._slides.length : 0;
 }
 
-function getProductSlideCount(isDraft: boolean, annotations: AnnotationData[]): number {
-  if (isDraft) return 1;
-  return Math.max(annotations.length, 1);
+async function writePptxBlob(pptx: PptxGenJS): Promise<GeneratedPptxBlob> {
+  const blob = await pptx.write({ outputType: 'blob' }) as GeneratedPptxBlob;
+  Object.defineProperty(blob, 'slideCount', {
+    configurable: false,
+    enumerable: false,
+    value: getPptxSlideCount(pptx),
+    writable: false,
+  });
+  return blob;
+}
+
+function getProductSlideCount(
+  annotations: AnnotationData[],
+  products: ProductAssetData[] = [],
+  productMedia: ProductMediaRecord[] = [],
+): number {
+  return paginateProductMedia(products, productMedia, annotations).length;
 }
 
 function getModuleTocPageCount(moduleCount: number): number {
@@ -312,7 +353,10 @@ export function buildModuleTocEntries(
   modules: ModuleData[],
   annotations: AnnotationData[] | undefined,
   firstWorkstationSlideNumber: number,
-  isDraft: boolean
+  isDraft: boolean,
+  productAssets?: ProductAssetData[],
+  productMedia?: ProductMediaRecord[],
+  layouts?: LayoutData[],
 ): ModuleTocEntry[] {
   const entries: ModuleTocEntry[] = [];
   let nextSlideNumber = firstWorkstationSlideNumber;
@@ -326,9 +370,14 @@ export function buildModuleTocEntries(
       (a.scope_type === 'workstation' && a.workstation_id === ws.id) ||
       (a.scope_type === 'module' && a.module_id && wsModuleIds.has(a.module_id))
     ) || [];
+    const wsProductAssets = (productAssets || []).filter(asset =>
+      asset.scope_type === 'workstation' && asset.workstation_id === ws.id
+    );
 
     nextSlideNumber += 1; // Basic info + requirements.
-    nextSlideNumber += getProductSlideCount(isDraft, wsAnnotations);
+    const wsProductIds = new Set(wsProductAssets.map(asset => asset.id));
+    const wsProductMedia = (productMedia || []).filter(media => wsProductIds.has(media.asset_id));
+    nextSlideNumber += getProductSlideCount(wsAnnotations, wsProductAssets, wsProductMedia);
     nextSlideNumber += 1; // Mechanical layout.
 
     for (const mod of wsModules) {
@@ -347,7 +396,8 @@ export function buildModuleTocEntries(
       }
     }
 
-    nextSlideNumber += 1; // BOM.
+    const wsLayout = layouts?.find(layout => layout.workstation_id === ws.id) || null;
+    nextSlideNumber += getBOMSlideCount(wsLayout as any);
   }
 
   return entries;
@@ -926,8 +976,9 @@ export async function generatePPTX(
   hardware?: HardwareData,
   readinessResult?: { missing: Array<{ level: string; name: string; missing: string[] }>; warnings: Array<{ level: string; name: string; warning: string }> },
   annotations?: AnnotationData[],
-  productAssets?: ProductAssetData[]
-): Promise<Blob> {
+  productAssets?: ProductAssetData[],
+  productMedia?: ProductMediaRecord[],
+): Promise<GeneratedPptxBlob> {
   const pptxgen = (await import('pptxgenjs')).default;
   const pptx = new pptxgen();
   const isZh = options.language === 'zh';
@@ -973,7 +1024,7 @@ export async function generatePPTX(
   onProgress(progress, isZh ? '初始化生成器...' : 'Initializing generator...', isZh ? '开始PPT生成' : 'Starting PPT generation');
 
   // Preload all images in batches before slide generation
-  const allImageUrls = collectAllImageUrls(layouts, modules, annotations, productAssets, hardware);
+  const allImageUrls = collectAllImageUrls(layouts, modules, annotations, productAssets, hardware, productMedia);
   if (allImageUrls.length > 0) {
     const batchSize = options.quality === 'ultra' ? 10 : options.quality === 'high' ? 12 : 15;
     onProgress(6, isZh ? '预加载图片资源...' : 'Preloading images...', isZh ? `预加载 ${allImageUrls.length} 张图片` : `Preloading ${allImageUrls.length} images`);
@@ -1000,6 +1051,8 @@ export async function generatePPTX(
         (a.sort_order ?? 0) - (b.sort_order ?? 0)
       );
     const wsProductAsset = wsProductAssets[0];
+    const wsProductIds = new Set(wsProductAssets.map(asset => asset.id));
+    const wsProductMedia = (productMedia || []).filter(media => wsProductIds.has(media.asset_id));
 
     return {
       ws: {
@@ -1068,16 +1121,30 @@ export async function generatePPTX(
         };
       }),
       annotations: wsAnnotations.map(a => ({
+        id: a.id,
         asset_id: (a as { asset_id?: string }).asset_id,
+        media_id: a.media_id ?? null,
         snapshot_url: a.snapshot_url,
         annotations_json: a.annotations_json,
         remark: a.remark,
+        is_ppt_default: a.is_ppt_default ?? false,
+        version: a.version ?? null,
+        created_at: a.created_at ?? null,
+        updated_at: a.updated_at ?? null,
       })),
+      productMedia: wsProductMedia,
       productAsset: wsProductAsset ? {
         id: wsProductAsset.id,
         product_name: wsProductAsset.product_name ?? null,
         product_code: wsProductAsset.product_code ?? null,
+        product_spec: wsProductAsset.product_spec ?? null,
         is_primary: wsProductAsset.is_primary ?? false,
+        length_mm: wsProductAsset.length_mm ?? null,
+        width_mm: wsProductAsset.width_mm ?? null,
+        height_mm: wsProductAsset.height_mm ?? null,
+        pos_x: wsProductAsset.pos_x ?? null,
+        pos_y: wsProductAsset.pos_y ?? null,
+        pos_z: wsProductAsset.pos_z ?? null,
         preview_images: wsProductAsset.preview_images,
         detection_method: wsProductAsset.detection_method,
         product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
@@ -1087,7 +1154,15 @@ export async function generatePPTX(
         id: p.id,
         product_name: p.product_name ?? null,
         product_code: p.product_code ?? null,
+        product_spec: p.product_spec ?? null,
+        document_images_per_page: p.document_images_per_page ?? 1,
         is_primary: p.is_primary ?? false,
+        length_mm: p.length_mm ?? null,
+        width_mm: p.width_mm ?? null,
+        height_mm: p.height_mm ?? null,
+        pos_x: p.pos_x ?? null,
+        pos_y: p.pos_y ?? null,
+        pos_z: p.pos_z ?? null,
         preview_images: p.preview_images,
         detection_method: p.detection_method ?? null,
         product_models: p.product_models ?? null,
@@ -1150,7 +1225,7 @@ export async function generatePPTX(
 
     progress = 100;
     onProgress(progress, isZh ? '瀹屾垚' : 'Complete', isZh ? 'PPT鐢熸垚瀹屾垚' : 'PPT generation complete');
-    return await pptx.write({ outputType: 'blob' }) as Blob;
+    return writePptxBlob(pptx);
   }
 
   // ========== SLIDE 1: Cover - Full image, no modifications ==========
@@ -1531,7 +1606,10 @@ export async function generatePPTX(
     modules,
     annotations,
     firstWorkstationSlideNumber,
-    isDraft
+    isDraft,
+    productAssets,
+    productMedia,
+    layouts,
   );
   generateModuleTocSlides(pptx, moduleTocEntries, isZh);
 
@@ -1558,6 +1636,8 @@ export async function generatePPTX(
         (a.sort_order ?? 0) - (b.sort_order ?? 0)
       );
     const wsProductAsset = wsProductAssets[0];
+    const wsProductIds = new Set(wsProductAssets.map(asset => asset.id));
+    const wsProductMedia = (productMedia || []).filter(media => wsProductIds.has(media.asset_id));
 
     const wsBaseProgress = 20 + i * progressPerWs;
     const moduleCount = Math.max(wsModules.length, 1);
@@ -1645,16 +1725,30 @@ export async function generatePPTX(
         };
       }),
       annotations: wsAnnotations.map(a => ({
+        id: a.id,
         asset_id: (a as { asset_id?: string }).asset_id,
+        media_id: a.media_id ?? null,
         snapshot_url: a.snapshot_url,
         annotations_json: a.annotations_json,
         remark: a.remark,
+        is_ppt_default: a.is_ppt_default ?? false,
+        version: a.version ?? null,
+        created_at: a.created_at ?? null,
+        updated_at: a.updated_at ?? null,
       })),
+      productMedia: wsProductMedia,
       productAsset: wsProductAsset ? {
         id: wsProductAsset.id,
         product_name: wsProductAsset.product_name ?? null,
         product_code: wsProductAsset.product_code ?? null,
+        product_spec: wsProductAsset.product_spec ?? null,
         is_primary: wsProductAsset.is_primary ?? false,
+        length_mm: wsProductAsset.length_mm ?? null,
+        width_mm: wsProductAsset.width_mm ?? null,
+        height_mm: wsProductAsset.height_mm ?? null,
+        pos_x: wsProductAsset.pos_x ?? null,
+        pos_y: wsProductAsset.pos_y ?? null,
+        pos_z: wsProductAsset.pos_z ?? null,
         preview_images: wsProductAsset.preview_images,
         detection_method: wsProductAsset.detection_method,
         product_models: wsProductAsset.product_models as Array<{ name: string; spec: string }> | null,
@@ -1664,7 +1758,15 @@ export async function generatePPTX(
         id: p.id,
         product_name: p.product_name ?? null,
         product_code: p.product_code ?? null,
+        product_spec: p.product_spec ?? null,
+        document_images_per_page: p.document_images_per_page ?? 1,
         is_primary: p.is_primary ?? false,
+        length_mm: p.length_mm ?? null,
+        width_mm: p.width_mm ?? null,
+        height_mm: p.height_mm ?? null,
+        pos_x: p.pos_x ?? null,
+        pos_y: p.pos_y ?? null,
+        pos_z: p.pos_z ?? null,
         preview_images: p.preview_images,
         detection_method: p.detection_method ?? null,
         product_models: p.product_models ?? null,
@@ -1686,14 +1788,7 @@ export async function generatePPTX(
     // b. 产品截图标注 (Product Schematic - variable pages)
     step++;
     onProgress(wsBaseProgress + stepIncrement * step, `${ws.name} - ${isZh ? '产品示意图' : 'Product'}`, `[SLIDE:${ws.name}:b] ${isZh ? '产品示意图' : 'Product schematic'}`);
-    if (isDraft) {
-      const draftProductSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      draftProductSlide.addText(isZh ? '[草稿] 产品示意图 - 省略' : '[DRAFT] Product Schematic - Skipped', {
-        x: 1, y: 2, w: 8, h: 1, fontSize: 18, fontFace: FONTS.body, color: COLORS.secondary, align: 'center',
-      });
-    } else {
-      await generateProductSchematicSlide(ctx, slideData);
-    }
+    await generateProductSchematicSlide(ctx, slideData);
     
     // c. 机械布局 (主辅视图 + 布局说明)
     step++;
@@ -1954,6 +2049,5 @@ export async function generatePPTX(
   progress = 100;
   onProgress(progress, isZh ? '完成' : 'Complete', isZh ? 'PPT生成完成' : 'PPT generation complete');
 
-  const blob = await pptx.write({ outputType: 'blob' }) as Blob;
-  return blob;
+  return writePptxBlob(pptx);
 }

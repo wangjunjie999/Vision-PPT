@@ -8,6 +8,7 @@ export interface TemplateModuleData extends Record<string, unknown> {
 export interface TemplateWorkstationData extends Record<string, unknown> {
   id?: string;
   modules?: TemplateModuleData[];
+  product_assets?: Array<Record<string, unknown>>;
 }
 
 export interface TemplateGenerationData extends Record<string, unknown> {
@@ -42,6 +43,14 @@ export interface TemplateGenerationContext extends Record<string, unknown> {
   modules: TemplateModuleData[];
   module?: TemplateModuleData;
   moduleIndex: number;
+  productAssets: Array<Record<string, unknown>>;
+  productAsset?: Record<string, unknown>;
+  productIndex: number;
+  productMediaPage: Array<Record<string, unknown>>;
+  productPageIndex: number;
+  productPageCount: number;
+  productImagesPerPage: 1 | 2;
+  effectiveProductCount: number;
 }
 
 export interface TemplateSlidePlanItem {
@@ -62,12 +71,25 @@ export function buildTemplateContext(
   workstationIndex = 0,
   module?: TemplateModuleData,
   moduleIndex = 0,
+  productAsset?: Record<string, unknown>,
+  productIndex = 0,
+  productMediaPage: Array<Record<string, unknown>> = [],
+  productPageIndex = 0,
+  productPageCount = 0,
+  effectiveProductCount = 0,
+  productImagesPerPage: 1 | 2 = 1,
 ): TemplateGenerationContext {
   const modules = module
     ? [module]
     : workstation?.modules
       || data.modules?.filter(item => item.workstation_id === workstation?.id)
       || [];
+
+  const productAssets = workstation?.product_assets || [];
+  const activeProductAsset = productAsset
+    || module?.product_asset as Record<string, unknown> | undefined
+    || workstation?.product_asset as Record<string, unknown> | undefined
+    || productAssets[0];
 
   return {
     project: data.project || {},
@@ -77,10 +99,20 @@ export function buildTemplateContext(
     modules,
     module: module || modules[0],
     moduleIndex,
+    productAssets,
+    productAsset: activeProductAsset,
+    productIndex,
+    productMediaPage,
+    productPageIndex,
+    productPageCount,
+    productImagesPerPage,
+    effectiveProductCount,
     layout: workstation?.layout || null,
     hardware: data.hardware || {},
-    productAsset: module?.product_asset || workstation?.product_asset || null,
-    productAnnotation: module?.product_annotation || workstation?.product_annotation || null,
+    productAnnotation: activeProductAsset?.product_annotation
+      || module?.product_annotation
+      || workstation?.product_annotation
+      || null,
     language: data.language || 'zh',
     generatedAt: new Date(),
   };
@@ -138,11 +170,52 @@ export function buildTemplateSlidePlan(
 
     if (mapping && duplicate && workstations.length > 0) {
       workstations.forEach((workstation, workstationIndex) => {
-        plan.push({
-          sourceIndex,
-          slideType: mapping.slideType,
-          context: buildTemplateContext(data, workstation, workstationIndex),
-        });
+        const products = workstation.product_assets || [];
+        if (mapping.slideType === 'product_schematic') {
+          const populatedProducts = products
+            .map(product => ({
+              product,
+              media: Array.isArray(product.product_media)
+                ? [...product.product_media].sort((left: any, right: any) =>
+                  Number(left?.sort_order || 0) - Number(right?.sort_order || 0)
+                )
+                : [],
+            }))
+            .filter(entry => entry.media.length > 0);
+          populatedProducts.forEach((entry, productIndex) => {
+            const imagesPerPage = resolveTemplateProductImagesPerPage(entry.product);
+            const pageCount = Math.ceil(entry.media.length / imagesPerPage);
+            for (let productPageIndex = 0; productPageIndex < pageCount; productPageIndex += 1) {
+              plan.push({
+                sourceIndex,
+                slideType: mapping.slideType,
+                context: buildTemplateContext(
+                  data,
+                  workstation,
+                  workstationIndex,
+                  undefined,
+                  0,
+                  entry.product,
+                  productIndex,
+                  entry.media.slice(
+                    productPageIndex * imagesPerPage,
+                    productPageIndex * imagesPerPage + imagesPerPage,
+                  ),
+                  productPageIndex,
+                  pageCount,
+                  populatedProducts.length,
+                  imagesPerPage,
+                ),
+              });
+            }
+          });
+        } else {
+          plan.push({
+            sourceIndex,
+            slideType: mapping.slideType,
+            context: buildTemplateContext(data, workstation, workstationIndex),
+          });
+        }
       });
       continue;
     }
@@ -170,4 +243,10 @@ export function buildTemplateSlidePlan(
     slideType: 'template',
     context: buildTemplateContext(data),
   }));
+}
+
+export function resolveTemplateProductImagesPerPage(
+  product: Record<string, unknown> | null | undefined,
+): 1 | 2 {
+  return Number(product?.document_images_per_page) === 2 ? 2 : 1;
 }

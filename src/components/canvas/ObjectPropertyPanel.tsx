@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   Trash2, Lock, Unlock, X, RotateCcw, Move, 
   Copy, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
-  Maximize2, Minimize2, Box, Loader2, Camera, Package
+  Maximize2, Minimize2, Box, Loader2, Camera, Package, Link2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -49,9 +49,20 @@ export interface LayoutObject {
   model3dUrl?: string;
   // Per-product physical dimensions (mm). Only meaningful when type === 'product'.
   // Falls back to workstation.product_dimensions when absent.
+  productAssetId?: string;
   productLength?: number;
   productWidth?: number;
   productHeight?: number;
+  productIsPrimary?: boolean;
+}
+
+export type ProductLayoutObject = LayoutObject & {
+  type: 'product';
+  productAssetId?: string;
+};
+
+export function isProductLayoutObject(object: LayoutObject): object is ProductLayoutObject {
+  return object.type === 'product';
 }
 
 interface ObjectPropertyPanelProps {
@@ -65,9 +76,6 @@ interface ObjectPropertyPanelProps {
   allObjects?: LayoutObject[];
   isIsometric?: boolean;
   productDimensions?: { length: number; width: number; height: number };
-  onUpdateProductDimensions?: (dims: { length: number; width: number; height: number }) => void;
-  productPosition?: { posX: number; posY: number; posZ: number };
-  onUpdateProductPosition?: (pos: { posX: number; posY: number; posZ: number }) => void;
 }
 // Inline GLB upload field for property panel
 function GLBUploadField({ currentUrl, onUpdate }: { currentUrl?: string; onUpdate: (url: string | undefined) => void }) {
@@ -182,9 +190,6 @@ export function ObjectPropertyPanel({
   allObjects = [],
   isIsometric = false,
   productDimensions,
-  onUpdateProductDimensions,
-  productPosition,
-  onUpdateProductPosition,
 }: ObjectPropertyPanelProps) {
   const [localValues, setLocalValues] = useState({
     x: '0',
@@ -194,16 +199,6 @@ export function ObjectPropertyPanel({
     height: '0',
     depth: '200',
     name: '',
-  });
-  const [productDimensionInputs, setProductDimensionInputs] = useState({
-    length: '0',
-    width: '0',
-    height: '0',
-  });
-  const [productPositionInputs, setProductPositionInputs] = useState({
-    posX: '0',
-    posY: '0',
-    posZ: '0',
   });
   const [isMinimized, setIsMinimized] = useState(false);
   
@@ -216,12 +211,8 @@ export function ObjectPropertyPanel({
   const editingFieldsRef = useRef<Set<string>>(new Set());
   const lastObjectIdRef = useRef<string | null>(null);
   const latestObjectRef = useRef(object);
-  const latestProductDimensionsRef = useRef(productDimensions);
-  const latestProductPositionRef = useRef(productPosition);
 
   latestObjectRef.current = object;
-  latestProductDimensionsRef.current = productDimensions;
-  latestProductPositionRef.current = productPosition;
 
   const clearPendingUpdate = (key: string) => {
     const timer = pendingUpdateTimersRef.current[key];
@@ -330,38 +321,6 @@ export function ObjectPropertyPanel({
     canvasCenter.x,
     canvasCenter.y,
   ]);
-
-  useEffect(() => {
-    if (!productDimensions) return;
-
-    const nextValues = {
-      length: formatRoundedInput(productDimensions.length),
-      width: formatRoundedInput(productDimensions.width),
-      height: formatRoundedInput(productDimensions.height),
-    };
-
-    setProductDimensionInputs(prev => ({
-      length: editingFieldsRef.current.has('product-dimensions:length') ? prev.length : nextValues.length,
-      width: editingFieldsRef.current.has('product-dimensions:width') ? prev.width : nextValues.width,
-      height: editingFieldsRef.current.has('product-dimensions:height') ? prev.height : nextValues.height,
-    }));
-  }, [productDimensions?.length, productDimensions?.width, productDimensions?.height]);
-
-  useEffect(() => {
-    if (!productPosition) return;
-
-    const nextValues = {
-      posX: formatRoundedInput(productPosition.posX),
-      posY: formatRoundedInput(productPosition.posY),
-      posZ: formatRoundedInput(productPosition.posZ),
-    };
-
-    setProductPositionInputs(prev => ({
-      posX: editingFieldsRef.current.has('product-position:posX') ? prev.posX : nextValues.posX,
-      posY: editingFieldsRef.current.has('product-position:posY') ? prev.posY : nextValues.posY,
-      posZ: editingFieldsRef.current.has('product-position:posZ') ? prev.posZ : nextValues.posZ,
-    }));
-  }, [productPosition?.posX, productPosition?.posY, productPosition?.posZ]);
 
   // Early return moved after all hooks - see below
 
@@ -498,62 +457,6 @@ export function ObjectPropertyPanel({
     onUpdate(object.id, { x: canvasCenter.x, y: canvasCenter.y });
   };
 
-  const handleProductDimensionChange = (
-    dim: 'length' | 'width' | 'height',
-    value: string,
-    immediate = false,
-  ) => {
-    setProductDimensionInputs(prev => ({ ...prev, [dim]: value }));
-
-    const key = `product-dimensions:${dim}`;
-    editingFieldsRef.current.add(key);
-    const parsed = parseEditableNumber(value);
-    if (parsed === null) {
-      clearPendingUpdate(key);
-      return;
-    }
-
-    const update = () => {
-      const currentDimensions = latestProductDimensionsRef.current;
-      if (!currentDimensions || !onUpdateProductDimensions) return;
-      onUpdateProductDimensions({
-        ...currentDimensions,
-        [dim]: Math.max(1, Math.round(parsed)),
-      });
-    };
-
-    if (immediate) runNumericUpdateNow(key, update);
-    else scheduleNumericUpdate(key, update);
-  };
-
-  const handleProductPositionChange = (
-    axis: 'posX' | 'posY' | 'posZ',
-    value: string,
-    immediate = false,
-  ) => {
-    setProductPositionInputs(prev => ({ ...prev, [axis]: value }));
-
-    const key = `product-position:${axis}`;
-    editingFieldsRef.current.add(key);
-    const parsed = parseEditableNumber(value);
-    if (parsed === null) {
-      clearPendingUpdate(key);
-      return;
-    }
-
-    const update = () => {
-      const currentPosition = latestProductPositionRef.current;
-      if (!currentPosition || !onUpdateProductPosition) return;
-      onUpdateProductPosition({
-        ...currentPosition,
-        [axis]: Math.round(parsed),
-      });
-    };
-
-    if (immediate) runNumericUpdateNow(key, update);
-    else scheduleNumericUpdate(key, update);
-  };
-
   const localXNumber = parseEditableNumber(localValues.x) ?? 0;
   const localYNumber = parseEditableNumber(localValues.y) ?? 0;
 
@@ -674,6 +577,11 @@ export function ObjectPropertyPanel({
               className="h-8 text-sm"
               disabled={object.locked}
             />
+            {object.type === 'product' && object.productAssetId && (
+              <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px] font-normal text-emerald-700 dark:text-emerald-300">
+                <Link2 className="h-3 w-3" />已关联右侧产品表单
+              </Badge>
+            )}
           </div>
 
           <Separator className="my-3" />
@@ -694,7 +602,37 @@ export function ObjectPropertyPanel({
               </Button>
             </div>
             
-            <div className="grid grid-cols-2 gap-2">
+            {isIsometric && (
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['posX', 'posY', 'posZ'] as const).map(axis => (
+                  <div key={axis} className="space-y-1">
+                    <Label className={cn('text-[10px] font-semibold', axis === 'posX' ? 'text-red-400' : axis === 'posY' ? 'text-green-400' : 'text-blue-400')}>
+                      {axis === 'posX' ? 'X' : axis === 'posY' ? 'Y' : 'Z'}
+                    </Label>
+                    <Input
+                      key={`${object.id}-${axis}-${object[axis] ?? 0}`}
+                      type="number"
+                      defaultValue={object[axis] ?? 0}
+                      onBlur={(event) => {
+                        const value = parseEditableNumber(event.currentTarget.value);
+                        if (value != null) onUpdate(object.id, { [axis]: Math.round(value) });
+                      }}
+                      onKeyDown={(event) => {
+                        stopCanvasShortcutPropagation(event);
+                        if (event.key === 'Enter') {
+                          const value = parseEditableNumber(event.currentTarget.value);
+                          if (value != null) onUpdate(object.id, { [axis]: Math.round(value) });
+                        }
+                      }}
+                      className="h-8 px-1.5 text-xs font-mono"
+                      disabled={object.locked}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!isIsometric && <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <Label className="text-[10px] text-red-400 font-semibold">{axisLabels.horizontal}</Label>
@@ -769,7 +707,7 @@ export function ObjectPropertyPanel({
                   disabled={object.locked}
                 />
               </div>
-            </div>
+            </div>}
             
             {/* 3D Coordinates display */}
             <div className="grid grid-cols-3 gap-1 p-2 rounded-lg bg-muted/30 border border-border">
@@ -920,8 +858,8 @@ export function ObjectPropertyPanel({
 
           <Separator className="my-3" />
 
-          {/* Size */}
-          <div className="space-y-2">
+          {/* Size (products use the dedicated L/W/H editor below) */}
+          {object.type !== 'product' && <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">尺寸 (mm)</Label>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -955,7 +893,7 @@ export function ObjectPropertyPanel({
                 />
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* 3D Depth dimension - only in isometric mode */}
           {isIsometric && object.type === 'mechanism' && (
@@ -999,6 +937,46 @@ export function ObjectPropertyPanel({
                 })() : (
                   <div className="p-2 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground">
                     未挂载到任何机构
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {isIsometric && object.type === 'product' && (
+            <>
+              <Separator className="my-3" />
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">挂载关系</Label>
+                {object.mountedToMechanismId ? (() => {
+                  const parent = allObjects.find(item => item.id === object.mountedToMechanismId);
+                  return (
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 text-xs text-emerald-700 dark:text-emerald-300">
+                          已挂载到 <span className="font-medium">{parent?.name || '未知机构'}</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 shrink-0 px-2 text-[10px]"
+                          disabled={object.locked}
+                          onClick={() => onUpdate(object.id, {
+                            mountedToMechanismId: undefined,
+                            mountPointId: undefined,
+                            mountOffsetX: undefined,
+                            mountOffsetY: undefined,
+                            mountOffsetZ: undefined,
+                          })}
+                        >
+                          解除
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="rounded-lg border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
+                    未挂载；可在 2D 视图拖到产品交互机构上建立关系。
                   </div>
                 )}
               </div>
@@ -1085,66 +1063,6 @@ export function ObjectPropertyPanel({
                 </div>
                 <p className="text-[10px] text-muted-foreground">留空则沿用工位默认尺寸</p>
               </div>
-            </>
-          )}
-
-          {/* 3D Product dimensions & position editing */}
-          {isIsometric && object.id === '__product__' && (
-            <>
-              {onUpdateProductDimensions && productDimensions && (
-                <>
-                  <Separator className="my-3" />
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">产品尺寸 (mm)</Label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(['length', 'width', 'height'] as const).map(dim => (
-                        <div key={dim} className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground">{dim === 'length' ? 'L' : dim === 'width' ? 'W' : 'H'}</Label>
-                          <Input
-                            type="number"
-                            value={productDimensionInputs[dim]}
-                            onChange={(e) => handleProductDimensionChange(dim, e.target.value)}
-                            onBlur={() => handleProductDimensionChange(dim, productDimensionInputs[dim], true)}
-                            onKeyDown={(e) => {
-                              stopCanvasShortcutPropagation(e);
-                              if (e.key === 'Enter') handleProductDimensionChange(dim, e.currentTarget.value, true);
-                            }}
-                            className="h-7 text-xs font-mono px-1.5"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-              {onUpdateProductPosition && productPosition && (
-                <>
-                  <Separator className="my-3" />
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">产品位置 (mm)</Label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(['posX', 'posY', 'posZ'] as const).map(axis => (
-                        <div key={axis} className="space-y-1">
-                          <Label className={cn("text-[10px] font-semibold", axis === 'posX' ? 'text-red-400' : axis === 'posY' ? 'text-green-400' : 'text-blue-400')}>
-                            {axis === 'posX' ? 'X' : axis === 'posY' ? 'Y' : 'Z'}
-                          </Label>
-                          <Input
-                            type="number"
-                            value={productPositionInputs[axis]}
-                            onChange={(e) => handleProductPositionChange(axis, e.target.value)}
-                            onBlur={() => handleProductPositionChange(axis, productPositionInputs[axis], true)}
-                            onKeyDown={(e) => {
-                              stopCanvasShortcutPropagation(e);
-                              if (e.key === 'Enter') handleProductPositionChange(axis, e.currentTarget.value, true);
-                            }}
-                            className="h-7 text-xs font-mono px-1.5"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
             </>
           )}
 

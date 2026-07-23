@@ -33,6 +33,14 @@ import {
   CAMERA_MOUNT_LABELS, 
   getLabel 
 } from '@/services/labelMaps';
+import {
+  formatProductMediaCaption,
+  formatProductSchematicPageTitle,
+  getProductMediaCandidateUrls,
+  paginateProductMedia,
+  type ProductMediaOutputItem,
+  type ProductMediaRecord,
+} from '@/utils/productAssetMedia';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import {
   buildModuleVisionChecklist,
@@ -332,7 +340,16 @@ interface WorkstationSlideData {
     selected_cameras?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
     selected_lenses?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
     selected_lights?: Array<{ id: string; brand: string; model: string; image_url?: string | null }> | null;
-    selected_controller?: { id: string; brand: string; model: string; image_url?: string | null } | null;
+    selected_controller?: {
+      id: string;
+      brand: string;
+      model: string;
+      image_url?: string | null;
+      cpu?: string | null;
+      gpu?: string | null;
+      memory?: string | null;
+      storage?: string | null;
+    } | null;
   } | null;
   modules: Array<{
     id: string;
@@ -358,17 +375,32 @@ interface WorkstationSlideData {
     lighting_photos?: Array<{ url: string; remark?: string; created_at?: string }> | null;
   }>;
   annotations?: Array<{
+    id?: string;
     asset_id?: string;
+    media_id?: string | null;
     snapshot_url: string;
     annotations_json: Array<{ labelNumber?: number; label?: string; number?: number; name?: string; category?: string; description?: string }>;
     remark?: string | null;
+    is_ppt_default?: boolean | null;
+    version?: number | null;
+    created_at?: string | null;
+    updated_at?: string | null;
   }>;
+  productMedia?: ProductMediaRecord[];
   productAsset?: {
     id?: string;
     product_name?: string | null;
     product_code?: string | null;
+    product_spec?: string | null;
+    document_images_per_page?: 1 | 2 | number | null;
     is_primary?: boolean;
-    preview_images: Array<{ url: string; name?: string }> | null;
+    length_mm?: number | null;
+    width_mm?: number | null;
+    height_mm?: number | null;
+    pos_x?: number | null;
+    pos_y?: number | null;
+    pos_z?: number | null;
+    preview_images: unknown;
     detection_method?: string | null;
     product_models?: Array<{ name: string; spec: string }> | null;
     detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
@@ -377,8 +409,16 @@ interface WorkstationSlideData {
     id: string;
     product_name?: string | null;
     product_code?: string | null;
+    product_spec?: string | null;
+    document_images_per_page?: 1 | 2 | number | null;
     is_primary?: boolean;
-    preview_images: Array<{ url: string; name?: string }> | null;
+    length_mm?: number | null;
+    width_mm?: number | null;
+    height_mm?: number | null;
+    pos_x?: number | null;
+    pos_y?: number | null;
+    pos_z?: number | null;
+    preview_images: unknown;
     detection_method?: string | null;
     product_models?: Array<{ name: string; spec: string }> | null;
     detection_requirements?: Array<{ content: string; highlight?: string | null }> | null;
@@ -461,6 +501,50 @@ function formatProductDimensions(dims: WorkstationSlideData['ws']['product_dimen
   return `${length} × ${width} × ${height} mm`;
 }
 
+function formatProductAssetDimensions(
+  product: NonNullable<WorkstationSlideData['productAssets']>[number],
+  fallback: WorkstationSlideData['ws']['product_dimensions'],
+): string {
+  const length = product.length_mm ?? fallback?.length;
+  const width = product.width_mm ?? fallback?.width;
+  const height = product.height_mm ?? fallback?.height;
+  if (length == null || width == null || height == null) return '-';
+  return `${length} × ${width} × ${height} mm`;
+}
+
+function formatProductDimensionSummary(
+  products: WorkstationSlideData['productAssets'],
+  fallback: WorkstationSlideData['ws']['product_dimensions'],
+): string {
+  if (!products || products.length === 0) return formatProductDimensions(fallback);
+  const visibleProducts = products.slice(0, 3);
+  const summary = visibleProducts.map((product, index) => {
+    const name = product.product_name || `P${index + 1}`;
+    return `${name}: ${formatProductAssetDimensions(product, fallback)}`;
+  });
+  if (products.length > visibleProducts.length) {
+    summary.push(`+ ${products.length - visibleProducts.length}`);
+  }
+  return summary.join('\n');
+}
+
+function addProductMetaLine(
+  slide: ReturnType<PptxGenJS['addSlide']>,
+  ctx: SlideContext,
+  product: NonNullable<WorkstationSlideData['productAssets']>[number],
+  fallback: WorkstationSlideData['ws']['product_dimensions'],
+): void {
+  const parts = [
+    product.product_code ? `${ctx.isZh ? '编号' : 'Code'}: ${product.product_code}` : '',
+    product.product_spec ? `${ctx.isZh ? '规格' : 'Spec'}: ${product.product_spec}` : '',
+    `${ctx.isZh ? '尺寸' : 'Size'}: ${formatProductAssetDimensions(product, fallback)}`,
+  ].filter(Boolean);
+  slide.addText(parts.join('   |   '), {
+    x: 0.55, y: 0.96, w: 8.9, h: 0.18,
+    fontSize: 8, fontFace: FONTS.body, color: COLORS.secondary, align: 'right',
+  });
+}
+
 function buildModuleNameRows(modules: WorkstationSlideData['modules']): string[][] {
   const moduleNames = modules
     .map(mod => String(mod.name || '').trim())
@@ -476,12 +560,14 @@ export function buildWorkstationTechnicalRequirementTables({
   wsName,
   ws,
   modules,
+  productAssets,
 }: {
   isZh: boolean;
   wsCode: string;
   wsName: string;
   ws: WorkstationSlideData['ws'];
   modules: WorkstationSlideData['modules'];
+  productAssets?: WorkstationSlideData['productAssets'];
 }): WorkstationTechnicalRequirementTables {
   const acceptance = ws.acceptance_criteria || {};
   const wsTypeLabel = WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type;
@@ -493,7 +579,10 @@ export function buildWorkstationTechnicalRequirementTables({
     [isZh ? '工位类型' : 'Type', filledOrDash(wsTypeLabel)],
     [isZh ? '工位节拍' : 'Station Cycle Time', formatWorkstationCycleTime(ws)],
     [isZh ? '精度要求' : 'Accuracy', filledOrDash(acceptance.accuracy)],
-    [isZh ? '产品尺寸' : 'Product Size', formatProductDimensions(ws.product_dimensions)],
+    [
+      isZh ? `产品尺寸${productAssets?.length ? `（${productAssets.length}款）` : ''}` : `Product Size${productAssets?.length ? ` (${productAssets.length})` : ''}`,
+      formatProductDimensionSummary(productAssets, ws.product_dimensions),
+    ],
   ];
 
   return {
@@ -559,7 +648,7 @@ export function generateBasicInfoSlide(
   data: WorkstationSlideData
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { ws, layout, modules } = data;
+  const { ws, layout, modules, productAssets } = data;
   
   addSlideTitle(slide, ctx, ctx.isZh ? '基本信息' : 'Basic Info');
 
@@ -595,12 +684,12 @@ export function generateBasicInfoSlide(
   });
 
   // Compatible sizes / Key dimensions
-  const dims = ws.product_dimensions;
+  const productDimensionSummary = formatProductDimensionSummary(productAssets, ws.product_dimensions);
   slide.addText(ctx.isZh ? '【产品尺寸】' : '[Product Size]', {
     x: 0.5, y: startY + 0.65, w: 4.3, h: 0.25,
     fontSize: 11, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
-  slide.addText(dims ? `${dims.length} × ${dims.width} × ${dims.height} mm` : '-', {
+  slide.addText(productDimensionSummary, {
     x: 0.5, y: startY + 0.93, w: 4.3, h: 0.25,
     fontSize: 10, fontFace: FONTS.body, color: COLORS.dark,
   });
@@ -666,131 +755,97 @@ export async function generateProductSchematicSlide(
   ctx: SlideContext,
   data: WorkstationSlideData
 ): Promise<void> {
-  const { annotations: allAnnotations, productAsset, productAssets } = data;
+  const { annotations: allAnnotations, productAsset, productAssets, productMedia } = data;
   const annotationsList = allAnnotations && allAnnotations.length > 0 ? allAnnotations : [];
-
-  // Multi-product path: iterate each workstation product and render its own annotations/preview.
   const products = productAssets && productAssets.length > 0
     ? productAssets
     : (productAsset ? [{ ...productAsset, id: productAsset.id ?? '__single__' }] : []);
+  const pages = paginateProductMedia(products, productMedia, annotationsList);
 
-  if (products.length > 1) {
-    for (let pi = 0; pi < products.length; pi++) {
-      const product = products[pi];
-      const productLabel = product.product_name || `${ctx.isZh ? '产品' : 'Product'} ${pi + 1}`;
-      const productAnnots = annotationsList.filter(a => a.asset_id === product.id);
-
-      if (productAnnots.length > 0) {
-        for (let ai = 0; ai < productAnnots.length; ai++) {
-          const annotation = productAnnots[ai];
-          const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-          const suffix = productAnnots.length > 1 ? ` ${ai + 1}/${productAnnots.length}` : '';
-          addSlideTitle(slide, ctx, `${ctx.isZh ? '产品示意图' : 'Product Schematic'} · ${productLabel}${suffix}`);
-          await renderAnnotationBody(ctx, slide, annotation);
-        }
-      } else {
-        const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-        addSlideTitle(slide, ctx, `${ctx.isZh ? '产品示意图' : 'Product Schematic'} · ${productLabel}`);
-        await renderPreviewOnly(ctx, slide, product.preview_images?.[0]?.url);
-      }
-    }
-    return;
-  }
-
-  console.log(`[PPT] 产品示意图: annotations=${annotationsList.length}, hasProductAsset=${!!productAsset}, previewImages=${productAsset?.preview_images?.length || 0}`);
-
-  if (annotationsList.length > 0) {
-    // Generate one slide per annotation
-    for (let ai = 0; ai < annotationsList.length; ai++) {
-      const annotation = annotationsList[ai];
-      const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      const subtitle = annotationsList.length > 1
-        ? `${ctx.isZh ? '产品示意图' : 'Product Schematic'} ${ai + 1}/${annotationsList.length}`
-        : (ctx.isZh ? '产品示意图' : 'Product Schematic');
-      addSlideTitle(slide, ctx, subtitle);
-      await renderAnnotationBody(ctx, slide, annotation);
-    }
-  } else {
-    // Fallback: use product asset preview image
+  for (const page of pages) {
+    const product = page.product;
     const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-    addSlideTitle(slide, ctx, ctx.isZh ? '产品示意图' : 'Product Schematic');
-    await renderPreviewOnly(ctx, slide, productAsset?.preview_images?.[0]?.url);
+    addSlideTitle(slide, ctx, formatProductSchematicPageTitle(page, ctx.isZh));
+    slide.addText(product.product_name || `${ctx.isZh ? '产品' : 'Product'} ${page.productIndex + 1}`, {
+      x: 0.55, y: 0.96, w: 3.0, h: 0.18,
+      fontSize: 8, fontFace: FONTS.body, color: COLORS.primary, bold: true,
+    });
+    addProductMetaLine(slide, ctx, product, data.ws.product_dimensions);
+
+	    const compactCardWidth = 4.25;
+	    const singleMode = page.imagesPerPage === 1;
+	    const singleCardWidth = singleMode ? 8.15 : compactCardWidth;
+	    const positions = page.items.length === 1
+	      ? [{
+	        x: (SLIDE_LAYOUT.width - singleCardWidth) / 2,
+	        y: 1.22,
+	        width: singleCardWidth,
+	        height: singleMode ? 3.72 : 3.05,
+	      }]
+	      : [
+	        { x: 0.55, y: 1.22, width: compactCardWidth, height: 3.05 },
+	        { x: 5.2, y: 1.22, width: compactCardWidth, height: 3.05 },
+	      ];
+    for (let index = 0; index < page.items.length; index += 1) {
+      await renderProductMediaCard(ctx, slide, page.items[index], positions[index]);
+    }
   }
 }
 
-async function renderAnnotationBody(
+async function renderProductMediaCard(
   ctx: SlideContext,
   slide: PptxGenJS.Slide,
-  annotation: NonNullable<WorkstationSlideData['annotations']>[number],
+  item: ProductMediaOutputItem,
+  area: { x: number; y: number; width: number; height: number },
 ): Promise<void> {
-  try {
-    const dataUri = await fetchImageAsDataUri(annotation.snapshot_url);
-    if (dataUri) {
+  const imageArea = { ...area, height: area.height - 0.55 };
+  let renderedKind: 'annotation' | 'original' | null = null;
+  for (const candidate of getProductMediaCandidateUrls(item)) {
+    try {
+      const dataUri = await fetchImageAsDataUri(candidate.url);
+      if (!dataUri) continue;
       const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
-      const fit = calculateContainFit(dims.width, dims.height, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 });
+      const fit = calculateContainFit(dims.width, dims.height, imageArea);
+      slide.addShape('rect', {
+        x: area.x, y: area.y, w: area.width, h: imageArea.height,
+        fill: { color: 'F8FAFC' },
+        line: { color: COLORS.border, width: 0.6 },
+      });
       slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
-    } else {
-      console.warn('[PPT] 标注快照加载失败:', annotation.snapshot_url);
-      addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
+      renderedKind = candidate.kind;
+      break;
+    } catch {
+      console.warn('[PPT] 产品图片候选加载失败，尝试下一候选:', candidate.url);
     }
-  } catch {
-    addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
   }
 
-  slide.addText(ctx.isZh ? '标注说明' : 'Annotation Legend', {
-    x: 6.2, y: 1.2, w: 3.3, h: 0.3, fontSize: 11, fontFace: FONTS.body, color: COLORS.dark, bold: true,
-  });
-  const annotItems = Array.isArray(annotation.annotations_json) ? annotation.annotations_json : [];
-  const legendRows: TableRow[] = annotItems
-    .filter(item => (item.labelNumber || item.number) && (item.label || item.name))
-    .map(item => {
-      const num = item.labelNumber || item.number || 0;
-      const label = item.label || item.name || '';
-      const detail = item.category ? `[${item.category}] ${label}` : label;
-      return row([`#${num}`, detail]);
-    });
-  if (legendRows.length > 0) {
-    addPaginatedTable(ctx, slide, 'Product Schematic', 'Annotation Legend', [], legendRows, {
-      x: 6.2, y: 1.55, w: 3.3, h: Math.min(legendRows.length * 0.32 + 0.1, 2.8),
-      fontFace: FONTS.body, fontSize: 9, colW: [0.6, 2.7],
-      border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
-    }, {
-      rowHeight: 0.32,
-      firstPageBottomY: 4.35,
-      continuationOptions: {
-        x: 0.5, y: 1.2, w: 9,
-        fontFace: FONTS.body, fontSize: 9, colW: [1.0, 8.0],
-        border: { pt: 0.5, color: COLORS.border }, fill: { color: COLORS.white },
-      },
-      continuationRowHeight: 0.32,
-    });
+  if (!renderedKind) {
+    addImagePlaceholder(
+      slide,
+      imageArea,
+      ctx.isZh ? '图片加载失败' : 'Image unavailable',
+      '📷',
+    );
   }
-  if (annotation.remark) {
-    slide.addText(annotation.remark, { x: 6.2, y: 4.5, w: 3.3, h: 0.5, fontSize: 9, fontFace: FONTS.body, color: COLORS.secondary });
-  }
-}
 
-async function renderPreviewOnly(
-  ctx: SlideContext,
-  slide: PptxGenJS.Slide,
-  imageUrl: string | undefined,
-): Promise<void> {
-  if (!imageUrl) {
-    addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
-    return;
-  }
-  try {
-    const dataUri = await fetchImageAsDataUri(imageUrl);
-    if (dataUri) {
-      const dims = await getImageDimensions(dataUri).catch(() => ({ width: 800, height: 600 }));
-      const fit = calculateContainFit(dims.width, dims.height, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 });
-      slide.addImage({ data: dataUri, x: fit.x, y: fit.y, w: fit.width, h: fit.height });
-    } else {
-      addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '图片加载失败' : 'Image load failed', '📷');
-    }
-  } catch {
-    addImagePlaceholder(slide, { x: 0.5, y: 1.2, width: 5.5, height: 3.8 }, ctx.isZh ? '待上传产品图片' : 'Upload product image', '📷');
-  }
+  const caption = formatProductMediaCaption({
+    ...item,
+    annotation: renderedKind === 'original' && item.annotation
+      ? { ...item.annotation, remark: ctx.isZh ? '标注快照不可用，已回退原图' : 'Annotation unavailable; original shown' }
+      : item.annotation,
+  }, ctx.isZh);
+  slide.addText(caption, {
+    x: area.x,
+    y: area.y + imageArea.height + 0.08,
+    w: area.width,
+    h: 0.48,
+    fontSize: 7.5,
+    fontFace: FONTS.body,
+    color: COLORS.secondary,
+    valign: 'top',
+    margin: 0.02,
+    breakLine: false,
+  } as any);
 }
 
 /**
@@ -802,7 +857,7 @@ export function generateTechnicalRequirementsSlide(
   data: WorkstationSlideData
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { ws, modules } = data;
+  const { ws, modules, productAssets } = data;
   
   addSlideTitle(slide, ctx, ctx.isZh ? '技术要求' : 'Technical Requirements');
   const tables = buildWorkstationTechnicalRequirementTables({
@@ -811,6 +866,7 @@ export function generateTechnicalRequirementsSlide(
     wsName: ctx.wsName,
     ws,
     modules,
+    productAssets,
   });
 
   // Detection items with module description
@@ -1402,18 +1458,32 @@ export function generateVisionListSlide(
 /**
  * Slide 9: BOM List & Review (BOM清单及审核)
  */
+export function formatControllerGpuNote(
+  controller: { gpu?: string | null } | null | undefined,
+  isZh: boolean,
+): string {
+  const gpu = typeof controller?.gpu === 'string' ? controller.gpu.trim() : '';
+  if (!gpu) return '';
+  return isZh ? `GPU：${gpu}` : `GPU: ${gpu}`;
+}
+
+export function getBOMItemCount(layout: WorkstationSlideData['layout']): number {
+  return (layout?.selected_cameras?.filter(Boolean).length || 0)
+    + (layout?.selected_lenses?.filter(Boolean).length || 0)
+    + (layout?.selected_lights?.filter(Boolean).length || 0)
+    + (layout?.selected_controller ? 1 : 0);
+}
+
+export function getBOMSlideCount(layout: WorkstationSlideData['layout']): number {
+  return Math.max(1, Math.ceil(Math.max(1, getBOMItemCount(layout)) / 10));
+}
+
 export function generateBOMSlide(
   ctx: SlideContext,
   data: WorkstationSlideData
 ): void {
-  const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
   const { layout } = data;
   const bomSubtitle = ctx.isZh ? 'BOM清单' : 'BOM List';
-  const bomSectionTitle = ctx.isZh ? 'BOM明细' : 'BOM';
-  
-  addSlideTitle(slide, ctx, bomSubtitle);
-
-  // BOM table
   const bomHeader: TableRow = row([
     ctx.isZh ? '序号' : 'No.',
     ctx.isZh ? '设备名称' : 'Device',
@@ -1443,27 +1513,28 @@ export function generateBOMSlide(
 
   // Controller
   if (layout?.selected_controller) {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工控机' : 'IPC', `${layout.selected_controller.brand} ${layout.selected_controller.model}`, '1', 'TBD', ctx.isZh ? '含GPU' : 'w/ GPU']));
+    bomRows.push(row([
+      String(bomIdx++),
+      ctx.isZh ? '工控机' : 'IPC',
+      `${layout.selected_controller.brand} ${layout.selected_controller.model}`,
+      '1',
+      'TBD',
+      formatControllerGpuNote(layout.selected_controller, ctx.isZh),
+    ]));
   }
 
   if (bomRows.length === 0) {
     bomRows.push(row(['1', '-', '-', '-', '-', '-']));
   }
 
-  addPaginatedTable(ctx, slide, bomSubtitle, bomSectionTitle, [bomHeader], bomRows, {
-    x: 0.5, y: 1.1, w: 9, h: Math.min((bomRows.length + 1) * 0.32 + 0.1, 3.0),
-    fontFace: FONTS.body,
-    fontSize: 9,
-    colW: [0.6, 1.5, 2.8, 0.8, 1, 2.3],
-    border: { pt: 0.5, color: COLORS.border },
-    fill: { color: COLORS.white },
-    valign: 'middle',
-    align: 'center',
-  }, {
-    rowHeight: 0.32,
-    firstPageMaxBodyRows: 10,
-    firstPageBottomY: 4.45,
-    continuationOptions: {
+  const chunks: TableRow[][] = [];
+  for (let index = 0; index < bomRows.length; index += 10) {
+    chunks.push(bomRows.slice(index, index + 10));
+  }
+  chunks.forEach((chunk, pageIndex) => {
+    const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+    addSlideTitle(slide, ctx, `${bomSubtitle} (${pageIndex + 1}/${chunks.length})`);
+    addSafeTable(slide, [bomHeader, ...chunk], {
       x: 0.5, y: 1.2, w: 9,
       fontFace: FONTS.body,
       fontSize: 9,
@@ -1472,8 +1543,7 @@ export function generateBOMSlide(
       fill: { color: COLORS.white },
       valign: 'middle',
       align: 'center',
-    },
-    continuationRowHeight: 0.32,
+    }, 0.32, 4.45);
   });
 }
 
@@ -1488,7 +1558,7 @@ export function generateBasicInfoAndRequirementsSlide(
   data: WorkstationSlideData
 ): void {
   const slide = ctx.pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  const { ws, modules } = data;
+  const { ws, modules, productAssets } = data;
   
   addSlideTitle(slide, ctx, ctx.isZh ? '技术要求' : 'Technical Requirements');
 
@@ -1498,6 +1568,7 @@ export function generateBasicInfoAndRequirementsSlide(
     wsName: ctx.wsName,
     ws,
     modules,
+    productAssets,
   });
 
   // === TOP HALF: Basic Info + Notes ===
@@ -1512,6 +1583,7 @@ export function generateBasicInfoAndRequirementsSlide(
     border: { pt: 0.5, color: COLORS.border },
     fill: { color: COLORS.white },
     valign: 'middle',
+    rowH: basicInfoRows.map((_, index) => index === basicInfoRows.length - 1 ? 0.52 : 0.24),
   }, 0.3, 3.15);
 
   slide.addShape('rect', {

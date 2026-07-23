@@ -18,6 +18,7 @@
 
 import { resolveHardwareImageUrl } from '@/utils/hardwareImageUrls';
 import { imageLocalCache } from '@/services/imageLocalCache';
+import { normalizeProductPreviewImages } from '@/utils/productAssetMedia';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
 
 // Image cache for dataUri conversion (memory cache for current session)
@@ -237,13 +238,14 @@ export function collectAllImageUrls(
   }>,
   modules: Array<{ schematic_image_url?: string | null }>,
   annotations?: Array<{ snapshot_url?: string }>,
-  productAssets?: Array<{ preview_images?: Array<{ url: string }> | null }>,
+  productAssets?: Array<{ preview_images?: unknown }>,
   hardware?: {
     cameras: Array<{ image_url: string | null }>;
     lenses: Array<{ image_url: string | null }>;
     lights: Array<{ image_url: string | null }>;
     controllers: Array<{ image_url: string | null }>;
-  }
+  },
+  productMedia?: Array<{ original_url?: string | null }>,
 ): string[] {
   const urls: string[] = [];
   
@@ -289,9 +291,13 @@ export function collectAllImageUrls(
   
   // Product assets
   productAssets?.forEach(asset => {
-    asset.preview_images?.forEach(img => {
+    normalizeProductPreviewImages(asset.preview_images).forEach(img => {
       if (img.url) urls.push(img.url);
     });
+  });
+
+  productMedia?.forEach(media => {
+    if (media.original_url) urls.push(media.original_url);
   });
   
   // Hardware images

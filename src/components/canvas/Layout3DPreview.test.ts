@@ -28,6 +28,27 @@ function makeMechanism(patch: Partial<LayoutObject> = {}): LayoutObject {
   };
 }
 
+function makeProduct(id: string, patch: Partial<LayoutObject> = {}): LayoutObject {
+  return {
+    id,
+    type: 'product',
+    name: id,
+    posX: 0,
+    posY: 0,
+    posZ: 0,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 50,
+    rotation: 0,
+    locked: false,
+    productLength: 100,
+    productWidth: 100,
+    productHeight: 50,
+    ...patch,
+  };
+}
+
 function cameraDistance(action: ReturnType<typeof calculateIsometricFitCamera>) {
   const dx = action.position[0] - action.target[0];
   const dy = action.position[1] - action.target[1];
@@ -36,14 +57,9 @@ function cameraDistance(action: ReturnType<typeof calculateIsometricFitCamera>) 
 }
 
 describe('calculateIsometricFitCamera', () => {
-  const productDimensions = { length: 200, width: 120, height: 50 };
-  const productPosition = { posX: 0, posY: 0, posZ: 0 };
-
   it('keeps tall mechanisms inside the fit target', () => {
     const action = calculateIsometricFitCamera({
       objects: [makeMechanism()],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
     });
@@ -55,15 +71,11 @@ describe('calculateIsometricFitCamera', () => {
   it('accounts for rotated object bounds', () => {
     const base = calculateIsometricFitCamera({
       objects: [makeMechanism({ width: 100, height: 900, rotX: 0 })],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
     });
     const rotated = calculateIsometricFitCamera({
       objects: [makeMechanism({ width: 100, height: 900, rotX: 90 })],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
     });
@@ -74,16 +86,12 @@ describe('calculateIsometricFitCamera', () => {
   it('moves the camera farther away when padding increases', () => {
     const base = calculateIsometricFitCamera({
       objects: [makeMechanism()],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
       padding: 1.2,
     });
     const padded = calculateIsometricFitCamera({
       objects: [makeMechanism()],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
       padding: 1.9,
@@ -95,16 +103,12 @@ describe('calculateIsometricFitCamera', () => {
   it('uses a tighter camera distance for screenshot capture padding', () => {
     const interactive = calculateIsometricFitCamera({
       objects: [makeMechanism()],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
       padding: DEFAULT_ISOMETRIC_FIT_PADDING,
     });
     const capture = calculateIsometricFitCamera({
       objects: [makeMechanism()],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
       padding: ISOMETRIC_CAPTURE_PADDING,
@@ -116,23 +120,26 @@ describe('calculateIsometricFitCamera', () => {
   it('adapts camera distance for wide multi-object layouts', () => {
     const compact = calculateIsometricFitCamera({
       objects: [makeMechanism()],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
     });
     const wide = calculateIsometricFitCamera({
       objects: [
-        makeMechanism({ id: 'mech-left', posX: -1500, width: 500, height: 400 }),
-        makeMechanism({ id: 'mech-right', posX: 1500, width: 500, height: 400 }),
+        makeProduct('product-left', { posX: -1500, productLength: 500, productWidth: 250 }),
+        makeProduct('product-center'),
+        makeProduct('product-right', { posX: 1500, productLength: 500, productWidth: 250 }),
       ],
-      productDimensions,
-      productPosition,
       fov: 50,
       aspect: 16 / 9,
     });
 
-    expect(cameraDistance(wide)).toBeGreaterThan(cameraDistance(compact) * 1.5);
+    expect(cameraDistance(wide)).toBeGreaterThan(cameraDistance(compact) * 1.2);
+  });
+
+  it('supports an explicit zero-product empty scene', () => {
+    const empty = calculateIsometricFitCamera({ objects: [], fov: 50, aspect: 16 / 9 });
+    expect(empty.position.every(Number.isFinite)).toBe(true);
+    expect(empty.target.every(Number.isFinite)).toBe(true);
   });
 });
 
@@ -168,15 +175,20 @@ describe('isometric model readiness helpers', () => {
     expect(isIsometricCaptureReady(status, true, true)).toBe(true);
   });
 
-  it('blocks capture when a custom GLB model failed', () => {
+  it('allows fallback capture when a custom GLB model failed', () => {
     const status = deriveIsometricSceneStatus([modelObject], [], [modelKey]);
 
     expect(status).toEqual({
-      ready: false,
+      ready: true,
       pendingModelCount: 0,
       failedModelCount: 1,
     });
-    expect(isIsometricCaptureReady(status, true, true)).toBe(false);
+    expect(isIsometricCaptureReady(status, true, true)).toBe(true);
+  });
+
+  it('tracks product GLB models independently', () => {
+    const product = makeProduct('product-glb', { model3dUrl: 'https://example.com/product.glb' });
+    expect(getIsometricModelLoadKey(product)).toBe('product-glb:https://example.com/product.glb');
   });
 
   it('requires screenshot and fit functions before capture', () => {

@@ -181,6 +181,7 @@ function replaceLoops(xml: string, context: any, fieldMappings: any[], replacedF
   const loopSources: Record<string, any[]> = {
     workstations: context.workstations || [],
     modules: context.modules || [],
+    products: context.productAssets || [],
     "hardware.cameras": context.hardware?.cameras || [],
     "hardware.lenses": context.hardware?.lenses || [],
     "hardware.lights": context.hardware?.lights || [],
@@ -199,6 +200,8 @@ function replaceLoops(xml: string, context: any, fieldMappings: any[], replacedF
           loopIndex: index,
           workstation: loopName === "workstations" ? item : context.workstation,
           modules: loopName === "workstations" ? (item.modules || []) : context.modules,
+          productAsset: loopName === "products" ? item : context.productAsset,
+          productAnnotation: loopName === "products" ? item.product_annotation : context.productAnnotation,
         };
         return replaceTextPlaceholders(inner, loopContext, fieldMappings, replacedFields);
       }).join("");
@@ -225,6 +228,14 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
   const loopItem = context.loopItem || null;
   const generatedAt = context.generatedAt || new Date();
   const workstationCycleTime = getWorkstationCycleTimeValue(workstation);
+  const productAssets = context.productAssets || workstation.product_assets || [];
+  const productAsset = context.productAsset || productAssets[0] || {};
+  const productMediaPage = Array.isArray(context.productMediaPage) ? context.productMediaPage : [];
+  const productPageCount = Number(context.productPageCount || 0);
+  const productPageIndex = Number(context.productPageIndex || 0);
+  const productImagesPerPage = Number(context.productImagesPerPage) === 2 ? 2 : 1;
+  const effectiveProductCount = Number(context.effectiveProductCount || 0);
+  const productDimensions = formatProductAssetDimensions(productAsset, workstation.product_dimensions);
 
   const fields: Record<string, string> = {
     project_name: project.name,
@@ -263,7 +274,8 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     ws_motion_description: workstation.motion_description,
     ws_risk_notes: workstation.risk_notes,
     ws_module_count: String(context.modules?.length || 0),
-    ws_product_size: workstation.product_dimensions_label,
+    ws_product_count: String(productAssets.length || 0),
+    ws_product_size: formatProductDimensionSummary(productAssets, workstation.product_dimensions),
     ws_layout_size: layout.dimensions_label,
     ws_camera_count: stringify(layout.camera_count),
     front_view_image_url: layout.front_view_image_url,
@@ -272,7 +284,33 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
     front_view_image: layout.front_view_image_url,
     side_view_image: layout.side_view_image_url,
     top_view_image: layout.top_view_image_url,
-    product_snapshot: context.productAnnotation?.snapshot_url,
+    product_name: productAsset.product_name,
+    product_code: productAsset.product_code,
+    product_spec: productAsset.product_spec,
+    product_index: String((context.productIndex ?? 0) + 1),
+    product_length: stringify(productAsset.length_mm ?? workstation.product_dimensions?.length),
+    product_width: stringify(productAsset.width_mm ?? workstation.product_dimensions?.width),
+    product_height: stringify(productAsset.height_mm ?? workstation.product_dimensions?.height),
+    product_dimensions: productDimensions,
+    product_page_title: formatTemplateProductPageTitle(
+      effectiveProductCount,
+      Number(context.productIndex || 0),
+      productPageIndex,
+      productPageCount,
+      context.language || "zh",
+    ),
+    product_page_index: String(productPageIndex + 1),
+    product_page_count: String(productPageCount),
+    product_images_per_page: String(productImagesPerPage),
+    product_pagination_mode: productImagesPerPage === 1
+      ? context.language === "en" ? "One image per page" : "单页单图"
+      : context.language === "en" ? "Two images per page" : "单页双图",
+    product_image_1: productMediaDisplayUrl(productMediaPage[0]),
+    product_image_2: productMediaDisplayUrl(productMediaPage[1]),
+    product_caption_1: formatTemplateProductMediaCaption(productMediaPage[0], context.language || "zh"),
+    product_caption_2: formatTemplateProductMediaCaption(productMediaPage[1], context.language || "zh"),
+    product_snapshot: productMediaDisplayUrl(productMediaPage[0]) || context.productAnnotation?.snapshot_url,
+    product_preview: productMediaPage[0]?.original_url || normalizePreviewImageUrls(productAsset.preview_images)[0],
     schematic_image: (context.module || context.modules?.[0])?.schematic_image_url,
   };
 
@@ -348,6 +386,21 @@ function buildFieldMap(context: any, fieldMappings: any[]) {
         ws_cycle_time: stringify(loopCycleTime),
         cycle_time: stringify(loopCycleTime),
         ws_module_count: String(loopItem.modules?.length || 0),
+      });
+    }
+
+    if (context.loopName === "products") {
+      Object.assign(fields, {
+        product_name: loopItem.product_name,
+        product_code: loopItem.product_code,
+        product_spec: loopItem.product_spec,
+        product_index: String(loopIndex),
+        product_length: stringify(loopItem.length_mm ?? workstation.product_dimensions?.length),
+        product_width: stringify(loopItem.width_mm ?? workstation.product_dimensions?.width),
+        product_height: stringify(loopItem.height_mm ?? workstation.product_dimensions?.height),
+        product_dimensions: formatProductAssetDimensions(loopItem, workstation.product_dimensions),
+        product_snapshot: loopItem.product_annotation?.snapshot_url,
+        product_preview: normalizePreviewImageUrls(loopItem.preview_images)[0],
       });
     }
   }
@@ -680,14 +733,43 @@ async function replaceImagePlaceholders(zip: any, xml: string, relsXml: string, 
 
     for (const placeholder of placeholders) {
       const imageKey = placeholder[1].trim();
-      const imageUrl = resolveImageUrl(imageKey, context);
-      if (!imageUrl) {
+      const pageMedia = Array.isArray(context.productMediaPage) ? context.productMediaPage : [];
+      if (imageKey === "product_snapshot" && pageMedia.length > 1) {
+        const position = parseShapePosition(shape);
+        const gap = 91440;
+        const splitWidth = Math.max(1, Math.floor((position.cx - gap) / 2));
+        let inserted = 0;
+        for (let mediaIndex = 0; mediaIndex < 2; mediaIndex += 1) {
+          try {
+            const { image } = await fetchFirstAvailableImage(productMediaCandidateUrls(pageMedia[mediaIndex]));
+            const mediaName = `template_img_${slideNumber}_${imageIndex++}.${image.ext}`;
+            zip.file(`ppt/media/${mediaName}`, image.bytes);
+            const rId = nextRelationshipId(outputRels);
+            outputRels = addRelationship(outputRels, rId, IMAGE_REL, `../media/${mediaName}`);
+            const splitPosition = {
+              x: position.x + mediaIndex * (splitWidth + gap),
+              y: position.y,
+              cx: splitWidth,
+              cy: position.cy,
+            };
+            const picXml = createPictureXml(rId, `TemplateProductImage${slideNumber}_${mediaIndex + 1}`, splitPosition);
+            outputXml = outputXml.replace("</p:spTree>", `${picXml}</p:spTree>`);
+            inserted += 1;
+          } catch (error) {
+            console.warn("Legacy product image split failed:", error);
+          }
+        }
+        outputXml = outputXml.replace(placeholder[0], inserted > 0 ? "" : "[图片加载失败]");
+        continue;
+      }
+      const imageUrls = resolveImageUrls(imageKey, context);
+      if (imageUrls.length === 0) {
         outputXml = outputXml.replace(placeholder[0], "[图片缺失]");
         continue;
       }
 
       try {
-        const image = await fetchImage(imageUrl);
+        const { image } = await fetchFirstAvailableImage(imageUrls);
         const mediaName = `template_img_${slideNumber}_${imageIndex++}.${image.ext}`;
         zip.file(`ppt/media/${mediaName}`, image.bytes);
         const rId = nextRelationshipId(outputRels);
@@ -698,7 +780,7 @@ async function replaceImagePlaceholders(zip: any, xml: string, relsXml: string, 
         outputXml = outputXml.replace(placeholder[0], "");
         outputXml = outputXml.replace("</p:spTree>", `${picXml}</p:spTree>`);
       } catch (error) {
-        console.warn("Image insertion failed:", imageUrl, error);
+        console.warn("Image insertion failed for all candidates:", imageUrls, error);
         outputXml = outputXml.replace(placeholder[0], "[图片加载失败]");
       }
     }
@@ -753,8 +835,10 @@ async function replaceRuleBindings(
 
     if (binding.replacementMode === "replace-picture" || binding.matchType === "image") {
       if (!value) continue;
+      const imageUrls = resolveImageUrls(manual.systemField, context);
+      if (!imageUrls.includes(value)) imageUrls.push(value);
       try {
-        const image = await fetchImage(value);
+        const { image } = await fetchFirstAvailableImage(imageUrls);
         const mediaName = `rule_img_${slideNumber}_${binding.shapeId}.${image.ext}`;
         zip.file(`ppt/media/${mediaName}`, image.bytes);
         const rId = nextRelationshipId(outputRels);
@@ -762,7 +846,7 @@ async function replaceRuleBindings(
         outputXml = replacePictureEmbedByShapeId(outputXml, String(binding.shapeId || ""), rId);
         replacedFields.add(`${binding.id}:${manual.systemField}`);
       } catch (error) {
-        console.warn("Rule image replacement failed:", value, error);
+        console.warn("Rule image replacement failed for all candidates:", imageUrls, error);
       }
       continue;
     }
@@ -826,22 +910,130 @@ function replaceFirstTextRun(shapeXml: string, value: string) {
   });
 }
 
-function resolveImageUrl(key: string, context: any): string | null {
+function normalizePreviewImageUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const urls = value.map((item: any) => typeof item === "string" ? item : item?.url)
+    .filter((url: unknown): url is string => typeof url === "string" && url.trim().length > 0)
+    .map((url: string) => url.trim());
+  return [...new Set(urls)];
+}
+
+function productMediaCandidateUrls(media: any): string[] {
+  if (!media) return [];
+  const annotationUrl = media.product_annotation?.snapshot_url;
+  const originalUrl = media.original_url;
+  return [annotationUrl, originalUrl]
+    .filter((url: unknown): url is string => typeof url === "string" && url.trim().length > 0)
+    .map((url: string) => url.trim())
+    .filter((url: string, index: number, values: string[]) => values.indexOf(url) === index);
+}
+
+function productMediaDisplayUrl(media: any): string {
+  return productMediaCandidateUrls(media)[0] || "";
+}
+
+function formatTemplateProductPageTitle(
+  effectiveProductCount: number,
+  productIndex: number,
+  pageIndex: number,
+  pageCount: number,
+  language: string,
+) {
+  const isZh = language !== "en";
+  const base = effectiveProductCount > 1
+    ? isZh ? `产品示意图-产品${productIndex + 1}` : `Product Schematic-Product ${productIndex + 1}`
+    : isZh ? "产品示意图" : "Product Schematic";
+  return `${base}${isZh ? "（" : " ("}${pageIndex + 1}/${Math.max(pageCount, 1)}${isZh ? "）" : ")"}`;
+}
+
+function formatTemplateProductMediaCaption(media: any, language: string) {
+  if (!media) return "";
+  const isZh = language !== "en";
+  const annotation = media.product_annotation || null;
+  const lines = [
+    `${media.file_name || (isZh ? "产品图片" : "Product image")} · ${
+      annotation ? (isZh ? "已标注" : "Annotated") : (isZh ? "未标注" : "Unannotated")
+    }`,
+  ];
+  if (annotation?.remark) lines.push(String(annotation.remark));
+  const labels = Array.isArray(annotation?.annotations_json)
+    ? annotation.annotations_json.map((item: any) => {
+      const label = item?.label || item?.name || item?.description;
+      if (!label) return "";
+      const number = item?.labelNumber ?? item?.number;
+      return number == null ? String(label) : `#${number} ${label}`;
+    }).filter(Boolean)
+    : [];
+  if (labels.length > 0) {
+    const visible = labels.slice(0, 3).join(isZh ? "；" : "; ");
+    lines.push(labels.length > 3
+      ? `${visible}${isZh ? `；另 ${labels.length - 3} 项` : `; +${labels.length - 3} more`}`
+      : visible);
+  }
+  return lines.join("\n");
+}
+
+function productVisualCandidateUrls(context: any): string[] {
+  const pageMedia = Array.isArray(context.productMediaPage) ? context.productMediaPage : [];
+  if (pageMedia.length > 0) return productMediaCandidateUrls(pageMedia[0]);
+  const productAsset = context.productAsset || {};
+  const annotations = Array.isArray(productAsset.product_annotations)
+    ? [...productAsset.product_annotations]
+    : [];
+  if (context.productAnnotation && !annotations.some((item: any) => item?.id === context.productAnnotation?.id)) {
+    annotations.push(context.productAnnotation);
+  }
+  annotations.sort((left: any, right: any) => {
+    const defaultOrder = Number(Boolean(right?.is_ppt_default)) - Number(Boolean(left?.is_ppt_default));
+    if (defaultOrder !== 0) return defaultOrder;
+    const versionOrder = Number(right?.version || 0) - Number(left?.version || 0);
+    if (versionOrder !== 0) return versionOrder;
+    return Date.parse(right?.created_at || "") - Date.parse(left?.created_at || "");
+  });
+  const annotationUrls = annotations
+    .filter((annotation: any) => Boolean(productAsset.id) && annotation?.asset_id === productAsset.id)
+    .map((annotation: any) => annotation?.snapshot_url)
+    .filter((url: unknown): url is string => typeof url === "string" && url.trim().length > 0);
+  return [...new Set([...annotationUrls, ...normalizePreviewImageUrls(productAsset.preview_images)])];
+}
+
+function resolveImageUrls(key: string, context: any): string[] {
   const layout = context.layout || {};
   const productAsset = context.productAsset || {};
-  const productAnnotation = context.productAnnotation || {};
   const firstModule = context.module || context.modules?.[0] || {};
-  const aliases: Record<string, string | null> = {
+  const pageMedia = Array.isArray(context.productMediaPage) ? context.productMediaPage : [];
+  if (key === "product_image_1") return productMediaCandidateUrls(pageMedia[0]);
+  if (key === "product_image_2") return productMediaCandidateUrls(pageMedia[1]);
+  if (key === "product_snapshot") return productVisualCandidateUrls(context);
+  if (key === "product_preview") {
+    return pageMedia[0]?.original_url
+      ? [String(pageMedia[0].original_url)]
+      : normalizePreviewImageUrls(productAsset.preview_images);
+  }
+
+  const aliases: Record<string, string | null | undefined> = {
     front_view: layout.front_view_image_url,
     side_view: layout.side_view_image_url,
     top_view: layout.top_view_image_url,
     isometric_view: layout.isometric_view_image_url,
-    product_snapshot: productAnnotation.snapshot_url,
-    product_preview: productAsset.preview_images?.[0]?.url,
     schematic_image: firstModule.schematic_image_url,
     module_schematic: firstModule.schematic_image_url,
   };
-  return aliases[key] || getByPath(context, key) || null;
+  const resolved = aliases[key] || getByPath(context, key) || null;
+  return typeof resolved === "string" && resolved.trim() ? [resolved.trim()] : [];
+}
+
+async function fetchFirstAvailableImage(urls: string[]) {
+  let lastError: unknown = null;
+  for (const url of urls) {
+    try {
+      return { image: await fetchImage(url), url };
+    } catch (error) {
+      lastError = error;
+      console.warn("Image candidate failed, trying next:", url, error);
+    }
+  }
+  throw lastError || new Error("No image candidates");
 }
 
 async function fetchImage(url: string) {
@@ -975,6 +1167,24 @@ function flattenObject(value: any, prefix = ""): Record<string, unknown> {
 
 function getByPath(source: any, path: string): any {
   return String(path).split(".").reduce((value, key) => value?.[key], source);
+}
+
+function formatProductAssetDimensions(product: any, fallback: any): string {
+  const length = product?.length_mm ?? fallback?.length;
+  const width = product?.width_mm ?? fallback?.width;
+  const height = product?.height_mm ?? fallback?.height;
+  if ([length, width, height].some((value) => value === null || value === undefined || value === "")) return "";
+  return `${length} x ${width} x ${height} mm`;
+}
+
+function formatProductDimensionSummary(products: any[], fallback: any): string {
+  if (!Array.isArray(products) || products.length === 0) {
+    return formatProductAssetDimensions(null, fallback);
+  }
+  return products.map((product, index) => {
+    const name = product?.product_name || product?.product_code || `P${index + 1}`;
+    return `${name}: ${formatProductAssetDimensions(product, fallback)}`;
+  }).join("\n");
 }
 
 function stringify(value: unknown): string {

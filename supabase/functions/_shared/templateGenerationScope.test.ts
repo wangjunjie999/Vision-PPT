@@ -67,4 +67,91 @@ describe('uploaded template scope plan', () => {
 
     expect(plan.map(item => item.sourceIndex)).toEqual([0, 4]);
   });
+
+  it('duplicates product schematic mappings per two media and skips empty products', () => {
+    const plan = buildTemplateSlidePlan(
+      ['cover', 'product', 'closing'],
+      {
+        project: { id: 'project-1' },
+        workstations: [{
+          id: 'ws-1',
+          product_assets: [
+            {
+              id: 'product-1',
+              document_images_per_page: 2,
+              product_media: [
+                { id: 'm1', sort_order: 0 },
+                { id: 'm2', sort_order: 1 },
+                { id: 'm3', sort_order: 2 },
+              ],
+            },
+            { id: 'product-2', product_media: [] },
+          ],
+        }],
+        modules: [],
+      },
+      {
+        layoutMapping: {
+          mappings: [{ templateSlideIndex: 1, slideType: 'product_schematic', enabled: true }],
+          duplicateForEachWorkstation: true,
+          preserveUnmappedSlides: true,
+        },
+      },
+      { scope: 'workstations' },
+    );
+
+    const products = plan.filter(item => item.slideType === 'product_schematic');
+    expect(products).toHaveLength(2);
+    expect(products.map(item => item.context.productAsset?.id)).toEqual(['product-1', 'product-1']);
+    expect(products.map(item => item.context.productIndex)).toEqual([0, 0]);
+    expect(products.map(item => item.context.productMediaPage.length)).toEqual([2, 1]);
+    expect(products.map(item => item.context.productPageIndex)).toEqual([0, 1]);
+    expect(products.every(item => item.context.effectiveProductCount === 1)).toBe(true);
+    expect(products.every(item => item.context.productImagesPerPage === 2)).toBe(true);
+  });
+
+  it('uses each product pagination mode independently and defaults to one image per page', () => {
+    const plan = buildTemplateSlidePlan(
+      ['product'],
+      {
+        workstations: [{
+          id: 'ws-1',
+          product_assets: [
+            {
+              id: 'product-a',
+              product_media: [
+                { id: 'a1', sort_order: 0 },
+                { id: 'a2', sort_order: 1 },
+                { id: 'a3', sort_order: 2 },
+              ],
+            },
+            {
+              id: 'product-b',
+              document_images_per_page: 2,
+              product_media: [
+                { id: 'b1', sort_order: 0 },
+                { id: 'b2', sort_order: 1 },
+                { id: 'b3', sort_order: 2 },
+              ],
+            },
+          ],
+        }],
+      },
+      {
+        layoutMapping: {
+          mappings: [{ templateSlideIndex: 0, slideType: 'product_schematic', enabled: true }],
+          duplicateForEachWorkstation: true,
+        },
+      },
+      { scope: 'workstations' },
+    );
+
+    const productPages = plan.filter(item => item.slideType === 'product_schematic');
+    expect(productPages.filter(item => item.context.productAsset?.id === 'product-a')).toHaveLength(3);
+    expect(productPages.filter(item => item.context.productAsset?.id === 'product-b')).toHaveLength(2);
+    expect(productPages.filter(item => item.context.productAsset?.id === 'product-a')
+      .every(item => item.context.productImagesPerPage === 1)).toBe(true);
+    expect(productPages.filter(item => item.context.productAsset?.id === 'product-b')
+      .every(item => item.context.productImagesPerPage === 2)).toBe(true);
+  });
 });

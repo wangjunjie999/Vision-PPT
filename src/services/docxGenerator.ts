@@ -18,6 +18,12 @@ import { safeController, safeHardwareArray } from '@/utils/safeDataAccess';
 import { formatDefectItems, normalizeDefectItemsFromConfig } from '@/utils/defectItems';
 import { formatWorkstationCycleTime, formatWorkstationCycleTimePlain } from '@/utils/cycleTimeDisplay';
 import type { GenerationScope } from '@/types/generation';
+import {
+  buildProductMediaItems,
+  formatProductMediaCaption,
+  paginateProductMedia,
+  type ProductMediaRecord,
+} from '@/utils/productAssetMedia';
 
 // ==================== DATA INTERFACES ====================
 
@@ -118,16 +124,34 @@ interface ProductAssetData {
   workstation_id: string | null;
   module_id: string | null;
   scope_type: 'workstation' | 'module';
-  preview_images: Array<{ url: string; name?: string }> | null;
+  preview_images: unknown;
   model_file_url: string | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  product_spec?: string | null;
+  document_images_per_page?: 1 | 2 | number | null;
+  is_primary?: boolean;
+  sort_order?: number;
+  parent_product_id?: string | null;
+  length_mm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  pos_z?: number | null;
 }
 
 interface ProductAnnotationData {
   id: string;
   asset_id: string;
+  media_id?: string | null;
   snapshot_url: string;
   remark: string | null;
   annotations_json: unknown;
+  is_ppt_default?: boolean | null;
+  version?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface HardwareData {
@@ -195,9 +219,9 @@ async function fetchImageAsArrayBuffer(url: string): Promise<ArrayBuffer | null>
 
 function getImageType(url: string): 'png' | 'jpg' | 'gif' | 'bmp' {
   const lowerUrl = url.toLowerCase();
-  if (lowerUrl.includes('.png')) return 'png';
-  if (lowerUrl.includes('.gif')) return 'gif';
-  if (lowerUrl.includes('.bmp')) return 'bmp';
+  if (lowerUrl.startsWith('data:image/png') || lowerUrl.includes('.png')) return 'png';
+  if (lowerUrl.startsWith('data:image/gif') || lowerUrl.includes('.gif')) return 'gif';
+  if (lowerUrl.startsWith('data:image/bmp') || lowerUrl.includes('.bmp')) return 'bmp';
   return 'jpg'; // default to jpg for jpeg and unknown types
 }
 
@@ -367,7 +391,8 @@ export async function generateDOCX(
   options: GenerationOptions,
   onProgress?: ProgressCallback,
   productAssets?: ProductAssetData[],
-  productAnnotations?: ProductAnnotationData[]
+  productAnnotations?: ProductAnnotationData[],
+  productMedia?: ProductMediaRecord[],
 ): Promise<Blob> {
   const isZh = options.language === 'zh';
   const includeImages = options.includeImages !== false; // default to true
@@ -468,19 +493,23 @@ export async function generateDOCX(
     );
 
   // Workstation summary table
-  const wsHeaders = isZh 
-    ? ['编号', '名称', '类型', '工位节拍(s)', '产品尺寸(mm)']
-    : ['Code', 'Name', 'Type', 'Station Cycle(s)', 'Product Size(mm)'];
+  const wsHeaders = isZh
+    ? ['编号', '名称', '类型', '工位节拍(s)', '产品数', '产品尺寸(mm)']
+    : ['Code', 'Name', 'Type', 'Station Cycle(s)', 'Products', 'Product Sizes(mm)'];
   
   const wsRows = workstations.map(ws => {
-    const dims = ws.product_dimensions 
-      ? `${ws.product_dimensions.length}×${ws.product_dimensions.width}×${ws.product_dimensions.height}`
+    const wsProducts = (productAssets || [])
+      .filter(asset => asset.workstation_id === ws.id && asset.scope_type === 'workstation')
+      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const dims = wsProducts.length > 0
+      ? wsProducts.map(asset => `${asset.length_mm ?? ws.product_dimensions?.length ?? 100}×${asset.width_mm ?? ws.product_dimensions?.width ?? 100}×${asset.height_mm ?? ws.product_dimensions?.height ?? 50}`).join('; ')
       : '-';
     return [
       ws.code || '-',
       ws.name,
       WS_TYPE_LABELS[ws.type]?.[isZh ? 'zh' : 'en'] || ws.type,
       formatWorkstationCycleTimePlain(ws),
+      String(wsProducts.length),
       dims,
     ];
   });
@@ -503,6 +532,34 @@ export async function generateDOCX(
       createLabelValue(isZh ? '运动描述' : 'Motion Description', ws.motion_description || '-'),
       createLabelValue(isZh ? '封闭环境' : 'Enclosed', ws.enclosed ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No')),
     );
+
+    const wsProductAssets = (productAssets || [])
+      .filter(asset => asset.workstation_id === ws.id && asset.scope_type === 'workstation')
+      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    sections.push(createHeading(isZh ? `产品明细 (${wsProductAssets.length})` : `Product Details (${wsProductAssets.length})`, HeadingLevel.HEADING_3));
+    if (wsProductAssets.length > 0) {
+      const productRows = wsProductAssets.map((asset, productIndex) => {
+        const linkedModules = (productAssets || [])
+          .filter(moduleAsset => moduleAsset.scope_type === 'module' && moduleAsset.parent_product_id === asset.id)
+          .map(moduleAsset => wsMods.find(module => module.id === moduleAsset.module_id)?.name)
+          .filter((name): name is string => Boolean(name));
+        return [
+          `${productIndex + 1}${asset.is_primary ? (isZh ? ' (主)' : ' (Primary)') : ''}`,
+          asset.product_name || (isZh ? '未命名' : 'Unnamed'),
+          asset.product_code || '-',
+          asset.product_spec || '-',
+          `${asset.length_mm ?? ws.product_dimensions?.length ?? 100}×${asset.width_mm ?? ws.product_dimensions?.width ?? 100}×${asset.height_mm ?? ws.product_dimensions?.height ?? 50}`,
+          `${asset.pos_x ?? 0}, ${asset.pos_y ?? 0}, ${asset.pos_z ?? 0}`,
+          linkedModules.join(', ') || '-',
+        ];
+      });
+      sections.push(createTableFromData(
+        isZh ? ['#', '名称', '编号', '规格', '尺寸(mm)', 'XYZ(mm)', '关联模块'] : ['#', 'Name', 'Code', 'Spec', 'Dimensions(mm)', 'XYZ(mm)', 'Modules'],
+        productRows,
+      ));
+    } else {
+      sections.push(createBodyText(isZh ? '当前工位未配置产品。' : 'No products are configured for this workstation.'));
+    }
 
     // Acceptance criteria
     if (ws.acceptance_criteria) {
@@ -605,38 +662,70 @@ export async function generateDOCX(
     // Product images for this workstation
     if (includeImages && productAssets) {
       const wsAssets = productAssets.filter(a => a.workstation_id === ws.id && a.scope_type === 'workstation');
-      if (wsAssets.length > 0) {
-        sections.push(
-          createHeading(isZh ? '产品图片' : 'Product Images', HeadingLevel.HEADING_3),
-        );
-        
-        for (const asset of wsAssets) {
-          // Defensive array check for preview_images
-          const previewImages = Array.isArray(asset.preview_images) ? asset.preview_images : [];
-          if (previewImages.length > 0) {
-            for (const img of previewImages) {
-              const imgParagraphs = await createImageParagraph(img.url, img.name || (isZh ? '产品预览' : 'Product Preview'), 400, 300);
-              for (const p of imgParagraphs) {
-                if (p) sections.push(p);
-              }
-            }
-          }
-          
-          // Add annotations for this asset
-          if (productAnnotations) {
-            const assetAnnotations = productAnnotations.filter(an => an.asset_id === asset.id);
-            for (const anno of assetAnnotations) {
-              if (anno.snapshot_url) {
-                const caption = anno.remark || (isZh ? '标注截图' : 'Annotation Snapshot');
-                const imgParagraphs = await createImageParagraph(anno.snapshot_url, caption, 450, 350);
-                for (const p of imgParagraphs) {
-                  if (p) sections.push(p);
-                }
-              }
-            }
-          }
-        }
-      }
+      const wsAssetsWithMedia = wsAssets.filter(asset =>
+        buildProductMediaItems(asset.id, productMedia, productAnnotations, asset.preview_images).length > 0
+      );
+	      if (wsAssetsWithMedia.length > 0) {
+	        for (let productIndex = 0; productIndex < wsAssetsWithMedia.length; productIndex += 1) {
+	          const asset = wsAssetsWithMedia[productIndex];
+	          const pages = paginateProductMedia([asset], productMedia, productAnnotations);
+	          const productLabel = `${productIndex + 1}. ${asset.product_name || (isZh ? '未命名产品' : 'Unnamed Product')}${asset.is_primary ? (isZh ? ' [主产品]' : ' [Primary]') : ''}`;
+	          for (const page of pages) {
+	            sections.push(new Paragraph({
+	              pageBreakBefore: true,
+	              children: [new TextRun({
+	                text: `${isZh ? '产品图片' : 'Product Images'} - ${productLabel} (${page.pageIndex + 1}/${page.pageCount})`,
+	                bold: true,
+	                size: 30,
+	                color: '1F4E78',
+	              })],
+	              spacing: { after: 220 },
+	            }));
+
+	            if (page.items.length === 1) {
+	              const item = page.items[0];
+	              const caption = formatProductMediaCaption(item, isZh);
+	              const url = item.annotation?.snapshot_url || item.media.original_url;
+	              const isLargeSingle = page.imagesPerPage === 1;
+	              const imageParagraphs = await createImageParagraph(
+	                url,
+	                caption,
+	                isLargeSingle ? 560 : 360,
+	                isLargeSingle ? 400 : 280,
+	              );
+	              sections.push(...imageParagraphs.filter((paragraph): paragraph is Paragraph => paragraph !== null));
+	              continue;
+	            }
+
+	            const cells: TableCell[] = [];
+	            for (const item of page.items) {
+	              const caption = formatProductMediaCaption(item, isZh);
+	              const url = item.annotation?.snapshot_url || item.media.original_url;
+	              const imageParagraphs = await createImageParagraph(url, caption, 270, 220);
+	              const validParagraphs = imageParagraphs.filter((paragraph): paragraph is Paragraph => paragraph !== null);
+	              cells.push(new TableCell({
+	                width: { size: 50, type: WidthType.PERCENTAGE },
+	                children: validParagraphs.length > 0
+	                  ? validParagraphs
+	                  : [new Paragraph({ text: isZh ? '图片加载失败' : 'Image unavailable', alignment: AlignmentType.CENTER })],
+	              }));
+	            }
+	            sections.push(new Table({
+	              width: { size: 100, type: WidthType.PERCENTAGE },
+	              rows: [new TableRow({ children: cells })],
+	              borders: {
+	                top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+	                bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+	                left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+	                right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+	                insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+	                insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+	              },
+	            }));
+	          }
+	        }
+	        sections.push(new Paragraph({ pageBreakBefore: true, text: '' }));
+	      }
     }
 
     // Modules for this workstation
@@ -733,33 +822,19 @@ export async function generateDOCX(
         sections.push(createHeading(isZh ? '检测标注' : 'Detection Annotations', HeadingLevel.HEADING_3));
         
         for (const asset of modAssets) {
-          // Add preview images
-          // Defensive array check for preview_images
-          const modPreviewImages = Array.isArray(asset.preview_images) ? asset.preview_images : [];
-          if (modPreviewImages.length > 0) {
-            for (const img of modPreviewImages) {
-              const imgParagraphs = await createImageParagraph(
-                img.url, 
-                img.name || (isZh ? '产品预览' : 'Product Preview'), 
-                400, 
-                300
-              );
-              for (const p of imgParagraphs) {
-                if (p) sections.push(p);
-              }
-            }
-          }
-          
-          // Add annotation snapshots
-          const assetAnnotations = productAnnotations.filter(an => an.asset_id === asset.id);
-          for (const anno of assetAnnotations) {
-            if (anno.snapshot_url) {
-              const caption = anno.remark || (isZh ? '检测区域标注' : 'Detection Area Annotation');
-              const imgParagraphs = await createImageParagraph(anno.snapshot_url, caption, 450, 350);
-              for (const p of imgParagraphs) {
-                if (p) sections.push(p);
-              }
-            }
+          const parentProduct = productAssets.find(product => product.id === asset.parent_product_id);
+          sections.push(createHeading(
+            parentProduct?.product_name || (isZh ? '未关联产品' : 'Unlinked Product'),
+            HeadingLevel.HEADING_4,
+          ));
+          const items = buildProductMediaItems(asset.id, productMedia, productAnnotations, asset.preview_images);
+          for (const item of items) {
+            const caption = formatProductMediaCaption(item, isZh);
+            const url = item.annotation?.snapshot_url || item.media.original_url;
+            const imageParagraphs = await createImageParagraph(url, caption, 450, 350);
+            const validParagraphs = imageParagraphs.filter((paragraph): paragraph is Paragraph => paragraph !== null);
+            if (validParagraphs.length === 0) continue;
+            sections.push(...validParagraphs);
           }
         }
       }

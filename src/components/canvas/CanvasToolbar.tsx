@@ -12,6 +12,7 @@ import {
   Save, RotateCcw, Plus, Camera, Loader2, Check,
   ChevronDown, ChevronUp, Settings2, Zap, Layers, LayoutGrid, GripVertical,
   Undo2, Redo2,
+  Link2, Package,
 } from 'lucide-react';
 import type { ViewType, LayerType, StandardViewType, ObjectOrderMap } from './canvasTypes';
 import type { LayoutObject } from './ObjectPropertyPanel';
@@ -39,6 +40,9 @@ interface CanvasToolbarProps {
   addCamera: () => void;
   addMechanism: (m: Mechanism) => void;
   addProduct?: () => void;
+  productCount?: number;
+  productsLoading?: boolean;
+  isCreatingProduct?: boolean;
   autoArrangeObjects: () => void;
   resetLayout: () => void;
   // Grid
@@ -85,7 +89,7 @@ export const CanvasToolbar = memo(function CanvasToolbar({
   currentView, setCurrentView, viewSaveStatus,
   saveQuality, setSaveQuality, handleSaveAll, isSaving, isSavingAllViews, saveProgress,
   settingsCollapsed, setSettingsCollapsed,
-  addCamera, addMechanism, addProduct, autoArrangeObjects, resetLayout,
+  addCamera, addMechanism, addProduct, productCount = 0, productsLoading = false, isCreatingProduct = false, autoArrangeObjects, resetLayout,
   gridSize, setGridSize, gridEnabled, setGridEnabled, snapEnabled, setSnapEnabled, smartSnapEnabled, setSmartSnapEnabled,
   showDistances, setShowDistances, showObjectList, setShowObjectList,
   layerOrder, draggedLayer, dragOverLayer, onLayerDragStart, onLayerDragOver, onLayerDrop, onLayerDragEnd, onSaveLayerOrder,
@@ -231,10 +235,16 @@ export const CanvasToolbar = memo(function CanvasToolbar({
               </Button>
 
               {addProduct && (
-                <Button variant="outline" size="sm" onClick={addProduct} className="gap-1.5 h-7 text-xs">
-                  <Plus className="h-3 w-3" />添加产品
+                <Button variant="outline" size="sm" onClick={addProduct} disabled={isCreatingProduct || productsLoading} className="gap-1.5 h-7 text-xs">
+                  {isCreatingProduct ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}添加产品
                 </Button>
               )}
+
+              <Badge variant="secondary" className="h-7 gap-1.5 rounded-md px-2 text-[10px] font-normal text-muted-foreground">
+                {productsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Package className="h-3 w-3 text-primary" />}
+                {productsLoading ? '同步产品…' : `${productCount} 个已关联产品`}
+                {!productsLoading && <Link2 className="h-3 w-3 text-emerald-500" />}
+              </Badge>
 
               <Popover>
                 <PopoverTrigger asChild>
