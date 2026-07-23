@@ -1044,7 +1044,6 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                   />
                 </div>
               )}
-            </div>
 
             {asset?.model_file_url ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5">
