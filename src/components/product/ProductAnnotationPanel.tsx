@@ -545,6 +545,11 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           updated_at: new Date().toISOString(),
         }, { silent: true });
         toast.success('3D 模型上传成功');
+        await loadData(targetProductId);
+        await refreshProductAnnotationStats();
+        useAppStore.getState().enterViewerMode(fileUrl, [], targetProductId, 'workstation', 'model');
+        toast.info('已进入 3D 查看模式，可截图并标注');
+        return;
       } else {
         await uploadImageBatch(imageFiles, targetProductId);
       }
