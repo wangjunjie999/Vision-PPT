@@ -156,7 +156,8 @@ function sortLegacyAnnotations<T extends ProductAnnotationMedia>(
     .filter(annotation => annotation.asset_id === assetId && !annotation.media_id)
     .slice()
     .sort((left, right) =>
-      Date.parse(left.created_at || '') - Date.parse(right.created_at || '')
+      Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)
+      || Date.parse(left.created_at || '') - Date.parse(right.created_at || '')
       || Number(left.version ?? 0) - Number(right.version ?? 0)
       || String(left.id || '').localeCompare(String(right.id || ''))
     );
