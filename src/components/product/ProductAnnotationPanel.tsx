@@ -603,6 +603,28 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     }
   };
 
+  const handleReorderMediaByDrag = async (sourceId: string, targetId: string) => {
+    if (!asset || sourceId === targetId) return;
+    const ordered = sortProductMedia(mediaItems, asset.id);
+    const fromIndex = ordered.findIndex(item => item.id === sourceId);
+    const toIndex = ordered.findIndex(item => item.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const next = [...ordered];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setReordering(true);
+    try {
+      await reorderProductMedia(asset.id, next.map(item => item.id));
+      await syncPreviewImagesFromMedia(asset.id);
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('图片排序失败');
+    } finally {
+      setReordering(false);
+    }
+  };
+
   const handlePaginationModeChange = async (value: string) => {
     if (!asset) return;
     const nextMode: 1 | 2 = value === '2' ? 2 : 1;
