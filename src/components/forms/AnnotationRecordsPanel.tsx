@@ -19,10 +19,13 @@ import {
   FileImage,
   Clock,
   ArrowLeft,
+  GripVertical,
+  Box,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Annotation } from '@/components/product/AnnotationCanvas';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
+import { reorderProductAnnotations } from '@/services/productAnnotationService';
 
 interface AnnotationRecord {
   id: string;
@@ -33,15 +36,20 @@ interface AnnotationRecord {
   version: number;
   remark: string | null;
   created_at: string;
+  media_id: string | null;
+  sort_order?: number | null;
 }
 
 export function AnnotationRecordsPanel() {
   const { user } = useAuth();
-  const { annotationAssetId, annotationWorkstationId, exitAnnotationMode } = useAppStore();
+  const { annotationAssetId, exitAnnotationMode } = useAppStore();
   const [records, setRecords] = useState<AnnotationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [defaultRecordId, setDefaultRecordId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
 
   const isInitialLoad = useRef(true);
 
@@ -51,17 +59,14 @@ export function AnnotationRecordsPanel() {
       setLoading(true);
     }
     try {
-      let query = supabase
+      // Scope by asset_id only. Product asset already belongs to one workstation,
+      // so extra workstation_id filter would hide legacy records saved without it.
+      const { data, error } = await supabase
         .from('product_annotations')
         .select('*')
-        .eq('asset_id', annotationAssetId);
-
-      // Filter by workstation_id if available for strict isolation
-      if (annotationWorkstationId) {
-        query = query.eq('workstation_id', annotationWorkstationId);
-      }
-
-      const { data, error } = await query.order('version', { ascending: false });
+        .eq('asset_id', annotationAssetId)
+        .order('sort_order', { ascending: true })
+        .order('version', { ascending: false });
 
       if (error) throw error;
 
@@ -71,7 +76,10 @@ export function AnnotationRecordsPanel() {
         view_meta: a.view_meta as Record<string, unknown> | null,
       }));
       setRecords(mapped);
-      if (mapped.length > 0 && !defaultRecordId) {
+      const dbDefault = mapped.find(r => (r as any).is_ppt_default);
+      if (dbDefault) {
+        setDefaultRecordId(dbDefault.id);
+      } else if (mapped.length > 0 && !defaultRecordId) {
         setDefaultRecordId(mapped[0].id);
       }
     } catch (error) {
@@ -86,11 +94,13 @@ export function AnnotationRecordsPanel() {
     loadRecords();
   }, [loadRecords]);
 
-  // Auto-refresh when annotation is saved (poll every 3s while in annotation mode)
+  // Auto-refresh when annotation is saved (poll every 3s while in annotation mode).
+  // Pause while user is dragging to avoid clobbering local order.
   useEffect(() => {
+    if (dragId || reordering) return;
     const interval = setInterval(loadRecords, 3000);
     return () => clearInterval(interval);
-  }, [loadRecords]);
+  }, [loadRecords, dragId, reordering]);
 
   const handleDelete = async (recordId: string) => {
     try {
@@ -112,19 +122,51 @@ export function AnnotationRecordsPanel() {
     toast.success('已设为PPT默认使用');
   };
 
+  const handleReorderByDrag = async (sourceId: string, targetId: string) => {
+    if (!annotationAssetId || sourceId === targetId) return;
+    const fromIdx = records.findIndex(r => r.id === sourceId);
+    const toIdx = records.findIndex(r => r.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const next = [...records];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    const prev = records;
+    setRecords(next);
+    setReordering(true);
+    try {
+      await reorderProductAnnotations(annotationAssetId, next.map(r => r.id));
+    } catch (error) {
+      console.error('Reorder failed:', error);
+      toast.error('排序失败');
+      setRecords(prev);
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const getRecordSource = (record: AnnotationRecord): '3D 截图' | '2D 图片' => {
+    const viewName = (record.view_meta as any)?.viewName as string | undefined;
+    if (record.media_id) return '2D 图片';
+    if (viewName && /版本/.test(viewName)) return '3D 截图';
+    return '3D 截图';
+  };
+
   return (
     <Card className="glass-panel h-full flex flex-col">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm flex items-center gap-2">
             <FileImage className="h-4 w-4 text-primary" />
-            标注记录
+            标注记录 {records.length > 0 && <span className="text-xs text-muted-foreground">({records.length})</span>}
           </CardTitle>
           <Button variant="ghost" size="sm" onClick={exitAnnotationMode} className="gap-1 h-7 text-xs">
             <ArrowLeft className="h-3 w-3" />
             返回
           </Button>
         </div>
+        {records.length > 1 && (
+          <p className="mt-1 text-[10px] text-muted-foreground">拖动左侧手柄可上下调整顺序</p>
+        )}
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0 px-4 pb-4">
         {loading ? (
@@ -140,14 +182,57 @@ export function AnnotationRecordsPanel() {
         ) : (
           <ScrollArea className="h-full">
             <div className="space-y-3">
-              {records.map((record) => (
+              {records.map((record) => {
+                const source = getRecordSource(record);
+                return (
                 <div
                   key={record.id}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragId(record.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', record.id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverId !== record.id) setDragOverId(record.id);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverId === record.id) setDragOverId(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const sourceId = dragId || e.dataTransfer.getData('text/plain');
+                    setDragId(null);
+                    setDragOverId(null);
+                    if (sourceId && sourceId !== record.id) {
+                      void handleReorderByDrag(sourceId, record.id);
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDragOverId(null);
+                  }}
                   className={cn(
                     "border rounded-lg p-3 space-y-2 transition-colors",
-                    defaultRecordId === record.id && "border-primary/50 bg-primary/5"
+                    defaultRecordId === record.id && "border-primary/50 bg-primary/5",
+                    dragId === record.id && "opacity-50",
+                    dragOverId === record.id && "border-primary ring-2 ring-primary/30",
                   )}
                 >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="flex h-5 w-5 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                      title="拖拽排序"
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </span>
+                    <Badge variant="outline" className="text-[10px] h-5 gap-1">
+                      {source === '3D 截图' ? <Box className="h-3 w-3" /> : <FileImage className="h-3 w-3" />}
+                      {source}
+                    </Badge>
+                  </div>
                   {/* Thumbnail */}
                   <div
                     className="aspect-video rounded overflow-hidden bg-muted cursor-pointer group"
@@ -214,7 +299,8 @@ export function AnnotationRecordsPanel() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </ScrollArea>
         )}
