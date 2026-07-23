@@ -34,7 +34,6 @@ import {
   Eye,
   Save,
   Loader2,
-  FileImage,
   Plus,
   Info,
   X,
@@ -45,7 +44,6 @@ import {
 } from 'lucide-react';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
-import { getSupportedProductModelHint } from '@/utils/productViewer';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
 import { createSafeStorageObjectName } from '@/utils/storageFileNames';

@@ -150,6 +150,15 @@ export function AnnotationEditor() {
       const { data: urlData } = supabase.storage.from('product-snapshots').getPublicUrl(path);
       const snapshotUrl = urlData.publicUrl;
 
+      const { data: sortRows, error: sortError } = await supabase
+        .from('product_annotations')
+        .select('sort_order')
+        .eq('asset_id', annotationAssetId)
+        .order('sort_order', { ascending: false })
+        .limit(1);
+      if (sortError) throw sortError;
+      const nextSortOrder = Number(sortRows?.[0]?.sort_order ?? -1) + 1;
+
       // A product_media image owns at most one editable annotation record.
       if (annotationExistingData?.recordId) {
         const { error } = await supabase
@@ -190,6 +199,7 @@ export function AnnotationEditor() {
             annotations_json: annotations as unknown as any,
             view_meta: { viewName: '产品图片标注' },
             version: 1,
+            sort_order: nextSortOrder,
             remark: saveRemark || null,
             user_id: user.id,
             workstation_id: annotationWorkstationId,
@@ -215,6 +225,7 @@ export function AnnotationEditor() {
           annotations_json: annotations as unknown as any,
           view_meta: { viewName: `版本${nextVersion}` },
           version: nextVersion,
+          sort_order: nextSortOrder,
           remark: saveRemark || null,
           user_id: user.id,
         };
