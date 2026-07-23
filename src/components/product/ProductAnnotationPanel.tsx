@@ -926,6 +926,51 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 hint="支持 JPG / PNG / WEBP，可重复上传同一文件"
                 onUpload={handleFilesUpload}
               />
+              {products.length > 0 && (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
+                  <Label className="shrink-0 text-[10px] text-muted-foreground">归属产品</Label>
+                  <Select
+                    value={uploadTargetProductId}
+                    onValueChange={setUploadTargetProductId}
+                    disabled={uploading}
+                  >
+                    <SelectTrigger className="h-7 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__current__">
+                        当前选中产品{asset?.product_name ? `（${asset.product_name}）` : ''}
+                      </SelectItem>
+                      {products.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.product_name || '未命名产品'}
+                          {p.product_code ? ` · ${p.product_code}` : ''}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__new__">➕ 新建产品并上传</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {uploadProgress.items.length > 0 && (
+                <div className="space-y-2 rounded-md border bg-muted/10 p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">上传进度</span>
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                      onClick={uploadProgress.clearCompleted}
+                    >
+                      清除已完成
+                    </button>
+                  </div>
+                  <UploadProgress
+                    items={uploadProgress.items}
+                    onRemove={uploadProgress.removeItem}
+                    onRetry={handleRetryUpload}
+                  />
+                </div>
+              )}
             </div>
 
             {mediaItems.length > 0 ? (
