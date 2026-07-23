@@ -1,79 +1,47 @@
-## 目标
-让"机械结构布局图"支持一个工位内放置**多个产品**,每个产品有独立的尺寸(长/宽/高)、名称、位置,并跟随现有拖拽/视图/PPT 导出链路一起工作。
+# 迁移执行计划：product_media + 每媒体单标注
 
-## 现状
-- `DraggableLayoutCanvas` 里只有一个硬编码对象 `product-main`,尺寸来自 `workstation.product_dimensions`(单一 JSON),位置来自 `workstation.product_position`。
-- 已有的多产品数据模型在 `product_assets`(带 `product_name/code/spec/is_primary/sort_order/parent_product_id`),但**没有尺寸字段**,也没有在机械布局里被消费。
-- 布局对象存储在 `mechanical_layouts.layout_objects`(JSON 数组),已包含 `type:'product'` 分支——只是当前只塞了一个。
+## 现状核对（已确认）
+- 目标迁移文件 `supabase/migrations/20260723143000_product_media_single_annotation.sql` **不存在**。
+- 数据库中：
+  - `product_media` 表**不存在**
+  - `product_annotations` 缺 `media_id`、`updated_at`
+  - `product_assets` 已含 `preview_images`（37 行资产，23 行含预览图，共 23 张预览）
+  - `product_annotations` 现有 32 条
+- 因此需要**新建**迁移并执行（非重复），符合"如果已执行只报告"的例外条件。
 
-## 方案:布局内多产品对象 + 与 `product_assets` 联动
+## 迁移 SQL（单个文件、幂等）
 
-### 1. 数据模型
-- 给 `product_assets` 增加尺寸字段:`length_mm / width_mm / height_mm`(numeric),外加 `posX / posY / posZ`(可空,单个产品在工位坐标系下的默认位置)。
-- 保留 `workstation.product_dimensions / product_position` 作为**主产品**的兼容字段(读时同步、写时同步到 primary 记录),旧数据不丢。
-- 布局 JSON 里的 `product` 对象扩展:`productAssetId`、`length/width/height`、`name`,不再只允许一个 `product-main`。
+创建 `supabase/migrations/20260723143000_product_media_single_annotation.sql`：
 
-### 2. 表单侧(产品标注面板 `ProductAnnotationPanel`)
-- 在现有的"产品管理条"里,每个产品行/编辑弹窗新增三个数字输入:长(mm)、宽(mm)、高(mm),写回 `product_assets`。
-- 主产品(is_primary)的尺寸写入时同步到 `workstations.product_dimensions`,保持兼容。
+1. **建表 `public.product_media`**
+   - 字段：`id uuid pk`、`asset_id uuid fk→product_assets(id) on delete cascade`、`user_id uuid not null`、`original_url text not null`、`display_url text`、`file_name text`、`file_size int`、`mime_type text`、`sort_order int default 0`、`is_primary bool default false`、`metadata jsonb default '{}'`、`created_at`、`updated_at`
+   - **不**对 `original_url` 建唯一约束（允许同文件重复上传）
+   - 索引：`(asset_id, sort_order)`、`(user_id)`
+2. **GRANT**：`authenticated` 完整 CRUD、`service_role` ALL（无 anon）
+3. **RLS**：启用，四条策略基于 `auth.uid() = user_id`
+4. **updated_at trigger** 复用现有 `public.update_updated_at_column()`
+5. **`product_annotations` 扩字段**
+   - `ADD COLUMN IF NOT EXISTS media_id uuid REFERENCES public.product_media(id) ON DELETE CASCADE`
+   - `ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()`
+   - 唯一约束：`CREATE UNIQUE INDEX IF NOT EXISTS product_annotations_media_id_unique ON public.product_annotations(media_id) WHERE media_id IS NOT NULL`
+   - 为 annotations 追加 updated_at trigger
+6. **数据回迁（幂等 DO block）**
+   - 对每个 `product_assets`：遍历 `preview_images` 数组，为每张图 `INSERT ... ON CONFLICT DO NOTHING`（用 `(asset_id, sort_order)` 作幂等键，或先 `NOT EXISTS` 判断），生成 `product_media` 行；数组第 0 张标 `is_primary=true`
+   - 对该 asset 的旧 `product_annotations`（`media_id IS NULL`）按 `created_at` 升序：
+     - 第 1 条 → 关联该 asset 的 primary media
+     - 其余每条 → 各自 clone snapshot_url 为一条新 `product_media`，然后指向该 media
+   - 全程用 `WHERE media_id IS NULL` 与 `NOT EXISTS` 保护，可重复执行不产生重复
+7. **保留** `product_assets.preview_images`（只读兼容，不删）
 
-### 3. 机械结构画布(`DraggableLayoutCanvas` + 相关渲染器)
-- 加载 `mechanical_layouts` 时,合并同工位的 `product_assets`:布局 JSON 里缺失的产品 → 用 asset 默认位置补齐;JSON 里已删的仍显示可"重新添加"入口。
-- `objects` 里可以有 N 个 `type:'product'` 项。渲染时循环:
-  - `ProductRenderer` 按对象自己的 `width/height/depth` 绘制外框(不再全局读 `productDimensions`)。
-  - `autoScaleResult` 用所有产品的包围盒并集来居中/缩放。
-  - `project3DTo2D` / 拖拽 / 挂载点(`ProductMountPoints`)保持不变,只是索引每个产品。
-- 顶部工具栏新增"添加产品"下拉:列出该工位未上画布的 `product_assets`,选择后落到当前对象数组。
-- 侧栏 `ObjectListPanel` 增加"产品"分组,展示多个产品并可选中/删除(删除仅从画布移除,不删 asset)。
-- 属性面板 `ObjectPropertyPanel`:选中产品时可以就地修改长/宽/高(同步写回 asset)和位置。
+## 执行 & 验证
+1. 通过 `supabase--migration` 提交上述 SQL（用户批准后执行）
+2. 迁移完成后：
+   - `psql` 校验：`product_media` 行数 ≈ 旧 previews + 额外多标注、`product_annotations.media_id` 非空覆盖率、唯一索引存在、RLS enabled
+   - 运行 `bunx vitest run` 与 `tsgo`（构建由 harness 自动执行）
+3. 报告：实际迁移文件名、新表/字段清单、迁移条数（media 生成数、annotation 关联数）、RLS/唯一约束状态、typecheck/测试/构建结果
 
-### 4. 3D 预览(`Layout3DPreview`)
-- `productDimensions` 改为按对象数组循环生成盒子(每个产品一个 mesh,尺寸/位置由自身字段决定)。
-- 自适应包围盒改用所有产品的并集。
-
-### 5. 拓扑图 / PPT 导出
-- `SimpleLayoutDiagram`:`ProductIcon` 循环渲染多个产品,标签 `P1..Pn`;所有相机→产品拍摄线按每个相机的 `targetProductId`(可选)或最近产品选择,默认指向主产品保持向后兼容。
-- `pptxGenerator` / `workstationSlides` 在"机械布局"页把多个产品的名称与尺寸列到参数面板;`ProductAssetData` 已具备身份字段,再补 `length/width/height` 供渲染。
-- PDF/DOCX 同步:`reportDataBuilder` 输出 `products: [{name, length, width, height, posX, posY, posZ}]`。
-
-### 6. 兼容与迁移
-- 旧布局只有一个 `product-main` 且无 `productAssetId` → 首次加载时自动挂到 primary asset,并把 `workstation.product_dimensions` 拷进对象自身尺寸。
-- 未填尺寸的 asset 走默认 300×200×100。
-
-## 技术细节
-
-**SQL 迁移**
-```sql
-ALTER TABLE public.product_assets
-  ADD COLUMN IF NOT EXISTS length_mm numeric,
-  ADD COLUMN IF NOT EXISTS width_mm  numeric,
-  ADD COLUMN IF NOT EXISTS height_mm numeric,
-  ADD COLUMN IF NOT EXISTS pos_x numeric,
-  ADD COLUMN IF NOT EXISTS pos_y numeric,
-  ADD COLUMN IF NOT EXISTS pos_z numeric;
-```
-
-**布局对象类型扩展**(`canvasTypes.ts`)
-```ts
-interface LayoutObject {
-  ...
-  productAssetId?: string;
-  length?: number; width?: number; height?: number; // mm, product only
-}
-```
-
-**关键改动清单**
-- SQL 迁移(上面)
-- `src/components/product/ProductAnnotationPanel.tsx` — 尺寸输入 + 主产品同步
-- `src/components/canvas/DraggableLayoutCanvas.tsx` — 多产品加载/渲染/自适应
-- `src/components/canvas/ProductRenderer.tsx` — 按对象自身尺寸绘制
-- `src/components/canvas/ObjectPropertyPanel.tsx` — 产品长宽高编辑
-- `src/components/canvas/Layout3DPreview.tsx` — 多产品盒子
-- `src/components/canvas/SimpleLayoutDiagram.tsx` — 多 `ProductIcon`
-- `src/services/reportDataBuilder.ts` / `pptxGenerator.ts` / `pptx/workstationSlides.ts` — 多产品参数输出
-- `src/hooks/useProducts` 或直接扩展 `ProductAnnotationPanel` 现有 CRUD
-
-## 待确认
-1. 多产品在画布上是否可以**独立平移**(默认可以)?还是只作为附加信息展示?
-2. 相机的"拍摄目标"是否需要指定到某一个具体产品(新增 `targetProductAssetId`)?否则默认全部对准主产品。
-3. 主产品的尺寸是否仍然写回 `workstation.product_dimensions`(兼容 PPT 旧字段读取)?建议是。
+## 不做的事
+- 不改任何前端代码（本轮仅数据库）
+- 不删 `preview_images`
+- 不给 `original_url` 加唯一约束
+- 不重复创建已存在的对象（全部 `IF NOT EXISTS` / `ON CONFLICT` / `NOT EXISTS`）
