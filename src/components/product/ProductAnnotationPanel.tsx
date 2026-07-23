@@ -63,6 +63,7 @@ import {
   deleteProductMedia,
   loadProductMedia,
   reorderProductMedia,
+  syncPreviewImagesFromMedia,
 } from '@/services/productMediaService';
 
 interface ProductModelItem {
