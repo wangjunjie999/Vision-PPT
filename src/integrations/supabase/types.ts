@@ -990,6 +990,7 @@ export type Database = {
           sort_order: number
           updated_at: string
           user_id: string
+          workstation_id: string | null
         }
         Insert: {
           asset_id: string
@@ -1005,6 +1006,7 @@ export type Database = {
           sort_order?: number
           updated_at?: string
           user_id: string
+          workstation_id?: string | null
         }
         Update: {
           asset_id?: string
@@ -1020,6 +1022,7 @@ export type Database = {
           sort_order?: number
           updated_at?: string
           user_id?: string
+          workstation_id?: string | null
         }
         Relationships: [
           {
@@ -1287,6 +1290,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      set_product_annotation_default: {
+        Args: { p_annotation_id: string; p_asset_id: string }
+        Returns: undefined
       }
     }
     Enums: {
