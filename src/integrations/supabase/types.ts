@@ -809,6 +809,7 @@ export type Database = {
           asset_id: string
           created_at: string
           id: string
+          is_ppt_default: boolean
           media_id: string | null
           remark: string | null
           snapshot_url: string
@@ -823,6 +824,7 @@ export type Database = {
           asset_id: string
           created_at?: string
           id?: string
+          is_ppt_default?: boolean
           media_id?: string | null
           remark?: string | null
           snapshot_url: string
@@ -837,6 +839,7 @@ export type Database = {
           asset_id?: string
           created_at?: string
           id?: string
+          is_ppt_default?: boolean
           media_id?: string | null
           remark?: string | null
           snapshot_url?: string
@@ -868,6 +871,7 @@ export type Database = {
           created_at: string
           detection_method: string | null
           detection_requirements: Json | null
+          document_images_per_page: number
           height_mm: number | null
           id: string
           is_primary: boolean
@@ -895,6 +899,7 @@ export type Database = {
           created_at?: string
           detection_method?: string | null
           detection_requirements?: Json | null
+          document_images_per_page?: number
           height_mm?: number | null
           id?: string
           is_primary?: boolean
@@ -922,6 +927,7 @@ export type Database = {
           created_at?: string
           detection_method?: string | null
           detection_requirements?: Json | null
+          document_images_per_page?: number
           height_mm?: number | null
           id?: string
           is_primary?: boolean
