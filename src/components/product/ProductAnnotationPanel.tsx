@@ -604,9 +604,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       }
     }));
 
-    const uploadedRows = results
-      .filter((r): r is PromiseFulfilledResult<{ id: string; row: NonNullable<Parameters<typeof createProductMedia>[0]>[number] }> => r.status === 'fulfilled')
-      .map(r => r.value);
+    const uploadedRows = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
 
     if (uploadedRows.length > 0) {
       try {
