@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/useData';
@@ -51,6 +51,7 @@ import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
 import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
+import { UploadProgress, useUploadProgress } from '@/components/upload/UploadProgress';
 import {
   formatProductMediaCaption,
   getProductMediaDisplayUrl,
@@ -168,6 +169,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [dragMediaId, setDragMediaId] = useState<string | null>(null);
   const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [uploadTargetProductId, setUploadTargetProductId] = useState<string>('__current__');
+  const uploadProgress = useUploadProgress();
+  // Keep original File refs for retry, keyed by progress item id.
+  const retryRegistryRef = useRef<Map<string, { file: File; targetProductId: string }>>(new Map());
   const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
   const [activeTab, setActiveTab] = useState('media');
 
@@ -492,17 +497,28 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     setUploading(true);
     try {
       // Ensure a product row exists to attach media to.
-      let targetProductId = asset?.id ?? null;
+      // For images, respect the user's explicit target product selection.
+      let targetProductId: string | null = null;
+      if (modelFiles.length > 0) {
+        targetProductId = asset?.id ?? null;
+      } else {
+        const desired = uploadTargetProductId;
+        if (desired && desired !== '__current__' && desired !== '__new__') {
+          targetProductId = desired;
+        } else if (desired === '__current__') {
+          targetProductId = asset?.id ?? null;
+        }
+      }
       if (!targetProductId) {
         const created = await addProductAsset({
-            workstation_id: workstationId,
-            scope_type: 'workstation',
-            source_type: modelFiles.length > 0 ? 'model' : 'image',
-            product_name: `产品 ${products.length + 1}`,
-            sort_order: 0,
-            is_primary: true,
-            document_images_per_page: 1,
-          });
+          workstation_id: workstationId,
+          scope_type: 'workstation',
+          source_type: modelFiles.length > 0 ? 'model' : 'image',
+          product_name: `产品 ${products.length + 1}`,
+          sort_order: 0,
+          is_primary: products.length === 0,
+          document_images_per_page: 1,
+        });
         targetProductId = created.id;
       }
 
@@ -530,36 +546,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         }, { silent: true });
         toast.success('3D 模型上传成功');
       } else {
-        const currentMedia = await loadProductMedia([targetProductId]);
-        const nextOrder = currentMedia.length === 0
-          ? 0
-          : Math.max(...currentMedia.map(item => item.sort_order)) + 1;
-        const uploadedRows = [];
-        for (let index = 0; index < imageFiles.length; index += 1) {
-          const file = imageFiles[index];
-          const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
-            fallbackBase: 'product-image',
-            fallbackExtension: 'png',
-          })}`;
-          const { publicUrl } = await uploadStorageFile('product-models', path, file, {
-            contentType: file.type || undefined,
-          });
-          uploadedRows.push({
-            user_id: user.id,
-            asset_id: targetProductId,
-            workstation_id: workstationId,
-            original_url: publicUrl,
-            file_name: file.name,
-            sort_order: nextOrder + index,
-          });
-        }
-        await createProductMedia(uploadedRows);
-        await updateProductAsset(targetProductId, {
-          source_type: asset?.model_file_url ? 'model' : 'image',
-          updated_at: new Date().toISOString(),
-        }, { silent: true });
-        await syncPreviewImagesFromMedia(targetProductId);
-        toast.success(`已上传 ${uploadedRows.length} 张产品图片`);
+        await uploadImageBatch(imageFiles, targetProductId);
       }
       await loadData(targetProductId);
       await refreshProductAnnotationStats();
@@ -570,6 +557,91 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     } finally {
       setUploading(false);
     }
+  };
+
+  // Parallel upload of a batch of images to one target product.
+  // Tracks per-file progress and returns after all settle (successes + failures).
+  const uploadImageBatch = async (imageFiles: File[], targetProductId: string) => {
+    if (imageFiles.length === 0 || !user) return;
+    const currentMedia = await loadProductMedia([targetProductId]);
+    const nextOrder = currentMedia.length === 0
+      ? 0
+      : Math.max(...currentMedia.map(item => item.sort_order)) + 1;
+
+    const uploads = imageFiles.map((file, index) => {
+      const id = uploadProgress.addItem(file);
+      retryRegistryRef.current.set(id, { file, targetProductId });
+      return { id, file, sortOrder: nextOrder + index };
+    });
+
+    // Fire all uploads in parallel.
+    const results = await Promise.allSettled(uploads.map(async ({ id, file, sortOrder }) => {
+      try {
+        uploadProgress.updateProgress(id, 40);
+        const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
+          fallbackBase: 'product-image',
+          fallbackExtension: 'png',
+        })}`;
+        const { publicUrl } = await uploadStorageFile('product-models', path, file, {
+          contentType: file.type || undefined,
+        });
+        uploadProgress.updateProgress(id, 90);
+        return {
+          id,
+          row: {
+            user_id: user.id,
+            asset_id: targetProductId,
+            workstation_id: workstationId,
+            original_url: publicUrl,
+            file_name: file.name,
+            sort_order: sortOrder,
+          },
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        uploadProgress.setError(id, msg || '上传失败');
+        throw err;
+      }
+    }));
+
+    const uploadedRows = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
+
+    if (uploadedRows.length > 0) {
+      try {
+        await createProductMedia(uploadedRows.map(r => r.row));
+        uploadedRows.forEach(r => {
+          uploadProgress.setSuccess(r.id);
+          retryRegistryRef.current.delete(r.id);
+        });
+        await updateProductAsset(targetProductId, {
+          source_type: asset?.model_file_url ? 'model' : 'image',
+          updated_at: new Date().toISOString(),
+        }, { silent: true });
+        await syncPreviewImagesFromMedia(targetProductId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        uploadedRows.forEach(r => uploadProgress.setError(r.id, `入库失败: ${msg}`));
+      }
+    }
+
+    const failed = results.length - uploadedRows.length;
+    if (uploadedRows.length > 0 && failed === 0) {
+      toast.success(`已上传 ${uploadedRows.length} 张产品图片`);
+    } else if (uploadedRows.length > 0 && failed > 0) {
+      toast.warning(`已上传 ${uploadedRows.length} 张，${failed} 张失败，可在进度面板重试`);
+    } else if (failed > 0) {
+      toast.error(`全部 ${failed} 张图片上传失败，可在进度面板重试`);
+    }
+  };
+
+  const handleRetryUpload = async (id: string) => {
+    const entry = retryRegistryRef.current.get(id);
+    if (!entry) return;
+    uploadProgress.removeItem(id);
+    retryRegistryRef.current.delete(id);
+    await uploadImageBatch([entry.file], entry.targetProductId);
+    await loadData(entry.targetProductId);
+    await refreshProductAnnotationStats();
   };
 
   const handleDeleteMedia = async (mediaId: string) => {
@@ -854,6 +926,51 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 hint="支持 JPG / PNG / WEBP，可重复上传同一文件"
                 onUpload={handleFilesUpload}
               />
+              {products.length > 0 && (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
+                  <Label className="shrink-0 text-[10px] text-muted-foreground">归属产品</Label>
+                  <Select
+                    value={uploadTargetProductId}
+                    onValueChange={setUploadTargetProductId}
+                    disabled={uploading}
+                  >
+                    <SelectTrigger className="h-7 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__current__">
+                        当前选中产品{asset?.product_name ? `（${asset.product_name}）` : ''}
+                      </SelectItem>
+                      {products.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.product_name || '未命名产品'}
+                          {p.product_code ? ` · ${p.product_code}` : ''}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__new__">➕ 新建产品并上传</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {uploadProgress.items.length > 0 && (
+                <div className="space-y-2 rounded-md border bg-muted/10 p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">上传进度</span>
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                      onClick={uploadProgress.clearCompleted}
+                    >
+                      清除已完成
+                    </button>
+                  </div>
+                  <UploadProgress
+                    items={uploadProgress.items}
+                    onRemove={uploadProgress.removeItem}
+                    onRetry={handleRetryUpload}
+                  />
+                </div>
+              )}
             </div>
 
             {mediaItems.length > 0 ? (
