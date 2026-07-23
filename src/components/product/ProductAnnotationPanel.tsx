@@ -1048,12 +1048,129 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
               )}
             </div>
 
-            {mediaItems.length > 0 ? (
-              <ScrollArea className="h-[360px] pr-2">
+            {asset?.model_file_url ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5">
+                <span className="text-[10px] text-muted-foreground">当前产品已有 3D 模型，可继续截图生成标注图片。</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => useAppStore.getState().enterViewerMode(
+                    asset.model_file_url,
+                    [],
+                    asset.id,
+                    'workstation',
+                    'model',
+                  )}
+                  className="h-7 gap-1 px-2 text-xs"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  打开 3D 模型
+                </Button>
+              </div>
+            ) : null}
+
+            {sortedAnnotationRecords.length > 0 || pendingMediaItems.length > 0 ? (
+              <ScrollArea className="h-[420px] pr-2">
                 <div className="grid grid-cols-1 gap-3">
-                  {sortProductMedia(mediaItems, asset?.id).map((media, index, ordered) => {
-                    const annotation = annotations.find(record => record.media_id === media.id) || null;
-                    const displayUrl = getProductMediaDisplayUrl({ media, annotation });
+                  {sortedAnnotationRecords.map((annotation, index, ordered) => {
+                    const media = annotation.media_id ? mediaById.get(annotation.media_id) : null;
+                    return (
+                      <div
+                        key={annotation.id}
+                        draggable={!reordering}
+                        onDragStart={(e) => {
+                          setDragAnnotationId(annotation.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', annotation.id);
+                        }}
+                        onDragOver={(e) => {
+                          if (!dragAnnotationId || dragAnnotationId === annotation.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverAnnotationId !== annotation.id) setDragOverAnnotationId(annotation.id);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverAnnotationId === annotation.id) setDragOverAnnotationId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const sourceId = dragAnnotationId || e.dataTransfer.getData('text/plain');
+                          setDragAnnotationId(null);
+                          setDragOverAnnotationId(null);
+                          if (sourceId && sourceId !== annotation.id) {
+                            void handleReorderAnnotationByDrag(sourceId, annotation.id);
+                          }
+                        }}
+                        onDragEnd={() => {
+                          setDragAnnotationId(null);
+                          setDragOverAnnotationId(null);
+                        }}
+                        className={`overflow-hidden rounded-xl border bg-card shadow-sm transition ${
+                          dragAnnotationId === annotation.id ? 'opacity-50' : ''
+                        } ${dragOverAnnotationId === annotation.id ? 'border-primary ring-2 ring-primary/30' : ''}`}
+                      >
+                        <div className="grid grid-cols-[24px_112px_1fr] gap-3 p-3">
+                          <div className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing" title="拖拽排序">
+                            <GripVertical className="h-4 w-4" />
+                          </div>
+                          <button
+                            type="button"
+                            className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
+                            onClick={() => handleViewAnnotation(annotation)}
+                          >
+                            <img
+                              src={toLocalProxyUrl(annotation.snapshot_url)}
+                              alt={annotation.remark || `产品标注图片 ${index + 1}`}
+                              className="h-full w-full object-contain transition-transform group-hover:scale-105"
+                            />
+                            <span className="absolute inset-0 flex items-center justify-center bg-card/0 text-foreground opacity-0 transition group-hover:bg-card/70 group-hover:opacity-100">
+                              <Eye className="h-5 w-5" />
+                            </span>
+                          </button>
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-medium">{index + 1}. {annotation.remark || media?.file_name || `标注图片 V${annotation.version}`}</p>
+                                <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-[10px] text-muted-foreground">
+                                  {formatProductMediaCaption({
+                                    media: media || {
+                                      id: annotation.id,
+                                      asset_id: annotation.asset_id,
+                                      original_url: annotation.snapshot_url,
+                                      file_name: annotation.remark || `标注图片 V${annotation.version}`,
+                                      sort_order: annotation.sort_order ?? index,
+                                    },
+                                    annotation,
+                                  })}
+                                </p>
+                              </div>
+                              <Badge variant="default" className="shrink-0 text-[10px]">已标注</Badge>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleEditAnnotation(annotation)}>
+                                <Edit3 className="mr-1 h-3 w-3" /> 编辑标注
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleViewAnnotation(annotation)}>
+                                <Maximize2 className="mr-1 h-3 w-3" /> 查看
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === 0} onClick={() => handleMoveAnnotation(annotation.id, 'up')}>
+                                <ArrowUp className="h-3 w-3" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === ordered.length - 1} onClick={() => handleMoveAnnotation(annotation.id, 'down')}>
+                                <ArrowDown className="h-3 w-3" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteAnnotation(annotation.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {pendingMediaItems.map((media, index) => {
+                    const ordered = pendingMediaItems;
                     return (
                       <div
                         key={media.id}
@@ -1077,9 +1194,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                           const sourceId = dragMediaId || e.dataTransfer.getData('text/plain');
                           setDragMediaId(null);
                           setDragOverMediaId(null);
-                          if (sourceId && sourceId !== media.id) {
-                            void handleReorderMediaByDrag(sourceId, media.id);
-                          }
+                          if (sourceId && sourceId !== media.id) void handleReorderMediaByDrag(sourceId, media.id);
                         }}
                         onDragEnd={() => {
                           setDragMediaId(null);
@@ -1090,70 +1205,34 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                         } ${dragOverMediaId === media.id ? 'border-primary ring-2 ring-primary/30' : ''}`}
                       >
                         <div className="grid grid-cols-[24px_112px_1fr] gap-3 p-3">
-                          <div
-                            className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing"
-                            title="拖拽排序"
-                          >
+                          <div className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing" title="拖拽排序">
                             <GripVertical className="h-4 w-4" />
                           </div>
-                          <button
-                            type="button"
-                            className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
-                            onClick={() => handleViewMedia(media)}
-                          >
-                            <img
-                              src={toLocalProxyUrl(displayUrl)}
-                              alt={media.file_name || `产品图片 ${index + 1}`}
-                              className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                            />
-                            <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-                              <Eye className="h-5 w-5" />
-                            </span>
+                          <button type="button" className="group relative h-20 overflow-hidden rounded-lg border bg-muted" onClick={() => handleViewMedia(media)}>
+                            <img src={toLocalProxyUrl(media.original_url)} alt={media.file_name || `待标注图片 ${index + 1}`} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
                           </button>
                           <div className="min-w-0 space-y-2">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="truncate text-xs font-medium">{index + 1}. {media.file_name || '产品图片'}</p>
-                                <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-[10px] text-muted-foreground">
-                                  {formatProductMediaCaption({ media, annotation })}
-                                </p>
+                                <p className="truncate text-xs font-medium">待标注 {index + 1}. {media.file_name || '产品图片'}</p>
+                                <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">进入标注并保存后，会成为产品标注图片。</p>
                               </div>
-                              <Badge variant={annotation ? 'default' : 'outline'} className="shrink-0 text-[10px]">
-                                {annotation ? '已标注' : '未标注'}
-                              </Badge>
+                              <Badge variant="outline" className="shrink-0 text-[10px]">待标注</Badge>
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
                               <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleAnnotateMedia(media)}>
-                                <Edit3 className="mr-1 h-3 w-3" />
-                                {annotation ? '编辑标注' : '进入标注'}
+                                <Edit3 className="mr-1 h-3 w-3" /> 进入标注
                               </Button>
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleViewMedia(media)}>
                                 <Maximize2 className="mr-1 h-3 w-3" /> 查看
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                disabled={index === 0}
-                                onClick={() => handleMoveMedia(media.id, 'up')}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === 0} onClick={() => handleMoveMedia(media.id, 'up')}>
                                 <ArrowUp className="h-3 w-3" />
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                disabled={index === ordered.length - 1}
-                                onClick={() => handleMoveMedia(media.id, 'down')}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === ordered.length - 1} onClick={() => handleMoveMedia(media.id, 'down')}>
                                 <ArrowDown className="h-3 w-3" />
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-destructive hover:text-destructive"
-                                onClick={() => handleDeleteMedia(media.id)}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteMedia(media.id)}>
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
@@ -1167,56 +1246,17 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
             ) : (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-muted-foreground">
                 <ImageIcon className="mb-2 h-10 w-10 opacity-30" />
-                <p className="text-xs">当前产品还没有图片</p>
-                <p className="text-[10px]">未上传图片的产品不会生成 PPT 空白页</p>
+                <p className="text-xs">当前产品还没有标注图片</p>
+                <p className="text-[10px]">上传图片标注，或上传 3D 模型截图标注</p>
               </div>
             )}
-          </TabsContent>
+          </div>
 
-          <TabsContent value="model" className="mt-3 space-y-3">
-            <DragDropUpload
-              accept=".glb,.gltf"
-              maxSize={50}
-              showPreview={false}
-              uploading={uploading}
-              label="上传产品 3D 模型"
-              hint="支持 GLB / GLTF；模型不作为产品图片页"
-              onUpload={handleFilesUpload}
-            />
-            {asset?.model_file_url ? (
-              <div className="space-y-3">
-                <div className="flex aspect-video items-center justify-center rounded-lg bg-muted">
-                  <Box className="h-10 w-10 text-muted-foreground" />
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => useAppStore.getState().enterViewerMode(
-                    asset.model_file_url,
-                    [],
-                    asset.id,
-                    'workstation',
-                    'model',
-                  )}
-                  className="w-full gap-1"
-                >
-                  <Maximize2 className="h-4 w-4" />
-                  在画布中查看 3D 模型
-                </Button>
-                <p className="text-xs text-muted-foreground">{getSupportedProductModelHint()}</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <Box className="mb-2 h-10 w-10 opacity-30" />
-                <p className="text-xs">暂无 3D 模型</p>
-              </div>
-            )}
-          </TabsContent>
-
-          {/* Annotation Tab removed - annotations now viewed/edited in central canvas */}
-
-          {/* Product Info Tab */}
-          <TabsContent value="info" className="mt-3">
+          <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-primary" />
+              <Label className="text-xs font-medium">产品信息</Label>
+            </div>
             <ScrollArea className="h-[350px]">
               <div className="space-y-4 pr-2">
                 {/* Detection Method */}
