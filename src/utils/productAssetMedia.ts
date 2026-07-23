@@ -25,6 +25,7 @@ export interface ProductAnnotationMedia {
   remark?: string | null;
   is_ppt_default?: boolean | null;
   version?: number | null;
+  sort_order?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -96,6 +97,9 @@ export function sortProductAnnotationsForPpt<T extends ProductAnnotationMedia>(
       const defaultOrder = Number(Boolean(right.is_ppt_default)) - Number(Boolean(left.is_ppt_default));
       if (defaultOrder !== 0) return defaultOrder;
 
+      const sortOrder = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0);
+      if (sortOrder !== 0) return sortOrder;
+
       const versionOrder = Number(right.version ?? 0) - Number(left.version ?? 0);
       if (versionOrder !== 0) return versionOrder;
 
@@ -152,7 +156,8 @@ function sortLegacyAnnotations<T extends ProductAnnotationMedia>(
     .filter(annotation => annotation.asset_id === assetId && !annotation.media_id)
     .slice()
     .sort((left, right) =>
-      Date.parse(left.created_at || '') - Date.parse(right.created_at || '')
+      Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)
+      || Date.parse(left.created_at || '') - Date.parse(right.created_at || '')
       || Number(left.version ?? 0) - Number(right.version ?? 0)
       || String(left.id || '').localeCompare(String(right.id || ''))
     );
@@ -176,12 +181,34 @@ export function buildProductMediaItems<
   const annotationRows = annotations || [];
 
   if (assetMedia.length > 0) {
-    return assetMedia.map(mediaItem => ({
+    const usedAnnotationIds = new Set<string>();
+    const items = assetMedia.map(mediaItem => {
+      const annotation = annotationRows.find(row =>
+        row.asset_id === assetId && row.media_id === mediaItem.id
+      ) || null;
+      if (annotation?.id) usedAnnotationIds.add(annotation.id);
+      return {
       media: mediaItem,
-      annotation: annotationRows.find(annotation =>
-        annotation.asset_id === assetId && annotation.media_id === mediaItem.id
-      ) || null,
-    }));
+      annotation,
+      };
+    });
+
+    sortLegacyAnnotations(annotationRows, assetId)
+      .filter(annotation => !annotation.id || !usedAnnotationIds.has(annotation.id))
+      .forEach((annotation, index) => {
+        items.push({
+          media: {
+            id: `legacy-annotation:${annotation.id || index}`,
+            asset_id: assetId,
+            original_url: annotation.snapshot_url?.trim() || '',
+            file_name: annotation.remark?.trim() || `历史标注 ${annotation.version ?? index + 1}`,
+            sort_order: Number(annotation.sort_order ?? items.length),
+          } as TMedia,
+          annotation,
+        });
+      });
+
+    return items.filter(item => Boolean(item.media.original_url));
   }
 
   const previews = normalizeProductPreviewImages(legacyPreviewImages);

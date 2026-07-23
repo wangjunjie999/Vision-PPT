@@ -10,7 +10,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -35,7 +34,6 @@ import {
   Eye,
   Save,
   Loader2,
-  FileImage,
   Plus,
   Info,
   X,
@@ -46,13 +44,13 @@ import {
 } from 'lucide-react';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
-import { getSupportedProductModelHint } from '@/utils/productViewer';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
 import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
 import { UploadProgress, useUploadProgress } from '@/components/upload/UploadProgress';
 import {
+  buildProductMediaItems,
   formatProductMediaCaption,
   getProductMediaDisplayUrl,
   getProductPreviewImageUrls,
@@ -67,6 +65,7 @@ import {
   reorderProductMedia,
   syncPreviewImagesFromMedia,
 } from '@/services/productMediaService';
+import { reorderProductAnnotations } from '@/services/productAnnotationService';
 
 interface ProductModelItem {
   name: string;
@@ -124,11 +123,13 @@ interface AnnotationRecord {
   created_at: string;
   updated_at: string;
   is_ppt_default: boolean;
+  sort_order?: number | null;
 }
 
 interface ProductAnnotationStats {
   mediaCount: number;
   annotatedCount: number;
+  pendingCount: number;
 }
 
 interface ProductAnnotationPanelProps {
@@ -168,12 +169,13 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [uploading, setUploading] = useState(false);
   const [dragMediaId, setDragMediaId] = useState<string | null>(null);
   const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
+  const [dragAnnotationId, setDragAnnotationId] = useState<string | null>(null);
+  const [dragOverAnnotationId, setDragOverAnnotationId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const uploadProgress = useUploadProgress();
   // Keep original File refs for retry, keyed by progress item id.
   const retryRegistryRef = useRef<Map<string, { file: File; targetProductId: string }>>(new Map());
   const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
-  const [activeTab, setActiveTab] = useState('media');
 
   // Product info state
   const [detectionMethod, setDetectionMethod] = useState('');
@@ -206,6 +208,27 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const asset: ProductAsset | null =
     products.find(p => p.id === selectedProductId) || products[0] || null;
 
+  const productAnnotationItems = useMemo(() => {
+    if (!asset) return [];
+    return buildProductMediaItems(asset.id, mediaItems, annotations, asset.preview_images);
+  }, [asset, mediaItems, annotations]);
+
+  const sortedAnnotationRecords = useMemo(() => productAnnotationItems
+    .filter(item => item.annotation)
+    .map(item => item.annotation!)
+    .sort((left, right) =>
+      Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)
+      || Number(right.version ?? 0) - Number(left.version ?? 0)
+      || Date.parse(right.created_at || '') - Date.parse(left.created_at || '')
+      || String(right.id).localeCompare(String(left.id))
+    ), [productAnnotationItems]);
+
+  const pendingMediaItems = useMemo(() => productAnnotationItems
+    .filter(item => !item.annotation)
+    .map(item => item.media), [productAnnotationItems]);
+
+  const mediaById = useMemo(() => new Map(mediaItems.map(item => [item.id, item])), [mediaItems]);
+
   const refreshProductAnnotationStats = useCallback(async () => {
     const productIds = products.map(product => product.id);
     if (productIds.length === 0) {
@@ -234,9 +257,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       const mediaIds = new Set(productMedia.map(item => item.id));
       next.set(product.id, {
         mediaCount: productMedia.length,
-        annotatedCount: (annotationResult.data || []).filter(item =>
-          item.asset_id === product.id && Boolean(item.media_id && mediaIds.has(item.media_id))
-        ).length,
+        annotatedCount: (annotationResult.data || []).filter(item => item.asset_id === product.id).length,
+        pendingCount: productMedia.filter(item => !((annotationResult.data || []).some(annotation =>
+          annotation.asset_id === product.id && annotation.media_id === item.id
+        ))).length,
       });
     }
     setProductAnnotationStats(next);
@@ -693,6 +717,43 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     }
   };
 
+  const handleMoveAnnotation = async (annotationId: string, direction: 'up' | 'down') => {
+    if (!asset) return;
+    const ordered = sortedAnnotationRecords.map(record => record.id);
+    const index = ordered.findIndex(id => id === annotationId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
+    try {
+      await reorderProductAnnotations(asset.id, ordered);
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('标注图片排序失败');
+    }
+  };
+
+  const handleReorderAnnotationByDrag = async (sourceId: string, targetId: string) => {
+    if (!asset || sourceId === targetId) return;
+    const ordered = sortedAnnotationRecords.map(record => record.id);
+    const fromIndex = ordered.findIndex(id => id === sourceId);
+    const toIndex = ordered.findIndex(id => id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const next = [...ordered];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setReordering(true);
+    try {
+      await reorderProductAnnotations(asset.id, next);
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('标注图片排序失败');
+    } finally {
+      setReordering(false);
+    }
+  };
+
   const handlePaginationModeChange = async (value: string) => {
     if (!asset) return;
     const nextMode: 1 | 2 = value === '2' ? 2 : 1;
@@ -727,6 +788,46 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         recordId: annotation?.id,
       }
     );
+  };
+
+  const handleEditAnnotation = (annotation: AnnotationRecord) => {
+    if (!asset) return;
+    const sourceMedia = annotation.media_id ? mediaById.get(annotation.media_id) : null;
+    useAppStore.getState().enterAnnotationMode(
+      sourceMedia?.original_url || annotation.snapshot_url,
+      asset.id,
+      'workstation',
+      workstationId,
+      {
+        mediaId: annotation.media_id || undefined,
+        annotations: annotation.annotations_json || [],
+        remark: annotation.remark || null,
+        recordId: annotation.id,
+      }
+    );
+  };
+
+  const handleViewAnnotation = (annotation: AnnotationRecord) => {
+    if (!asset) return;
+    useAppStore.getState().enterViewerMode(null, [annotation.snapshot_url], asset.id, 'workstation', 'image');
+  };
+
+  const handleDeleteAnnotation = async (annotationId: string) => {
+    if (!asset) return;
+    try {
+      const { error } = await supabase
+        .from('product_annotations')
+        .delete()
+        .eq('id', annotationId)
+        .eq('asset_id', asset.id);
+      if (error) throw error;
+      await loadData(asset.id);
+      await refreshProductAnnotationStats();
+      toast.success('标注图片已删除');
+    } catch (error) {
+      console.error('Delete annotation failed:', error);
+      toast.error('删除失败');
+    }
   };
 
   const handleViewMedia = (media: ProductMediaRecord) => {
@@ -854,72 +955,56 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           )}
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 h-8">
-            <TabsTrigger value="media" className="text-xs">
-              <FileImage className="h-3 w-3 mr-1" />
-              产品图片({mediaItems.length})
-            </TabsTrigger>
-            <TabsTrigger value="model" className="text-xs">
-              <Box className="h-3 w-3 mr-1" />
-              3D模型
-            </TabsTrigger>
-            <TabsTrigger value="info" className="text-xs">
-              <Info className="h-3 w-3 mr-1" />
-              产品信息
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="media" className="mt-3 space-y-3">
-            <div className="space-y-2">
-	              <div className="flex items-center justify-between gap-2">
-	                <div>
-	                  <Label className="text-xs">产品图片</Label>
-	                  <p className="text-[10px] text-muted-foreground">支持单张或批量上传；每张图片可独立标注一次并持续编辑。</p>
-	                </div>
-	              </div>
-	              <div className="rounded-lg border bg-muted/30 p-3">
-	                <div className="flex flex-wrap items-center justify-between gap-2">
-	                  <div>
-	                    <Label className="text-xs font-medium">文档分页方式</Label>
-	                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-	                      仅作用于当前工位的当前产品；切换不会修改图片、排序或标注。
-	                    </p>
-	                  </div>
-	                  <div className="flex items-center gap-2">
-	                    <Select
-	                      value={String(resolveProductImagesPerPage(asset))}
-	                      onValueChange={handlePaginationModeChange}
-	                      disabled={!asset || updatingPaginationMode}
-	                    >
-	                      <SelectTrigger className="h-8 w-[176px] text-xs">
-	                        <SelectValue />
-	                      </SelectTrigger>
-	                      <SelectContent>
-	                        <SelectItem value="1">单页单图（大图）</SelectItem>
-	                        <SelectItem value="2">单页双图（紧凑）</SelectItem>
-	                      </SelectContent>
-	                    </Select>
-	                    {updatingPaginationMode && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-	                  </div>
-	                </div>
-	                <div className="mt-2 text-[10px] text-muted-foreground">
-	                  当前 {mediaItems.length} 张图片，预计生成{' '}
-	                  {mediaItems.length === 0
-	                    ? 0
-	                    : Math.ceil(mediaItems.length / resolveProductImagesPerPage(asset))}{' '}
-	                  页
-	                </div>
-	              </div>
-	              <DragDropUpload
-                accept=".jpg,.jpeg,.png,.webp"
+        <section className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs">产品标注图片</Label>
+                <p className="text-[10px] text-muted-foreground">图片可直接标注；GLB/GLTF 上传后进入画布截图，保存后进入同一个标注图片列表。</p>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Label className="text-xs font-medium">文档分页方式</Label>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    仅作用于当前工位的当前产品；切换不会修改图片、排序或标注。
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={String(resolveProductImagesPerPage(asset))}
+                    onValueChange={handlePaginationModeChange}
+                    disabled={!asset || updatingPaginationMode}
+                  >
+                    <SelectTrigger className="h-8 w-[176px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">单页单图（大图）</SelectItem>
+                      <SelectItem value="2">单页双图（紧凑）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {updatingPaginationMode && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] text-muted-foreground">
+                当前 {sortedAnnotationRecords.length} 张已保存标注图片，预计生成{' '}
+                {sortedAnnotationRecords.length === 0
+                  ? 0
+                  : Math.ceil(sortedAnnotationRecords.length / resolveProductImagesPerPage(asset))}{' '}
+                页
+              </div>
+            </div>
+            <DragDropUpload
+                accept=".jpg,.jpeg,.png,.webp,.glb,.gltf"
                 multiple
                 maxFiles={null}
-                maxSize={20}
+                maxSize={50}
                 showPreview={false}
                 uploading={uploading}
-                label="拖拽或选择产品图片"
-                hint="支持 JPG / PNG / WEBP，可重复上传同一文件"
+                label="拖拽或选择产品标注素材"
+                hint="支持 JPG / PNG / WEBP / GLB / GLTF；3D 文件上传后在画布截图标注"
                 onUpload={handleFilesUpload}
               />
               {products.length > 0 && asset && (
@@ -959,14 +1044,130 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                   />
                 </div>
               )}
-            </div>
 
-            {mediaItems.length > 0 ? (
-              <ScrollArea className="h-[360px] pr-2">
+            {asset?.model_file_url ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5">
+                <span className="text-[10px] text-muted-foreground">当前产品已有 3D 模型，可继续截图生成标注图片。</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => useAppStore.getState().enterViewerMode(
+                    asset.model_file_url,
+                    [],
+                    asset.id,
+                    'workstation',
+                    'model',
+                  )}
+                  className="h-7 gap-1 px-2 text-xs"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  打开 3D 模型
+                </Button>
+              </div>
+            ) : null}
+
+            {sortedAnnotationRecords.length > 0 || pendingMediaItems.length > 0 ? (
+              <ScrollArea className="h-[420px] pr-2">
                 <div className="grid grid-cols-1 gap-3">
-                  {sortProductMedia(mediaItems, asset?.id).map((media, index, ordered) => {
-                    const annotation = annotations.find(record => record.media_id === media.id) || null;
-                    const displayUrl = getProductMediaDisplayUrl({ media, annotation });
+                  {sortedAnnotationRecords.map((annotation, index, ordered) => {
+                    const media = annotation.media_id ? mediaById.get(annotation.media_id) : null;
+                    return (
+                      <div
+                        key={annotation.id}
+                        draggable={!reordering}
+                        onDragStart={(e) => {
+                          setDragAnnotationId(annotation.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', annotation.id);
+                        }}
+                        onDragOver={(e) => {
+                          if (!dragAnnotationId || dragAnnotationId === annotation.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverAnnotationId !== annotation.id) setDragOverAnnotationId(annotation.id);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverAnnotationId === annotation.id) setDragOverAnnotationId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const sourceId = dragAnnotationId || e.dataTransfer.getData('text/plain');
+                          setDragAnnotationId(null);
+                          setDragOverAnnotationId(null);
+                          if (sourceId && sourceId !== annotation.id) {
+                            void handleReorderAnnotationByDrag(sourceId, annotation.id);
+                          }
+                        }}
+                        onDragEnd={() => {
+                          setDragAnnotationId(null);
+                          setDragOverAnnotationId(null);
+                        }}
+                        className={`overflow-hidden rounded-xl border bg-card shadow-sm transition ${
+                          dragAnnotationId === annotation.id ? 'opacity-50' : ''
+                        } ${dragOverAnnotationId === annotation.id ? 'border-primary ring-2 ring-primary/30' : ''}`}
+                      >
+                        <div className="grid grid-cols-[24px_112px_1fr] gap-3 p-3">
+                          <div className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing" title="拖拽排序">
+                            <GripVertical className="h-4 w-4" />
+                          </div>
+                          <button
+                            type="button"
+                            className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
+                            onClick={() => handleViewAnnotation(annotation)}
+                          >
+                            <img
+                              src={toLocalProxyUrl(annotation.snapshot_url)}
+                              alt={annotation.remark || `产品标注图片 ${index + 1}`}
+                              className="h-full w-full object-contain transition-transform group-hover:scale-105"
+                            />
+                            <span className="absolute inset-0 flex items-center justify-center bg-card/0 text-foreground opacity-0 transition group-hover:bg-card/70 group-hover:opacity-100">
+                              <Eye className="h-5 w-5" />
+                            </span>
+                          </button>
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-medium">{index + 1}. {annotation.remark || media?.file_name || `标注图片 V${annotation.version}`}</p>
+                                <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-[10px] text-muted-foreground">
+                                  {formatProductMediaCaption({
+                                    media: media || {
+                                      id: annotation.id,
+                                      asset_id: annotation.asset_id,
+                                      original_url: annotation.snapshot_url,
+                                      file_name: annotation.remark || `标注图片 V${annotation.version}`,
+                                      sort_order: annotation.sort_order ?? index,
+                                    },
+                                    annotation,
+                                  })}
+                                </p>
+                              </div>
+                              <Badge variant="default" className="shrink-0 text-[10px]">已标注</Badge>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleEditAnnotation(annotation)}>
+                                <Edit3 className="mr-1 h-3 w-3" /> 编辑标注
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleViewAnnotation(annotation)}>
+                                <Maximize2 className="mr-1 h-3 w-3" /> 查看
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === 0} onClick={() => handleMoveAnnotation(annotation.id, 'up')}>
+                                <ArrowUp className="h-3 w-3" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === ordered.length - 1} onClick={() => handleMoveAnnotation(annotation.id, 'down')}>
+                                <ArrowDown className="h-3 w-3" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteAnnotation(annotation.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {pendingMediaItems.map((media, index) => {
+                    const ordered = pendingMediaItems;
                     return (
                       <div
                         key={media.id}
@@ -990,9 +1191,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                           const sourceId = dragMediaId || e.dataTransfer.getData('text/plain');
                           setDragMediaId(null);
                           setDragOverMediaId(null);
-                          if (sourceId && sourceId !== media.id) {
-                            void handleReorderMediaByDrag(sourceId, media.id);
-                          }
+                          if (sourceId && sourceId !== media.id) void handleReorderMediaByDrag(sourceId, media.id);
                         }}
                         onDragEnd={() => {
                           setDragMediaId(null);
@@ -1003,70 +1202,34 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                         } ${dragOverMediaId === media.id ? 'border-primary ring-2 ring-primary/30' : ''}`}
                       >
                         <div className="grid grid-cols-[24px_112px_1fr] gap-3 p-3">
-                          <div
-                            className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing"
-                            title="拖拽排序"
-                          >
+                          <div className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing" title="拖拽排序">
                             <GripVertical className="h-4 w-4" />
                           </div>
-                          <button
-                            type="button"
-                            className="group relative h-20 overflow-hidden rounded-lg border bg-muted"
-                            onClick={() => handleViewMedia(media)}
-                          >
-                            <img
-                              src={toLocalProxyUrl(displayUrl)}
-                              alt={media.file_name || `产品图片 ${index + 1}`}
-                              className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                            />
-                            <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-                              <Eye className="h-5 w-5" />
-                            </span>
+                          <button type="button" className="group relative h-20 overflow-hidden rounded-lg border bg-muted" onClick={() => handleViewMedia(media)}>
+                            <img src={toLocalProxyUrl(media.original_url)} alt={media.file_name || `待标注图片 ${index + 1}`} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
                           </button>
                           <div className="min-w-0 space-y-2">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="truncate text-xs font-medium">{index + 1}. {media.file_name || '产品图片'}</p>
-                                <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-[10px] text-muted-foreground">
-                                  {formatProductMediaCaption({ media, annotation })}
-                                </p>
+                                <p className="truncate text-xs font-medium">待标注 {index + 1}. {media.file_name || '产品图片'}</p>
+                                <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">进入标注并保存后，会成为产品标注图片。</p>
                               </div>
-                              <Badge variant={annotation ? 'default' : 'outline'} className="shrink-0 text-[10px]">
-                                {annotation ? '已标注' : '未标注'}
-                              </Badge>
+                              <Badge variant="outline" className="shrink-0 text-[10px]">待标注</Badge>
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
                               <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleAnnotateMedia(media)}>
-                                <Edit3 className="mr-1 h-3 w-3" />
-                                {annotation ? '编辑标注' : '进入标注'}
+                                <Edit3 className="mr-1 h-3 w-3" /> 进入标注
                               </Button>
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleViewMedia(media)}>
                                 <Maximize2 className="mr-1 h-3 w-3" /> 查看
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                disabled={index === 0}
-                                onClick={() => handleMoveMedia(media.id, 'up')}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === 0} onClick={() => handleMoveMedia(media.id, 'up')}>
                                 <ArrowUp className="h-3 w-3" />
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                disabled={index === ordered.length - 1}
-                                onClick={() => handleMoveMedia(media.id, 'down')}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === ordered.length - 1} onClick={() => handleMoveMedia(media.id, 'down')}>
                                 <ArrowDown className="h-3 w-3" />
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-destructive hover:text-destructive"
-                                onClick={() => handleDeleteMedia(media.id)}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteMedia(media.id)}>
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
@@ -1080,56 +1243,16 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
             ) : (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-muted-foreground">
                 <ImageIcon className="mb-2 h-10 w-10 opacity-30" />
-                <p className="text-xs">当前产品还没有图片</p>
-                <p className="text-[10px]">未上传图片的产品不会生成 PPT 空白页</p>
+                <p className="text-xs">当前产品还没有标注图片</p>
+                <p className="text-[10px]">上传图片标注，或上传 3D 模型截图标注</p>
               </div>
             )}
-          </TabsContent>
-
-          <TabsContent value="model" className="mt-3 space-y-3">
-            <DragDropUpload
-              accept=".glb,.gltf"
-              maxSize={50}
-              showPreview={false}
-              uploading={uploading}
-              label="上传产品 3D 模型"
-              hint="支持 GLB / GLTF；模型不作为产品图片页"
-              onUpload={handleFilesUpload}
-            />
-            {asset?.model_file_url ? (
-              <div className="space-y-3">
-                <div className="flex aspect-video items-center justify-center rounded-lg bg-muted">
-                  <Box className="h-10 w-10 text-muted-foreground" />
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => useAppStore.getState().enterViewerMode(
-                    asset.model_file_url,
-                    [],
-                    asset.id,
-                    'workstation',
-                    'model',
-                  )}
-                  className="w-full gap-1"
-                >
-                  <Maximize2 className="h-4 w-4" />
-                  在画布中查看 3D 模型
-                </Button>
-                <p className="text-xs text-muted-foreground">{getSupportedProductModelHint()}</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <Box className="mb-2 h-10 w-10 opacity-30" />
-                <p className="text-xs">暂无 3D 模型</p>
-              </div>
-            )}
-          </TabsContent>
-
-          {/* Annotation Tab removed - annotations now viewed/edited in central canvas */}
-
-          {/* Product Info Tab */}
-          <TabsContent value="info" className="mt-3">
+          </div>
+          <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-primary" />
+              <Label className="text-xs font-medium">产品信息</Label>
+            </div>
             <ScrollArea className="h-[350px]">
               <div className="space-y-4 pr-2">
                 {/* Detection Method */}
@@ -1298,9 +1421,8 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 </div>
               </div>
             </ScrollArea>
-          </TabsContent>
-
-        </Tabs>
+          </div>
+        </section>
 
         {/* Product create / edit dialog */}
         <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
