@@ -20,12 +20,11 @@ import {
   Clock,
   ArrowLeft,
   GripVertical,
-  Box,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Annotation } from '@/components/product/AnnotationCanvas';
 import { toLocalProxyUrl } from '@/utils/storageUrl';
-import { reorderProductAnnotations } from '@/services/productAnnotationService';
+import { reorderProductAnnotations, setPptDefaultAnnotation } from '@/services/productAnnotationService';
 
 interface AnnotationRecord {
   id: string;
@@ -117,9 +116,17 @@ export function AnnotationRecordsPanel() {
     }
   };
 
-  const handleSetDefault = (recordId: string) => {
-    setDefaultRecordId(recordId);
-    toast.success('已设为PPT默认使用');
+  const handleSetDefault = async (recordId: string) => {
+    if (!annotationAssetId) return;
+    try {
+      await setPptDefaultAnnotation(annotationAssetId, recordId);
+      setDefaultRecordId(recordId);
+      await loadRecords();
+      toast.success('已设为PPT默认使用');
+    } catch (error) {
+      console.error('Set default failed:', error);
+      toast.error('设置默认标注失败');
+    }
   };
 
   const handleReorderByDrag = async (sourceId: string, targetId: string) => {
@@ -142,13 +149,6 @@ export function AnnotationRecordsPanel() {
     } finally {
       setReordering(false);
     }
-  };
-
-  const getRecordSource = (record: AnnotationRecord): '3D 截图' | '2D 图片' => {
-    const viewName = (record.view_meta as any)?.viewName as string | undefined;
-    if (record.media_id) return '2D 图片';
-    if (viewName && /版本/.test(viewName)) return '3D 截图';
-    return '3D 截图';
   };
 
   return (
@@ -182,9 +182,7 @@ export function AnnotationRecordsPanel() {
         ) : (
           <ScrollArea className="h-full">
             <div className="space-y-3">
-              {records.map((record) => {
-                const source = getRecordSource(record);
-                return (
+              {records.map((record) => (
                 <div
                   key={record.id}
                   draggable
@@ -228,9 +226,8 @@ export function AnnotationRecordsPanel() {
                     >
                       <GripVertical className="h-4 w-4" />
                     </span>
-                    <Badge variant="outline" className="text-[10px] h-5 gap-1">
-                      {source === '3D 截图' ? <Box className="h-3 w-3" /> : <FileImage className="h-3 w-3" />}
-                      {source}
+                    <Badge variant="outline" className="text-[10px] h-5">
+                      产品标注图片
                     </Badge>
                   </div>
                   {/* Thumbnail */}
@@ -299,8 +296,7 @@ export function AnnotationRecordsPanel() {
                     </div>
                   </div>
                 </div>
-                );
-              })}
+              ))}
             </div>
           </ScrollArea>
         )}
