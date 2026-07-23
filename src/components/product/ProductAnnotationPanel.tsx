@@ -721,6 +721,43 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     }
   };
 
+  const handleMoveAnnotation = async (annotationId: string, direction: 'up' | 'down') => {
+    if (!asset) return;
+    const ordered = sortedAnnotationRecords.map(record => record.id);
+    const index = ordered.findIndex(id => id === annotationId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
+    try {
+      await reorderProductAnnotations(asset.id, ordered);
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('标注图片排序失败');
+    }
+  };
+
+  const handleReorderAnnotationByDrag = async (sourceId: string, targetId: string) => {
+    if (!asset || sourceId === targetId) return;
+    const ordered = sortedAnnotationRecords.map(record => record.id);
+    const fromIndex = ordered.findIndex(id => id === sourceId);
+    const toIndex = ordered.findIndex(id => id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const next = [...ordered];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setReordering(true);
+    try {
+      await reorderProductAnnotations(asset.id, next);
+      await loadData(asset.id);
+    } catch (error) {
+      console.error(error);
+      toast.error('标注图片排序失败');
+    } finally {
+      setReordering(false);
+    }
+  };
+
   const handlePaginationModeChange = async (value: string) => {
     if (!asset) return;
     const nextMode: 1 | 2 = value === '2' ? 2 : 1;
@@ -755,6 +792,46 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         recordId: annotation?.id,
       }
     );
+  };
+
+  const handleEditAnnotation = (annotation: AnnotationRecord) => {
+    if (!asset) return;
+    const sourceMedia = annotation.media_id ? mediaById.get(annotation.media_id) : null;
+    useAppStore.getState().enterAnnotationMode(
+      sourceMedia?.original_url || annotation.snapshot_url,
+      asset.id,
+      'workstation',
+      workstationId,
+      {
+        mediaId: annotation.media_id || undefined,
+        annotations: annotation.annotations_json || [],
+        remark: annotation.remark || null,
+        recordId: annotation.id,
+      }
+    );
+  };
+
+  const handleViewAnnotation = (annotation: AnnotationRecord) => {
+    if (!asset) return;
+    useAppStore.getState().enterViewerMode(null, [annotation.snapshot_url], asset.id, 'workstation', 'image');
+  };
+
+  const handleDeleteAnnotation = async (annotationId: string) => {
+    if (!asset) return;
+    try {
+      const { error } = await supabase
+        .from('product_annotations')
+        .delete()
+        .eq('id', annotationId)
+        .eq('asset_id', asset.id);
+      if (error) throw error;
+      await loadData(asset.id);
+      await refreshProductAnnotationStats();
+      toast.success('标注图片已删除');
+    } catch (error) {
+      console.error('Delete annotation failed:', error);
+      toast.error('删除失败');
+    }
   };
 
   const handleViewMedia = (media: ProductMediaRecord) => {
