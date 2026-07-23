@@ -1425,9 +1425,8 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 </div>
               </div>
             </ScrollArea>
-          </TabsContent>
-
-        </Tabs>
+          </div>
+        </section>
 
         {/* Product create / edit dialog */}
         <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
