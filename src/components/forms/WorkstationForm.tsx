@@ -1356,11 +1356,16 @@ export function WorkstationForm() {
           selectedController: config.controller,
         }))}
       />
-      
-      {/* Product 3D & Annotation Section */}
-      {selectedWorkstationId && (
-        <div className="mt-6 pt-6 border-t">
-          <ProductAnnotationPanel workstationId={selectedWorkstationId} />
+    </div>
+  );
+
+  const Step4ProductConfig = (
+    <div className="space-y-4">
+      {selectedWorkstationId ? (
+        <ProductAnnotationPanel workstationId={selectedWorkstationId} />
+      ) : (
+        <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+          请先创建并选择工位
         </div>
       )}
     </div>
