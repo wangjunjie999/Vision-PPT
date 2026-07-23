@@ -809,8 +809,10 @@ export type Database = {
           asset_id: string
           created_at: string
           id: string
+          media_id: string | null
           remark: string | null
           snapshot_url: string
+          updated_at: string
           user_id: string
           version: number
           view_meta: Json | null
@@ -821,8 +823,10 @@ export type Database = {
           asset_id: string
           created_at?: string
           id?: string
+          media_id?: string | null
           remark?: string | null
           snapshot_url: string
+          updated_at?: string
           user_id: string
           version?: number
           view_meta?: Json | null
@@ -833,8 +837,10 @@ export type Database = {
           asset_id?: string
           created_at?: string
           id?: string
+          media_id?: string | null
           remark?: string | null
           snapshot_url?: string
+          updated_at?: string
           user_id?: string
           version?: number
           view_meta?: Json | null
@@ -846,6 +852,13 @@ export type Database = {
             columns: ["asset_id"]
             isOneToOne: false
             referencedRelation: "product_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_annotations_media_id_fkey"
+            columns: ["media_id"]
+            isOneToOne: false
+            referencedRelation: "product_media"
             referencedColumns: ["id"]
           },
         ]
@@ -952,6 +965,62 @@ export type Database = {
             columns: ["workstation_id"]
             isOneToOne: false
             referencedRelation: "workstations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_media: {
+        Row: {
+          asset_id: string
+          created_at: string
+          display_url: string | null
+          file_name: string | null
+          file_size: number | null
+          id: string
+          is_primary: boolean
+          metadata: Json
+          mime_type: string | null
+          original_url: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          display_url?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_primary?: boolean
+          metadata?: Json
+          mime_type?: string | null
+          original_url: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          display_url?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_primary?: boolean
+          metadata?: Json
+          mime_type?: string | null
+          original_url?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_media_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "product_assets"
             referencedColumns: ["id"]
           },
         ]
