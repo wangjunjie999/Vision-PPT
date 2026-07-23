@@ -957,72 +957,56 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           )}
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 h-8">
-            <TabsTrigger value="media" className="text-xs">
-              <FileImage className="h-3 w-3 mr-1" />
-              产品图片({mediaItems.length})
-            </TabsTrigger>
-            <TabsTrigger value="model" className="text-xs">
-              <Box className="h-3 w-3 mr-1" />
-              3D模型
-            </TabsTrigger>
-            <TabsTrigger value="info" className="text-xs">
-              <Info className="h-3 w-3 mr-1" />
-              产品信息
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="media" className="mt-3 space-y-3">
-            <div className="space-y-2">
-	              <div className="flex items-center justify-between gap-2">
-	                <div>
-	                  <Label className="text-xs">产品图片</Label>
-	                  <p className="text-[10px] text-muted-foreground">支持单张或批量上传；每张图片可独立标注一次并持续编辑。</p>
-	                </div>
-	              </div>
-	              <div className="rounded-lg border bg-muted/30 p-3">
-	                <div className="flex flex-wrap items-center justify-between gap-2">
-	                  <div>
-	                    <Label className="text-xs font-medium">文档分页方式</Label>
-	                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-	                      仅作用于当前工位的当前产品；切换不会修改图片、排序或标注。
-	                    </p>
-	                  </div>
-	                  <div className="flex items-center gap-2">
-	                    <Select
-	                      value={String(resolveProductImagesPerPage(asset))}
-	                      onValueChange={handlePaginationModeChange}
-	                      disabled={!asset || updatingPaginationMode}
-	                    >
-	                      <SelectTrigger className="h-8 w-[176px] text-xs">
-	                        <SelectValue />
-	                      </SelectTrigger>
-	                      <SelectContent>
-	                        <SelectItem value="1">单页单图（大图）</SelectItem>
-	                        <SelectItem value="2">单页双图（紧凑）</SelectItem>
-	                      </SelectContent>
-	                    </Select>
-	                    {updatingPaginationMode && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-	                  </div>
-	                </div>
-	                <div className="mt-2 text-[10px] text-muted-foreground">
-	                  当前 {mediaItems.length} 张图片，预计生成{' '}
-	                  {mediaItems.length === 0
-	                    ? 0
-	                    : Math.ceil(mediaItems.length / resolveProductImagesPerPage(asset))}{' '}
-	                  页
-	                </div>
-	              </div>
-	              <DragDropUpload
-                accept=".jpg,.jpeg,.png,.webp"
+        <section className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs">产品标注图片</Label>
+                <p className="text-[10px] text-muted-foreground">图片可直接标注；GLB/GLTF 上传后进入画布截图，保存后进入同一个标注图片列表。</p>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Label className="text-xs font-medium">文档分页方式</Label>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    仅作用于当前工位的当前产品；切换不会修改图片、排序或标注。
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={String(resolveProductImagesPerPage(asset))}
+                    onValueChange={handlePaginationModeChange}
+                    disabled={!asset || updatingPaginationMode}
+                  >
+                    <SelectTrigger className="h-8 w-[176px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">单页单图（大图）</SelectItem>
+                      <SelectItem value="2">单页双图（紧凑）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {updatingPaginationMode && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] text-muted-foreground">
+                当前 {sortedAnnotationRecords.length} 张已保存标注图片，预计生成{' '}
+                {sortedAnnotationRecords.length === 0
+                  ? 0
+                  : Math.ceil(sortedAnnotationRecords.length / resolveProductImagesPerPage(asset))}{' '}
+                页
+              </div>
+            </div>
+            <DragDropUpload
+                accept=".jpg,.jpeg,.png,.webp,.glb,.gltf"
                 multiple
                 maxFiles={null}
-                maxSize={20}
+                maxSize={50}
                 showPreview={false}
                 uploading={uploading}
-                label="拖拽或选择产品图片"
-                hint="支持 JPG / PNG / WEBP，可重复上传同一文件"
+                label="拖拽或选择产品标注素材"
+                hint="支持 JPG / PNG / WEBP / GLB / GLTF；3D 文件上传后在画布截图标注"
                 onUpload={handleFilesUpload}
               />
               {products.length > 0 && asset && (
