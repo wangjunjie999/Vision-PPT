@@ -1250,8 +1250,6 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 <p className="text-[10px]">上传图片标注，或上传 3D 模型截图标注</p>
               </div>
             )}
-          </div>
-
           <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
             <div className="flex items-center gap-2">
               <Info className="h-4 w-4 text-primary" />
