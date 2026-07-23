@@ -169,6 +169,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [dragMediaId, setDragMediaId] = useState<string | null>(null);
   const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [uploadTargetProductId, setUploadTargetProductId] = useState<string>('__current__');
+  const uploadProgress = useUploadProgress();
+  // Keep original File refs for retry, keyed by progress item id.
+  const retryRegistryRef = useRef<Map<string, { file: File; targetProductId: string }>>(new Map());
   const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
   const [activeTab, setActiveTab] = useState('media');
 
