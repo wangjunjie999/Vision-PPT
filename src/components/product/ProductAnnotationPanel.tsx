@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/useData';
@@ -51,6 +51,7 @@ import { toLocalProxyUrl } from '@/utils/storageUrl';
 import { uploadStorageFile } from '@/utils/storageUpload';
 import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
+import { UploadProgress, useUploadProgress } from '@/components/upload/UploadProgress';
 import {
   formatProductMediaCaption,
   getProductMediaDisplayUrl,
