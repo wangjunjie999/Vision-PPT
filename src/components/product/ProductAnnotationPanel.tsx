@@ -53,6 +53,7 @@ import { createSafeStorageObjectName } from '@/utils/storageFileNames';
 import { DragDropUpload } from '@/components/upload/DragDropUpload';
 import { UploadProgress, useUploadProgress } from '@/components/upload/UploadProgress';
 import {
+  buildProductMediaItems,
   formatProductMediaCaption,
   getProductMediaDisplayUrl,
   getProductPreviewImageUrls,
@@ -67,6 +68,7 @@ import {
   reorderProductMedia,
   syncPreviewImagesFromMedia,
 } from '@/services/productMediaService';
+import { reorderProductAnnotations } from '@/services/productAnnotationService';
 
 interface ProductModelItem {
   name: string;
@@ -124,11 +126,13 @@ interface AnnotationRecord {
   created_at: string;
   updated_at: string;
   is_ppt_default: boolean;
+  sort_order?: number | null;
 }
 
 interface ProductAnnotationStats {
   mediaCount: number;
   annotatedCount: number;
+  pendingCount: number;
 }
 
 interface ProductAnnotationPanelProps {
@@ -168,6 +172,8 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [uploading, setUploading] = useState(false);
   const [dragMediaId, setDragMediaId] = useState<string | null>(null);
   const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
+  const [dragAnnotationId, setDragAnnotationId] = useState<string | null>(null);
+  const [dragOverAnnotationId, setDragOverAnnotationId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const uploadProgress = useUploadProgress();
   // Keep original File refs for retry, keyed by progress item id.
@@ -206,6 +212,27 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const asset: ProductAsset | null =
     products.find(p => p.id === selectedProductId) || products[0] || null;
 
+  const productAnnotationItems = useMemo(() => {
+    if (!asset) return [];
+    return buildProductMediaItems(asset.id, mediaItems, annotations, asset.preview_images);
+  }, [asset, mediaItems, annotations]);
+
+  const sortedAnnotationRecords = useMemo(() => productAnnotationItems
+    .filter(item => item.annotation)
+    .map(item => item.annotation!)
+    .sort((left, right) =>
+      Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)
+      || Number(right.version ?? 0) - Number(left.version ?? 0)
+      || Date.parse(right.created_at || '') - Date.parse(left.created_at || '')
+      || String(right.id).localeCompare(String(left.id))
+    ), [productAnnotationItems]);
+
+  const pendingMediaItems = useMemo(() => productAnnotationItems
+    .filter(item => !item.annotation)
+    .map(item => item.media), [productAnnotationItems]);
+
+  const mediaById = useMemo(() => new Map(mediaItems.map(item => [item.id, item])), [mediaItems]);
+
   const refreshProductAnnotationStats = useCallback(async () => {
     const productIds = products.map(product => product.id);
     if (productIds.length === 0) {
@@ -234,9 +261,10 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
       const mediaIds = new Set(productMedia.map(item => item.id));
       next.set(product.id, {
         mediaCount: productMedia.length,
-        annotatedCount: (annotationResult.data || []).filter(item =>
-          item.asset_id === product.id && Boolean(item.media_id && mediaIds.has(item.media_id))
-        ).length,
+        annotatedCount: (annotationResult.data || []).filter(item => item.asset_id === product.id).length,
+        pendingCount: productMedia.filter(item => !((annotationResult.data || []).some(annotation =>
+          annotation.asset_id === product.id && annotation.media_id === item.id
+        ))).length,
       });
     }
     setProductAnnotationStats(next);
