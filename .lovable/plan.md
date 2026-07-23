@@ -1,56 +1,55 @@
 ## 目标
 
-1. GLB 截图后进入标注 → 中间画布右侧「标注记录」应显示同一产品下所有历史记录（包含之前的 2D 图记录和刚保存的 GLB 截图记录），当前存在被隐藏的问题。
-2. 「标注记录」列表支持上下拖拽排序，顺序持久化。
-3. 移除 `ProductAnnotationPanel` 里那个易混淆的「归属产品」下拉（第二张图红框）—— 保留顶部的「产品」选择器作为唯一入口，并让顶部选择器同时驱动上传归属。
-4. 把「工位配置」表单从 3 步（信息 / 布局 / 硬件）改为 4 步，新增第 4 步「产品」，把当前挂在硬件页底部的 `ProductAnnotationPanel` 抽出来独占一页，完整展示，避免被硬件页压缩。
+把当前界面里的“产品图片 / 3D模型 / 标注图片”拆分概念统一为一个概念：**产品标注图片**。
 
----
+不再在用户界面区分“上传图片”和“GLB截图”的来源；图片上传和 3D 模型上传只是两种生成产品标注图片的入口，最终都进入同一个产品标注图片列表。
 
-## 改造点
+## 当前已确认的问题
 
-### A. 标注记录列表：显示全部 + 拖拽排序 —— `src/components/forms/AnnotationRecordsPanel.tsx`
+- `ProductAnnotationPanel.tsx` 里当前把上传图片放在 `product_media` 列表，把 3D 模型放在单独的 `3D模型` Tab，界面上仍然分裂成两套入口。
+- `AnnotationRecordsPanel.tsx` 当前新增了“2D 图片 / 3D 截图”的来源标签，这和你的定义冲突，需要移除。
+- 产品页当前主要展示 `product_media` 行，所以历史里 `product_annotations.media_id = null` 的标注记录（例如 GLB截图标注、旧流程保存的产品标注图）不会在产品图片列表中完整呈现。
+- 中间画布的标注记录已经按 `asset_id` 查 `product_annotations`，方向是对的，但展示文案和产品页列表还没有统一成“产品标注图片”。
 
-- 排查隐藏问题：目前只按 `asset_id`（+ 可选 `workstation_id`）过滤，按 `version desc` 展示，未过滤 `media_id`。需验证 GLB 截图保存时是否携带了正确的 `asset_id` / `workstation_id`（在保存逻辑里对齐 `useAppStore.annotationAssetId / annotationWorkstationId`）。修复后所有历史记录（含 GLB 与 2D 图）都归入同一列表。
-- 增加显示：区分「来源」标签（3D 截图 / 2D 图片），显示 `file_name` 或简短摘要，方便区分。
-- 增加拖拽排序：使用 HTML5 drag-and-drop（与 `ProductAnnotationPanel` 里的媒体拖拽一致），把顺序写入 `product_annotations.sort_order` 字段；如库中无该列，加数据库迁移新增 `sort_order integer default 0`，并按 `sort_order asc, version desc` 展示。
-- 拖拽结束调用一个新的 `reorderProductAnnotations(assetId, orderedIds)` 服务函数（`src/services/productAnnotationService.ts`）。
+## 修改计划
 
-### B. 移除「归属产品」下拉，统一顶部产品选择器 —— `src/components/product/ProductAnnotationPanel.tsx`
+1. **合并上传入口**
+   - 在产品配置页只保留一个上传区域：`上传产品标注素材`。
+   - 同一个上传区支持：`JPG / PNG / WEBP / GLB / GLTF`。
+   - 图片文件：上传后进入“待标注”状态，点击进入标注，保存后生成产品标注图片。
+   - GLB/GLTF：上传后自动进入中间画布 3D 查看模式，用户截图并保存标注后生成产品标注图片。
+   - 删除单独的 `3D模型` Tab，不再让用户感觉 3D 模型和产品标注图片是两个业务概念。
 
-- 删除 `uploadTargetProductId` state 与上传区上方的下拉选择。
-- 上传逻辑改为：默认使用顶部选中的 `asset`；若无产品，则自动创建；「新建产品并上传」改成一个显式按钮（`＋ 新建产品并上传到该产品`）放在上传组件旁。
-- 顶部产品选择器保留原有功能（切换后驱动图片列表 + 标注记录 + 上传归属，行为一致）。
+2. **产品列表改为显示“产品标注图片”结果**
+   - 产品页列表以 `product_annotations` 为主，展示所有当前产品的标注记录。
+   - 包括：
+     - 上传图片后保存出来的标注图；
+     - GLB/GLTF 截图后保存出来的标注图；
+     - 旧流程保存的、没有 `media_id` 的历史标注图。
+   - 未标注的上传图片仍可作为“待标注素材”显示，但不再叫“产品图片”，避免和最终标注图片混淆。
 
-### C. 工位配置改为 4 步向导 —— `src/components/forms/WorkstationForm.tsx`
+3. **移除来源区分**
+   - 删除 `AnnotationRecordsPanel` 里的“2D 图片 / 3D 截图”标签。
+   - 统一文案为：`产品标注图片`、`标注记录`、`进入标注 / 编辑标注`。
+   - GLB截图和上传图片保存后的结果都使用同样的卡片样式、排序和预览逻辑。
 
-- `steps` 数组新增第 4 步 `product`：
-  - id: `product`, title: `产品配置`, shortTitle: `产品`
-  - 内容：把当前 Step3 底部的 `<ProductAnnotationPanel workstationId={selectedWorkstationId} />` 块移出，作为独立 `Step4Product` 全宽渲染。
-  - `isComplete`：至少有一个 `product_assets` 或允许空（沿用现有校验策略，不阻塞保存）。
-- 从 `Step3HardwareConfig` 中移除产品面板 JSX（1360-1365 行），保持硬件页专注硬件。
-- `MobileFormDrawer` / 进度条自动继承 4 步显示（图 4 中的三段进度会变成四段）。
+4. **恢复历史标注显示**
+   - 产品配置页加载当前产品时，同时加载：
+     - `product_annotations.asset_id = 当前产品id` 的所有标注记录；
+     - `product_media.asset_id = 当前产品id` 的未标注素材。
+   - 列表中优先显示所有已生成的标注图片，确保之前标注过但没有 `media_id` 的历史记录不会被隐藏。
 
-### D. 数据库迁移（若确认无 `sort_order`）
+5. **统一拖拽排序**
+   - 已生成的产品标注图片按 `product_annotations.sort_order` 上下拖拽排序并持久化。
+   - 待标注素材仍按 `product_media.sort_order` 排序。
+   - PPT 或后续导出使用产品标注图片顺序时，优先使用 `product_annotations.sort_order`。
 
-```sql
-alter table public.product_annotations
-  add column if not exists sort_order integer not null default 0;
-create index if not exists product_annotations_asset_sort_idx
-  on public.product_annotations(asset_id, sort_order);
-```
+6. **PPT默认标注持久化**
+   - 当前 `AnnotationRecordsPanel` 点星标只改前端状态，没有写回数据库。
+   - 改为调用已有 `setPptDefaultAnnotation(assetId, annotationId)`，确保默认标注在刷新后仍然保留。
 
----
+## 不做的事
 
-## 技术细节
-
-- `AnnotationRecordsPanel` 拖拽状态复用 `dragMediaId / dragOverMediaId` 模式；防止拖到自身；拖拽期间禁用轮询刷新。
-- 保存排序失败要 toast + 回滚本地顺序。
-- `ProductAnnotationPanel` 顶部选择器切换时需同时清理上传进度里未开始的项，避免旧目标误传。
-- 4 步向导下 `currentStep` 草稿兼容旧数据（老草稿只有 0-2，超出时 clamp 到 3）。
-
-## 不改动
-
-- 不动 3D viewer / 截图逻辑本身。
-- 不动 PPT 生成对标注记录的读取（仍按 `is_ppt_default` + 最新版本策略）。
-- 不重构 `ProductAnnotationPanel` 上传管线，只删掉那一个下拉。
+- 不重构数据库大结构。
+- 不删除 `product_media` 表；它仍作为“待标注素材/上传原图”的内部数据，但不再作为用户看到的主概念。
+- 不改变 3D viewer 本身的截图逻辑，只保证截图保存后的结果进入统一的产品标注图片列表。
