@@ -42,6 +42,7 @@ import {
   Maximize2,
   ArrowUp,
   ArrowDown,
+  GripVertical,
 } from 'lucide-react';
 import { AnnotationCanvas, Annotation } from './AnnotationCanvas';
 import { useAppStore } from '@/store/useAppStore';
