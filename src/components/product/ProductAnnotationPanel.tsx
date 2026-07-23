@@ -497,17 +497,28 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     setUploading(true);
     try {
       // Ensure a product row exists to attach media to.
-      let targetProductId = asset?.id ?? null;
+      // For images, respect the user's explicit target product selection.
+      let targetProductId: string | null = null;
+      if (modelFiles.length > 0) {
+        targetProductId = asset?.id ?? null;
+      } else {
+        const desired = uploadTargetProductId;
+        if (desired && desired !== '__current__' && desired !== '__new__') {
+          targetProductId = desired;
+        } else if (desired === '__current__') {
+          targetProductId = asset?.id ?? null;
+        }
+      }
       if (!targetProductId) {
         const created = await addProductAsset({
-            workstation_id: workstationId,
-            scope_type: 'workstation',
-            source_type: modelFiles.length > 0 ? 'model' : 'image',
-            product_name: `产品 ${products.length + 1}`,
-            sort_order: 0,
-            is_primary: true,
-            document_images_per_page: 1,
-          });
+          workstation_id: workstationId,
+          scope_type: 'workstation',
+          source_type: modelFiles.length > 0 ? 'model' : 'image',
+          product_name: `产品 ${products.length + 1}`,
+          sort_order: 0,
+          is_primary: products.length === 0,
+          document_images_per_page: 1,
+        });
         targetProductId = created.id;
       }
 
@@ -535,36 +546,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
         }, { silent: true });
         toast.success('3D 模型上传成功');
       } else {
-        const currentMedia = await loadProductMedia([targetProductId]);
-        const nextOrder = currentMedia.length === 0
-          ? 0
-          : Math.max(...currentMedia.map(item => item.sort_order)) + 1;
-        const uploadedRows = [];
-        for (let index = 0; index < imageFiles.length; index += 1) {
-          const file = imageFiles[index];
-          const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
-            fallbackBase: 'product-image',
-            fallbackExtension: 'png',
-          })}`;
-          const { publicUrl } = await uploadStorageFile('product-models', path, file, {
-            contentType: file.type || undefined,
-          });
-          uploadedRows.push({
-            user_id: user.id,
-            asset_id: targetProductId,
-            workstation_id: workstationId,
-            original_url: publicUrl,
-            file_name: file.name,
-            sort_order: nextOrder + index,
-          });
-        }
-        await createProductMedia(uploadedRows);
-        await updateProductAsset(targetProductId, {
-          source_type: asset?.model_file_url ? 'model' : 'image',
-          updated_at: new Date().toISOString(),
-        }, { silent: true });
-        await syncPreviewImagesFromMedia(targetProductId);
-        toast.success(`已上传 ${uploadedRows.length} 张产品图片`);
+        await uploadImageBatch(imageFiles, targetProductId);
       }
       await loadData(targetProductId);
       await refreshProductAnnotationStats();
@@ -575,6 +557,93 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     } finally {
       setUploading(false);
     }
+  };
+
+  // Parallel upload of a batch of images to one target product.
+  // Tracks per-file progress and returns after all settle (successes + failures).
+  const uploadImageBatch = async (imageFiles: File[], targetProductId: string) => {
+    if (imageFiles.length === 0 || !user) return;
+    const currentMedia = await loadProductMedia([targetProductId]);
+    const nextOrder = currentMedia.length === 0
+      ? 0
+      : Math.max(...currentMedia.map(item => item.sort_order)) + 1;
+
+    const uploads = imageFiles.map((file, index) => {
+      const id = uploadProgress.addItem(file);
+      retryRegistryRef.current.set(id, { file, targetProductId });
+      return { id, file, sortOrder: nextOrder + index };
+    });
+
+    // Fire all uploads in parallel.
+    const results = await Promise.allSettled(uploads.map(async ({ id, file, sortOrder }) => {
+      try {
+        uploadProgress.updateProgress(id, 40);
+        const path = `${workstationId}/${targetProductId}/${createSafeStorageObjectName(file.name, {
+          fallbackBase: 'product-image',
+          fallbackExtension: 'png',
+        })}`;
+        const { publicUrl } = await uploadStorageFile('product-models', path, file, {
+          contentType: file.type || undefined,
+        });
+        uploadProgress.updateProgress(id, 90);
+        return {
+          id,
+          row: {
+            user_id: user.id,
+            asset_id: targetProductId,
+            workstation_id: workstationId,
+            original_url: publicUrl,
+            file_name: file.name,
+            sort_order: sortOrder,
+          },
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        uploadProgress.setError(id, msg || '上传失败');
+        throw err;
+      }
+    }));
+
+    const uploadedRows = results
+      .filter((r): r is PromiseFulfilledResult<{ id: string; row: NonNullable<Parameters<typeof createProductMedia>[0]>[number] }> => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    if (uploadedRows.length > 0) {
+      try {
+        await createProductMedia(uploadedRows.map(r => r.row));
+        uploadedRows.forEach(r => {
+          uploadProgress.setSuccess(r.id);
+          retryRegistryRef.current.delete(r.id);
+        });
+        await updateProductAsset(targetProductId, {
+          source_type: asset?.model_file_url ? 'model' : 'image',
+          updated_at: new Date().toISOString(),
+        }, { silent: true });
+        await syncPreviewImagesFromMedia(targetProductId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        uploadedRows.forEach(r => uploadProgress.setError(r.id, `入库失败: ${msg}`));
+      }
+    }
+
+    const failed = results.length - uploadedRows.length;
+    if (uploadedRows.length > 0 && failed === 0) {
+      toast.success(`已上传 ${uploadedRows.length} 张产品图片`);
+    } else if (uploadedRows.length > 0 && failed > 0) {
+      toast.warning(`已上传 ${uploadedRows.length} 张，${failed} 张失败，可在进度面板重试`);
+    } else if (failed > 0) {
+      toast.error(`全部 ${failed} 张图片上传失败，可在进度面板重试`);
+    }
+  };
+
+  const handleRetryUpload = async (id: string) => {
+    const entry = retryRegistryRef.current.get(id);
+    if (!entry) return;
+    uploadProgress.removeItem(id);
+    retryRegistryRef.current.delete(id);
+    await uploadImageBatch([entry.file], entry.targetProductId);
+    await loadData(entry.targetProductId);
+    await refreshProductAnnotationStats();
   };
 
   const handleDeleteMedia = async (mediaId: string) => {
