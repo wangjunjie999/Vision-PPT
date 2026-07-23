@@ -1356,11 +1356,16 @@ export function WorkstationForm() {
           selectedController: config.controller,
         }))}
       />
-      
-      {/* Product 3D & Annotation Section */}
-      {selectedWorkstationId && (
-        <div className="mt-6 pt-6 border-t">
-          <ProductAnnotationPanel workstationId={selectedWorkstationId} />
+    </div>
+  );
+
+  const Step4ProductConfig = (
+    <div className="space-y-4">
+      {selectedWorkstationId ? (
+        <ProductAnnotationPanel workstationId={selectedWorkstationId} />
+      ) : (
+        <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+          请先创建并选择工位
         </div>
       )}
     </div>
@@ -1397,10 +1402,19 @@ export function WorkstationForm() {
       content: Step3HardwareConfig,
       isComplete: isStep3Complete,
       nextHint: isStep3Complete 
-        ? '配置完成，点击“保存完成”保存所有设置' 
+        ? '硬件已选完，下一步维护产品图片与标注' 
         : '请至少选择一个相机',
     },
-  ], [Step1WorkstationInfo, Step2MechanicalLayout, Step3HardwareConfig, isStep1Complete, isStep2Complete, isStep3Complete]);
+    {
+      id: 'product',
+      title: '产品配置',
+      shortTitle: '产品',
+      description: '维护该工位下的产品图片、3D 模型与标注',
+      content: Step4ProductConfig,
+      isComplete: true,
+      nextHint: '完成后点击“保存完成”保存所有设置',
+    },
+  ], [Step1WorkstationInfo, Step2MechanicalLayout, Step3HardwareConfig, Step4ProductConfig, isStep1Complete, isStep2Complete, isStep3Complete]);
 
   return (
     <FormStepWizard

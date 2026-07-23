@@ -7,3 +7,17 @@ export async function setPptDefaultAnnotation(assetId: string, annotationId: str
   });
   if (error) throw error;
 }
+
+export async function reorderProductAnnotations(assetId: string, orderedIds: string[]): Promise<void> {
+  if (!assetId || orderedIds.length === 0) return;
+  const updates = orderedIds.map((id, index) =>
+    supabase
+      .from('product_annotations')
+      .update({ sort_order: index, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('asset_id', assetId)
+  );
+  const results = await Promise.all(updates);
+  const firstError = results.find(r => r.error)?.error;
+  if (firstError) throw firstError;
+}

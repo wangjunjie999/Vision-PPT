@@ -169,7 +169,6 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   const [dragMediaId, setDragMediaId] = useState<string | null>(null);
   const [dragOverMediaId, setDragOverMediaId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
-  const [uploadTargetProductId, setUploadTargetProductId] = useState<string>('__current__');
   const uploadProgress = useUploadProgress();
   // Keep original File refs for retry, keyed by progress item id.
   const retryRegistryRef = useRef<Map<string, { file: File; targetProductId: string }>>(new Map());
@@ -498,17 +497,9 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     try {
       // Ensure a product row exists to attach media to.
       // For images, respect the user's explicit target product selection.
-      let targetProductId: string | null = null;
-      if (modelFiles.length > 0) {
-        targetProductId = asset?.id ?? null;
-      } else {
-        const desired = uploadTargetProductId;
-        if (desired && desired !== '__current__' && desired !== '__new__') {
-          targetProductId = desired;
-        } else if (desired === '__current__') {
-          targetProductId = asset?.id ?? null;
-        }
-      }
+      // Always upload to the currently selected product (top selector is the single source of truth).
+      // If no product exists yet, create one automatically below.
+      let targetProductId: string | null = asset?.id ?? null;
       if (!targetProductId) {
         const created = await addProductAsset({
           workstation_id: workstationId,
@@ -931,30 +922,22 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
                 hint="支持 JPG / PNG / WEBP，可重复上传同一文件"
                 onUpload={handleFilesUpload}
               />
-              {products.length > 0 && (
-                <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
-                  <Label className="shrink-0 text-[10px] text-muted-foreground">归属产品</Label>
-                  <Select
-                    value={uploadTargetProductId}
-                    onValueChange={setUploadTargetProductId}
+              {products.length > 0 && asset && (
+                <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5">
+                  <span className="text-[10px] text-muted-foreground">
+                    将上传到当前产品：<span className="text-foreground font-medium">{asset.product_name || '未命名产品'}</span>
+                    {asset.product_code ? ` · ${asset.product_code}` : ''}
+                    <span className="ml-1">（在顶部切换产品）</span>
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-[10px]"
+                    onClick={openCreateProduct}
                     disabled={uploading}
                   >
-                    <SelectTrigger className="h-7 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__current__">
-                        当前选中产品{asset?.product_name ? `（${asset.product_name}）` : ''}
-                      </SelectItem>
-                      {products.map(p => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.product_name || '未命名产品'}
-                          {p.product_code ? ` · ${p.product_code}` : ''}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="__new__">➕ 新建产品并上传</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <Plus className="mr-1 h-3 w-3" /> 新建产品
+                  </Button>
                 </div>
               )}
               {uploadProgress.items.length > 0 && (

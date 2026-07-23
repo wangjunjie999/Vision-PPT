@@ -813,6 +813,7 @@ export type Database = {
           media_id: string | null
           remark: string | null
           snapshot_url: string
+          sort_order: number
           updated_at: string
           user_id: string
           version: number
@@ -828,6 +829,7 @@ export type Database = {
           media_id?: string | null
           remark?: string | null
           snapshot_url: string
+          sort_order?: number
           updated_at?: string
           user_id: string
           version?: number
@@ -843,6 +845,7 @@ export type Database = {
           media_id?: string | null
           remark?: string | null
           snapshot_url?: string
+          sort_order?: number
           updated_at?: string
           user_id?: string
           version?: number
