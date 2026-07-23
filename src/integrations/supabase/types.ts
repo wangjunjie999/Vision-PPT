@@ -860,62 +860,8 @@ export type Database = {
           {
             foreignKeyName: "product_annotations_media_id_fkey"
             columns: ["media_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "product_media"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      product_media: {
-        Row: {
-          asset_id: string
-          created_at: string
-          file_name: string
-          id: string
-          legacy_key: string | null
-          original_url: string
-          sort_order: number
-          updated_at: string
-          user_id: string
-          workstation_id: string | null
-        }
-        Insert: {
-          asset_id: string
-          created_at?: string
-          file_name?: string
-          id?: string
-          legacy_key?: string | null
-          original_url: string
-          sort_order?: number
-          updated_at?: string
-          user_id: string
-          workstation_id?: string | null
-        }
-        Update: {
-          asset_id?: string
-          created_at?: string
-          file_name?: string
-          id?: string
-          legacy_key?: string | null
-          original_url?: string
-          sort_order?: number
-          updated_at?: string
-          user_id?: string
-          workstation_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "product_media_asset_id_fkey"
-            columns: ["asset_id"]
-            isOneToOne: false
-            referencedRelation: "product_assets"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "product_media_workstation_id_fkey"
-            columns: ["workstation_id"]
-            isOneToOne: false
-            referencedRelation: "workstations"
             referencedColumns: ["id"]
           },
         ]
@@ -1025,6 +971,65 @@ export type Database = {
             columns: ["workstation_id"]
             isOneToOne: false
             referencedRelation: "workstations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_media: {
+        Row: {
+          asset_id: string
+          created_at: string
+          display_url: string | null
+          file_name: string | null
+          file_size: number | null
+          id: string
+          is_primary: boolean
+          metadata: Json
+          mime_type: string | null
+          original_url: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+          workstation_id: string | null
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          display_url?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_primary?: boolean
+          metadata?: Json
+          mime_type?: string | null
+          original_url: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+          workstation_id?: string | null
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          display_url?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_primary?: boolean
+          metadata?: Json
+          mime_type?: string | null
+          original_url?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+          workstation_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_media_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "product_assets"
             referencedColumns: ["id"]
           },
         ]
@@ -1198,7 +1203,6 @@ export type Database = {
           observation_target: string | null
           process_stage: string | null
           product_dimensions: Json | null
-          product_assets_initialized: boolean
           product_position: Json | null
           project_id: string
           risk_notes: string | null
@@ -1227,7 +1231,6 @@ export type Database = {
           observation_target?: string | null
           process_stage?: string | null
           product_dimensions?: Json | null
-          product_assets_initialized?: boolean
           product_position?: Json | null
           project_id: string
           risk_notes?: string | null
@@ -1256,7 +1259,6 @@ export type Database = {
           observation_target?: string | null
           process_stage?: string | null
           product_dimensions?: Json | null
-          product_assets_initialized?: boolean
           product_position?: Json | null
           project_id?: string
           risk_notes?: string | null
@@ -1290,10 +1292,7 @@ export type Database = {
         Returns: boolean
       }
       set_product_annotation_default: {
-        Args: {
-          p_annotation_id: string
-          p_asset_id: string
-        }
+        Args: { p_annotation_id: string; p_asset_id: string }
         Returns: undefined
       }
     }

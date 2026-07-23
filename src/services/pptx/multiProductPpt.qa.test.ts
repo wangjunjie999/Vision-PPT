@@ -101,7 +101,7 @@ runQa('generates rendered QA decks for ten images, multiple products and 21 BOM 
     const body = url.includes('/ppt-covers/tech-shine-bg.png')
       ? internalPageBackground
       : onePixelPng;
-    return new Response(body, {
+    return new Response(new Uint8Array(body), {
       status: 200,
       headers: { 'content-type': 'image/png' },
     });
