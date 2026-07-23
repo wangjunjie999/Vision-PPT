@@ -10,7 +10,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -179,7 +178,6 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
   // Keep original File refs for retry, keyed by progress item id.
   const retryRegistryRef = useRef<Map<string, { file: File; targetProductId: string }>>(new Map());
   const [updatingPaginationMode, setUpdatingPaginationMode] = useState(false);
-  const [activeTab, setActiveTab] = useState('media');
 
   // Product info state
   const [detectionMethod, setDetectionMethod] = useState('');
