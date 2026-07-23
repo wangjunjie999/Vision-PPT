@@ -554,6 +554,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
           source_type: asset?.model_file_url ? 'model' : 'image',
           updated_at: new Date().toISOString(),
         }, { silent: true });
+        await syncPreviewImagesFromMedia(targetProductId);
         toast.success(`已上传 ${uploadedRows.length} 张产品图片`);
       }
       await loadData(targetProductId);
@@ -571,6 +572,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     if (!asset) return;
     try {
       await deleteProductMedia(mediaId);
+      await syncPreviewImagesFromMedia(asset.id);
       await loadData(asset.id);
       await refreshProductAnnotationStats();
       toast.success('产品图片及其标注已删除');
@@ -589,6 +591,7 @@ export function ProductAnnotationPanel({ workstationId }: ProductAnnotationPanel
     [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
     try {
       await reorderProductMedia(asset.id, ordered.map(item => item.id));
+      await syncPreviewImagesFromMedia(asset.id);
       await loadData(asset.id);
     } catch (error) {
       console.error(error);
