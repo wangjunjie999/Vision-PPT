@@ -45,7 +45,7 @@ describe('product asset media normalization and selection', () => {
     );
   });
 
-  it('skips empty products and numbers only products that contain media', () => {
+  it('keeps one placeholder page for empty products and numbers all products', () => {
     const products = [
       { id: 'empty', document_images_per_page: 1 },
       { id: 'with-3', document_images_per_page: 2 },
@@ -58,12 +58,14 @@ describe('product asset media normalization and selection', () => {
       { id: 'b-0', asset_id: 'with-1', original_url: 'b.png', file_name: 'b.png', sort_order: 0 },
     ];
     const pages = paginateProductMedia(products, media, []);
-    expect(pages).toHaveLength(3);
-    expect(pages.map(page => page.product.id)).toEqual(['with-3', 'with-3', 'with-1']);
+    expect(pages).toHaveLength(4);
+    expect(pages.map(page => page.product.id)).toEqual(['empty', 'with-3', 'with-3', 'with-1']);
+    expect(pages[0].items).toEqual([]);
     expect(pages.map(page => formatProductSchematicPageTitle(page))).toEqual([
-      '产品示意图-产品1（1/2）',
-      '产品示意图-产品1（2/2）',
-      '产品示意图-产品2（1/1）',
+      '产品示意图-产品1（1/1）',
+      '产品示意图-产品2（1/2）',
+      '产品示意图-产品2（2/2）',
+      '产品示意图-产品3（1/1）',
     ]);
   });
 

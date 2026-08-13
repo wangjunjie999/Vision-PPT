@@ -11,6 +11,14 @@ interface AnnotationExistingData {
   mediaId?: string;
 }
 
+interface LayoutFocusRequest {
+  workstationId: string;
+  objectId: string;
+  requestId: number;
+}
+
+let nextLayoutFocusRequestId = 0;
+
 // Note: All data CRUD has been moved to DataContext (projects/workstations/layouts/modules)
 // and HardwareContext (cameras/lenses/lights/controllers).
 // Templates are managed via usePPTTemplates hook.
@@ -23,6 +31,7 @@ interface Store {
   selectedWorkstationId: string | null;
   selectedModuleId: string | null;
   selectedProductAssetId: string | null;
+  layoutFocusRequest: LayoutFocusRequest | null;
   currentView: ViewType;
   isGeneratingPPT: boolean;
   pptProgress: number;
@@ -79,6 +88,7 @@ interface Store {
   selectWorkstation: (id: string | null) => void;
   selectModule: (id: string | null) => void;
   selectProductAsset: (id: string | null) => void;
+  requestLayoutObjectFocus: (workstationId: string, objectId: string) => void;
   setCurrentView: (view: ViewType) => void;
   setPPTImageQuality: (quality: 'standard' | 'high' | 'ultra') => void;
 
@@ -168,6 +178,7 @@ export const useAppStore = create<Store>()(
       selectedWorkstationId: null,
       selectedModuleId: null,
       selectedProductAssetId: null,
+      layoutFocusRequest: null,
       currentView: 'front',
       isGeneratingPPT: false,
       pptProgress: 0,
@@ -285,17 +296,26 @@ export const useAppStore = create<Store>()(
         selectedWorkstationId: null,
         selectedModuleId: null,
         selectedProductAssetId: null,
+        layoutFocusRequest: null,
       }),
 
       selectWorkstation: (id) => set({
         selectedWorkstationId: id,
         selectedModuleId: null,
         selectedProductAssetId: null,
+        layoutFocusRequest: null,
         currentView: 'front'
       }),
 
       selectModule: (id) => set({ selectedModuleId: id }),
       selectProductAsset: (id) => set({ selectedProductAssetId: id }),
+      requestLayoutObjectFocus: (workstationId, objectId) => set(() => ({
+        layoutFocusRequest: {
+          workstationId,
+          objectId,
+          requestId: ++nextLayoutFocusRequestId,
+        },
+      })),
 
       setCurrentView: (view) => set({ currentView: view }),
 

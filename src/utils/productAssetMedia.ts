@@ -305,22 +305,20 @@ export function paginateProductMedia<
   media: readonly TMedia[] | null | undefined,
   annotations: readonly TAnnotation[] | null | undefined,
 ): ProductMediaPage<TProduct, TMedia, TAnnotation>[] {
-  const populated = (products || [])
-    .map(product => ({
-      product,
-      imagesPerPage: resolveProductImagesPerPage(product),
-      items: buildProductMediaItems(product.id, media, annotations, product.preview_images),
-    }))
-    .filter(entry => entry.items.length > 0);
+  const entries = (products || []).map(product => ({
+    product,
+    imagesPerPage: resolveProductImagesPerPage(product),
+    items: buildProductMediaItems(product.id, media, annotations, product.preview_images),
+  }));
 
   const pages: ProductMediaPage<TProduct, TMedia, TAnnotation>[] = [];
-  populated.forEach((entry, productIndex) => {
-    const pageCount = Math.ceil(entry.items.length / entry.imagesPerPage);
+  entries.forEach((entry, productIndex) => {
+    const pageCount = Math.max(1, Math.ceil(entry.items.length / entry.imagesPerPage));
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
       pages.push({
         product: entry.product,
         productIndex,
-        effectiveProductCount: populated.length,
+        effectiveProductCount: entries.length,
         pageIndex,
         pageCount,
         imagesPerPage: entry.imagesPerPage,

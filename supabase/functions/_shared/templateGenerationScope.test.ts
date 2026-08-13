@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildTemplateSlidePlan } from './templateGenerationScope';
+import {
+  buildTemplateSlidePlan,
+  hasEnabledProductSchematicMapping,
+} from './templateGenerationScope';
 
 const sourceSlides = ['cover', 'station', 'optics', 'vision', 'closing'];
 const structureMeta = {
@@ -24,6 +27,19 @@ const modules = [
 ];
 
 describe('uploaded template scope plan', () => {
+  it('treats legacy product mappings without an enabled flag as enabled', () => {
+    expect(hasEnabledProductSchematicMapping({
+      layoutMapping: {
+        mappings: [{ templateSlideIndex: 1, slideType: 'product_schematic' }],
+      },
+    })).toBe(true);
+    expect(hasEnabledProductSchematicMapping({
+      layoutMapping: {
+        mappings: [{ templateSlideIndex: 1, slideType: 'product_schematic', enabled: false }],
+      },
+    })).toBe(false);
+  });
+
   it('keeps global slides once and maps module slides to the current module', () => {
     const plan = buildTemplateSlidePlan(
       sourceSlides,
@@ -68,7 +84,7 @@ describe('uploaded template scope plan', () => {
     expect(plan.map(item => item.sourceIndex)).toEqual([0, 4]);
   });
 
-  it('duplicates product schematic mappings per two media and skips empty products', () => {
+  it('expands product schematic mappings per product and keeps an empty placeholder page', () => {
     const plan = buildTemplateSlidePlan(
       ['cover', 'product', 'closing'],
       {
@@ -93,7 +109,7 @@ describe('uploaded template scope plan', () => {
       {
         layoutMapping: {
           mappings: [{ templateSlideIndex: 1, slideType: 'product_schematic', enabled: true }],
-          duplicateForEachWorkstation: true,
+          duplicateForEachWorkstation: false,
           preserveUnmappedSlides: true,
         },
       },
@@ -101,13 +117,13 @@ describe('uploaded template scope plan', () => {
     );
 
     const products = plan.filter(item => item.slideType === 'product_schematic');
-    expect(products).toHaveLength(2);
-    expect(products.map(item => item.context.productAsset?.id)).toEqual(['product-1', 'product-1']);
-    expect(products.map(item => item.context.productIndex)).toEqual([0, 0]);
-    expect(products.map(item => item.context.productMediaPage.length)).toEqual([2, 1]);
-    expect(products.map(item => item.context.productPageIndex)).toEqual([0, 1]);
-    expect(products.every(item => item.context.effectiveProductCount === 1)).toBe(true);
-    expect(products.every(item => item.context.productImagesPerPage === 2)).toBe(true);
+    expect(products).toHaveLength(3);
+    expect(products.map(item => item.context.productAsset?.id)).toEqual(['product-1', 'product-1', 'product-2']);
+    expect(products.map(item => item.context.productIndex)).toEqual([0, 0, 1]);
+    expect(products.map(item => item.context.productMediaPage.length)).toEqual([2, 1, 0]);
+    expect(products.map(item => item.context.productPageIndex)).toEqual([0, 1, 0]);
+    expect(products.every(item => item.context.effectiveProductCount === 2)).toBe(true);
+    expect(products.map(item => item.context.productImagesPerPage)).toEqual([2, 2, 1]);
   });
 
   it('uses each product pagination mode independently and defaults to one image per page', () => {

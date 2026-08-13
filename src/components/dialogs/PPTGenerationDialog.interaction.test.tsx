@@ -3,6 +3,31 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PPTGenerationDialog } from './PPTGenerationDialog';
 
 const mockSetImageQuality = vi.fn();
+const productQueryState = vi.hoisted(() => ({
+  media: Promise.resolve({ data: [], error: null }),
+  annotations: Promise.resolve({ data: [], error: null }),
+}));
+interface TestTemplate {
+  id: string;
+  name: string;
+  file_url: string;
+  is_default?: boolean;
+  structure_meta: {
+    parsedSlides: Array<Record<string, unknown>>;
+    layoutMapping: {
+      mappings: Array<{
+        templateSlideIndex: number;
+        slideType: string;
+        enabled?: boolean;
+      }>;
+    };
+  };
+}
+const templateHookState = vi.hoisted(() => ({
+  templates: [] as TestTemplate[],
+  defaultTemplate: null as TestTemplate | null,
+  isLoading: false,
+}));
 const mockData = {
   selectedProjectId: 'project-1',
   projects: [{
@@ -26,6 +51,7 @@ const mockData = {
     { id: 'layout-1', workstation_id: 'ws-1' },
     { id: 'layout-2', workstation_id: 'ws-2' },
   ],
+  productAssets: [] as Array<Record<string, unknown>>,
   loading: false,
   getProjectWorkstations: (projectId: string) => mockData.workstations.filter(item => item.project_id === projectId),
   getWorkstationModules: (workstationId: string) => mockData.modules.filter(item => item.workstation_id === workstationId),
@@ -34,12 +60,31 @@ const mockData = {
 };
 
 vi.mock('@/contexts/useData', () => ({ useData: () => mockData }));
+vi.mock('@/integrations/supabase/client', () => ({
+  supabase: {
+    from: (table: string) => {
+      const builder: Record<string, unknown> = {};
+      const chain = () => builder;
+      builder.select = chain;
+      builder.eq = chain;
+      builder.in = chain;
+      builder.order = chain;
+      builder.then = (
+        resolve: (value: unknown) => unknown,
+        reject: (reason: unknown) => unknown,
+      ) => (table === 'product_media'
+        ? productQueryState.media
+        : productQueryState.annotations).then(resolve, reject);
+      return builder;
+    },
+  },
+}));
 vi.mock('@/store/useAppStore', () => ({
   useAppStore: () => ({ pptImageQuality: 'high', setPPTImageQuality: mockSetImageQuality }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: null }) }));
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'user-1' } }) }));
 vi.mock('@/hooks/usePPTTemplates', () => ({
-  usePPTTemplates: () => ({ templates: [], defaultTemplate: null, isLoading: false }),
+  usePPTTemplates: () => templateHookState,
 }));
 vi.mock('@/hooks/useHardware', () => ({
   useCameras: () => ({ cameras: [] }),
@@ -76,6 +121,11 @@ function openDialog() {
 describe('PPTGenerationDialog scope interactions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockData.productAssets = [];
+    productQueryState.media = Promise.resolve({ data: [], error: null });
+    productQueryState.annotations = Promise.resolve({ data: [], error: null });
+    templateHookState.templates = [];
+    templateHookState.defaultTemplate = null;
   });
 
   it('selects everything once and does not restore a manually unchecked workstation', async () => {
@@ -97,7 +147,7 @@ describe('PPTGenerationDialog scope interactions', () => {
 
   it('supports clear/all actions and disables generation for an empty selection', async () => {
     openDialog();
-    const startButton = screen.getByRole('button', { name: '开始生成' });
+    const startButton = await screen.findByRole('button', { name: '开始生成' });
     fireEvent.click(screen.getByText('选择工位'));
     await screen.findByLabelText('选择工位 Station A');
 
@@ -131,5 +181,108 @@ describe('PPTGenerationDialog scope interactions', () => {
     fireEvent.click(screen.getByText('选择模块'));
     expect(await screen.findByLabelText('选择模块 Module A')).toBeChecked();
     expect(screen.getByLabelText('选择模块 Module B')).not.toBeChecked();
+  });
+
+  it('keeps generation disabled until the complete product snapshot is ready', async () => {
+    let resolveMedia!: (value: { data: unknown[]; error: null }) => void;
+    productQueryState.media = new Promise(resolve => {
+      resolveMedia = resolve;
+    });
+    mockData.productAssets = [{
+      id: 'product-1',
+      scope_type: 'workstation',
+      workstation_id: 'ws-1',
+      product_name: 'Product A',
+    }];
+
+    openDialog();
+
+    expect(await screen.findByRole('button', { name: '正在加载产品数据' })).toBeDisabled();
+    expect(screen.getByText('正在加载产品图片和标注，完成后才能生成…')).toBeInTheDocument();
+
+    resolveMedia({ data: [], error: null });
+
+    expect(await screen.findByRole('button', { name: '开始生成' })).not.toBeDisabled();
+  });
+
+  it('shows product query errors and retries without generating from an empty fallback', async () => {
+    mockData.productAssets = [{
+      id: 'product-1',
+      scope_type: 'workstation',
+      workstation_id: 'ws-1',
+      product_name: 'Product A',
+    }];
+    productQueryState.media = Promise.resolve({
+      data: [],
+      error: new Error('network unavailable'),
+    });
+
+    openDialog();
+
+    expect(await screen.findByText(/产品图片和标注加载失败：network unavailable/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '产品数据加载失败' })).toBeDisabled();
+
+    productQueryState.media = Promise.resolve({ data: [], error: null });
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByRole('button', { name: '开始生成' })).not.toBeDisabled();
+  });
+
+  it('blocks uploaded templates that have products but no product page mapping', async () => {
+    const template = {
+      id: 'template-1',
+      name: 'Customer template',
+      file_url: 'template.pptx',
+      structure_meta: {
+        parsedSlides: [{ index: 0 }],
+        layoutMapping: { mappings: [] },
+      },
+    };
+    templateHookState.templates = [template];
+    templateHookState.defaultTemplate = template;
+    mockData.productAssets = [{
+      id: 'product-1',
+      scope_type: 'workstation',
+      workstation_id: 'ws-1',
+      product_name: 'Product A',
+    }];
+
+    openDialog();
+    await screen.findByRole('button', { name: '开始生成' });
+    fireEvent.click(screen.getByRole('radio', { name: /上传模板/ }));
+
+    expect(await screen.findByText('上传模板缺少产品示意图映射')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '模板缺少产品页映射' })).toBeDisabled();
+  });
+
+  it('accepts legacy enabled-by-default product page mappings', async () => {
+    const template = {
+      id: 'template-1',
+      name: 'Legacy customer template',
+      file_url: 'template.pptx',
+      structure_meta: {
+        parsedSlides: [{ index: 0 }],
+        layoutMapping: {
+          mappings: [{ templateSlideIndex: 0, slideType: 'product_schematic' }],
+        },
+      },
+    };
+    templateHookState.templates = [template];
+    templateHookState.defaultTemplate = template;
+    mockData.productAssets = [{
+      id: 'product-1',
+      scope_type: 'workstation',
+      workstation_id: 'ws-1',
+      product_name: 'Product A',
+    }];
+
+    openDialog();
+    await screen.findByRole('button', { name: '开始生成' });
+    fireEvent.click(screen.getByRole('radio', { name: /上传模板/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('上传模板缺少产品示意图映射')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '开始生成' })).not.toBeDisabled();
+    });
   });
 });

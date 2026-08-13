@@ -43,7 +43,6 @@ function parseCoordinate(value: string) {
 export function ProductLayoutFormPanel({ workstationId, defaultDimensions }: ProductLayoutFormPanelProps) {
   const {
     loading,
-    productAssets,
     getWorkstationProductAssets,
     addProductAsset,
     updateProductAsset,
@@ -52,9 +51,10 @@ export function ProductLayoutFormPanel({ workstationId, defaultDimensions }: Pro
   } = useData();
   const selectedProductId = useAppStore(state => state.selectedProductAssetId);
   const selectProductAsset = useAppStore(state => state.selectProductAsset);
+  const requestLayoutObjectFocus = useAppStore(state => state.requestLayoutObjectFocus);
   const products = useMemo(
     () => getWorkstationProductAssets(workstationId),
-    [getWorkstationProductAssets, productAssets, workstationId],
+    [getWorkstationProductAssets, workstationId],
   );
   const [creating, setCreating] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -68,6 +68,7 @@ export function ProductLayoutFormPanel({ workstationId, defaultDimensions }: Pro
 
   const selectOnCanvas = (productAssetId: string) => {
     selectProductAsset(productAssetId);
+    requestLayoutObjectFocus(workstationId, `product-${productAssetId}`);
   };
 
   const addProduct = async () => {

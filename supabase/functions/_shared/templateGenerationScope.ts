@@ -65,6 +65,12 @@ export const MODULE_SCOPED_SLIDE_TYPES = new Set([
   'vision_list',
 ]);
 
+export function hasEnabledProductSchematicMapping(structureMeta: TemplateStructureMeta | undefined): boolean {
+  return Boolean(structureMeta?.layoutMapping?.mappings?.some(
+    mapping => mapping.enabled !== false && mapping.slideType === 'product_schematic',
+  ));
+}
+
 export function buildTemplateContext(
   data: TemplateGenerationData,
   workstation?: TemplateWorkstationData,
@@ -168,54 +174,56 @@ export function buildTemplateSlidePlan(
       continue;
     }
 
-    if (mapping && duplicate && workstations.length > 0) {
+    if (mapping?.slideType === 'product_schematic' && workstations.length > 0) {
       workstations.forEach((workstation, workstationIndex) => {
         const products = workstation.product_assets || [];
-        if (mapping.slideType === 'product_schematic') {
-          const populatedProducts = products
-            .map(product => ({
-              product,
-              media: Array.isArray(product.product_media)
-                ? [...product.product_media].sort((left: any, right: any) =>
-                  Number(left?.sort_order || 0) - Number(right?.sort_order || 0)
-                )
-                : [],
-            }))
-            .filter(entry => entry.media.length > 0);
-          populatedProducts.forEach((entry, productIndex) => {
-            const imagesPerPage = resolveTemplateProductImagesPerPage(entry.product);
-            const pageCount = Math.ceil(entry.media.length / imagesPerPage);
-            for (let productPageIndex = 0; productPageIndex < pageCount; productPageIndex += 1) {
-              plan.push({
-                sourceIndex,
-                slideType: mapping.slideType,
-                context: buildTemplateContext(
-                  data,
-                  workstation,
-                  workstationIndex,
-                  undefined,
-                  0,
-                  entry.product,
-                  productIndex,
-                  entry.media.slice(
-                    productPageIndex * imagesPerPage,
-                    productPageIndex * imagesPerPage + imagesPerPage,
-                  ),
-                  productPageIndex,
-                  pageCount,
-                  populatedProducts.length,
-                  imagesPerPage,
+        const productEntries = products.map(product => ({
+          product,
+          media: Array.isArray(product.product_media)
+            ? [...product.product_media].sort((left, right) =>
+              Number((left as { sort_order?: unknown })?.sort_order || 0)
+              - Number((right as { sort_order?: unknown })?.sort_order || 0)
+            )
+            : [],
+        }));
+        productEntries.forEach((entry, productIndex) => {
+          const imagesPerPage = resolveTemplateProductImagesPerPage(entry.product);
+          const pageCount = Math.max(1, Math.ceil(entry.media.length / imagesPerPage));
+          for (let productPageIndex = 0; productPageIndex < pageCount; productPageIndex += 1) {
+            plan.push({
+              sourceIndex,
+              slideType: mapping.slideType,
+              context: buildTemplateContext(
+                data,
+                workstation,
+                workstationIndex,
+                undefined,
+                0,
+                entry.product,
+                productIndex,
+                entry.media.slice(
+                  productPageIndex * imagesPerPage,
+                  productPageIndex * imagesPerPage + imagesPerPage,
                 ),
-              });
-            }
-          });
-        } else {
-          plan.push({
-            sourceIndex,
-            slideType: mapping.slideType,
-            context: buildTemplateContext(data, workstation, workstationIndex),
-          });
-        }
+                productPageIndex,
+                pageCount,
+                productEntries.length,
+                imagesPerPage,
+              ),
+            });
+          }
+        });
+      });
+      continue;
+    }
+
+    if (mapping && duplicate && workstations.length > 0) {
+      workstations.forEach((workstation, workstationIndex) => {
+        plan.push({
+          sourceIndex,
+          slideType: mapping.slideType,
+          context: buildTemplateContext(data, workstation, workstationIndex),
+        });
       });
       continue;
     }

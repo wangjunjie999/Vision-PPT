@@ -43,6 +43,9 @@ const fieldConfigs: Record<HardwareType, ImportField[]> = {
     { key: 'frame_rate', label: '帧率', required: true, type: 'number' },
     { key: 'interface', label: '接口', required: true },
     { key: 'sensor_size', label: '传感器尺寸', required: true },
+    { key: 'pixel_size_um', label: '像元尺寸 (μm)', required: false, type: 'number' },
+    { key: 'sensor_width_mm', label: '靶面宽度 (mm)', required: false, type: 'number' },
+    { key: 'sensor_height_mm', label: '靶面高度 (mm)', required: false, type: 'number' },
     { key: 'tags', label: '标签', required: false },
   ],
   lenses: [
@@ -52,6 +55,7 @@ const fieldConfigs: Record<HardwareType, ImportField[]> = {
     { key: 'aperture', label: '光圈', required: true },
     { key: 'mount', label: '卡口', required: true },
     { key: 'max_sensor_size', label: '靶面尺寸', required: false },
+    { key: 'resolving_power', label: '解析力 (μm)', required: false, type: 'number' },
     { key: 'tags', label: '标签', required: false },
   ],
   lights: [
@@ -131,7 +135,7 @@ export function HardwareBulkImport({ type, open, onOpenChange, onImport }: Hardw
         if (value && isNaN(num)) {
           errors.push(`${field.label}必须是数字`);
         } else {
-          data[field.key] = num || 0;
+          data[field.key] = value ? num : (field.required ? 0 : null);
         }
       } else {
         data[field.key] = value;

@@ -112,7 +112,7 @@ describe('enterprise PPT module scope', () => {
     expect(entries.map(entry => entry.targetSlideNumber)).toEqual([12, 16]);
   });
 
-  it('skips empty product records and reserves pages from media chunks only', () => {
+  it('reserves a placeholder page for empty product records', () => {
     const entries = buildModuleTocEntries(
       'PRJ',
       [{ id: 'ws-1', code: 'WS-1', name: 'Station A', type: 'line' }] as never,
@@ -131,6 +131,6 @@ describe('enterprise PPT module scope', () => {
       ] as never,
     );
 
-    expect(entries[0].targetSlideNumber).toBe(14);
+    expect(entries[0].targetSlideNumber).toBe(15);
   });
 });

@@ -772,6 +772,16 @@ export async function generateProductSchematicSlide(
     });
     addProductMetaLine(slide, ctx, product, data.ws.product_dimensions);
 
+    if (page.items.length === 0) {
+      addImagePlaceholder(
+        slide,
+        { x: 0.75, y: 1.3, width: 8.5, height: 3.45 },
+        ctx.isZh ? '未上传产品图片' : 'No product image uploaded',
+        '📷',
+      );
+      continue;
+    }
+
 	    const compactCardWidth = 4.25;
 	    const singleMode = page.imagesPerPage === 1;
 	    const singleCardWidth = singleMode ? 8.15 : compactCardWidth;
@@ -1489,7 +1499,6 @@ export function generateBOMSlide(
     ctx.isZh ? '设备名称' : 'Device',
     ctx.isZh ? '型号' : 'Model',
     ctx.isZh ? '数量' : 'Qty',
-    ctx.isZh ? '单价' : 'Price',
     ctx.isZh ? '备注' : 'Notes'
   ]);
 
@@ -1498,17 +1507,17 @@ export function generateBOMSlide(
 
   // Cameras
   layout?.selected_cameras?.filter(c => c).forEach(cam => {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工业相机' : 'Camera', `${cam.brand} ${cam.model}`, '1', 'TBD', '']));
+    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工业相机' : 'Camera', `${cam.brand} ${cam.model}`, '1', '']));
   });
 
   // Lenses
   layout?.selected_lenses?.filter(l => l).forEach(lens => {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工业镜头' : 'Lens', `${lens.brand} ${lens.model}`, '1', 'TBD', '']));
+    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工业镜头' : 'Lens', `${lens.brand} ${lens.model}`, '1', '']));
   });
 
   // Lights
   layout?.selected_lights?.filter(l => l).forEach(light => {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? 'LED光源' : 'Light', `${light.brand} ${light.model}`, '1', 'TBD', '']));
+    bomRows.push(row([String(bomIdx++), ctx.isZh ? 'LED光源' : 'Light', `${light.brand} ${light.model}`, '1', '']));
   });
 
   // Controller
@@ -1518,13 +1527,12 @@ export function generateBOMSlide(
       ctx.isZh ? '工控机' : 'IPC',
       `${layout.selected_controller.brand} ${layout.selected_controller.model}`,
       '1',
-      'TBD',
       formatControllerGpuNote(layout.selected_controller, ctx.isZh),
     ]));
   }
 
   if (bomRows.length === 0) {
-    bomRows.push(row(['1', '-', '-', '-', '-', '-']));
+    bomRows.push(row(['1', '-', '-', '-', '-']));
   }
 
   const chunks: TableRow[][] = [];
@@ -1538,7 +1546,7 @@ export function generateBOMSlide(
       x: 0.5, y: 1.2, w: 9,
       fontFace: FONTS.body,
       fontSize: 9,
-      colW: [0.6, 1.5, 2.8, 0.8, 1, 2.3],
+      colW: [0.6, 1.5, 3.5, 0.8, 2.6],
       border: { pt: 0.5, color: COLORS.border },
       fill: { color: COLORS.white },
       valign: 'middle',

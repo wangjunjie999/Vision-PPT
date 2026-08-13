@@ -63,6 +63,7 @@ const typeConfig = {
       { key: 'aperture', label: '光圈', required: true, placeholder: '如: F1.4' },
       { key: 'mount', label: '卡口', required: true, placeholder: '如: C-Mount' },
       { key: 'max_sensor_size', label: '靶面尺寸', required: false, placeholder: '如: 2/3"、1"' },
+      { key: 'resolving_power', label: '解析力 (μm)', required: false, type: 'number', placeholder: '如: 3.5' },
     ],
   },
   lights: {
@@ -421,13 +422,15 @@ export function HardwareResourceManager({ type }: Props) {
                 </Label>
                 <Input
                   type={field.type || 'text'}
-                  step={field.key === 'frame_rate' ? 'any' : undefined}
+                  step={field.type === 'number' ? 'any' : undefined}
                   placeholder={field.placeholder}
                   value={formData[field.key] || ''}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
-                      [field.key]: field.type === 'number' ? Number(e.target.value) : e.target.value,
+                      [field.key]: field.type === 'number'
+                        ? (e.target.value === '' ? null : Number(e.target.value))
+                        : e.target.value,
                     }))
                   }
                 />

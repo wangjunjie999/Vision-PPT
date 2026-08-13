@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import {
   buildTemplateSlidePlan,
+  hasEnabledProductSchematicMapping,
 } from "../_shared/templateGenerationScope.ts";
 
 const corsHeaders = {
@@ -45,6 +46,13 @@ Deno.serve(async (req) => {
 
     if (templateError || !template?.file_url) {
       return json({ error: "模板不存在或未上传PPTX文件" }, 404);
+    }
+    const hasWorkstationProducts = options.scope !== "modules"
+      && (data.workstations || []).some((workstation: { product_assets?: unknown }) =>
+        Array.isArray(workstation.product_assets) && workstation.product_assets.length > 0
+      );
+    if (hasWorkstationProducts && !hasEnabledProductSchematicMapping(template.structure_meta)) {
+      return json({ error: "当前范围包含产品，但模板未配置已启用的 product_schematic 页面映射" }, 400);
     }
 
     const fileResponse = await fetch(template.file_url);
@@ -764,7 +772,17 @@ async function replaceImagePlaceholders(zip: any, xml: string, relsXml: string, 
       }
       const imageUrls = resolveImageUrls(imageKey, context);
       if (imageUrls.length === 0) {
-        outputXml = outputXml.replace(placeholder[0], "[图片缺失]");
+        const isProductImage = [
+          "product_image_1",
+          "product_image_2",
+          "product_snapshot",
+          "product_preview",
+        ].includes(imageKey);
+        const hasProduct = Boolean(context.productAsset?.id);
+        const missingLabel = isProductImage && hasProduct && pageMedia.length === 0
+          ? context.language === "en" ? "[No product image uploaded]" : "[未上传产品图片]"
+          : context.language === "en" ? "[Image missing]" : "[图片缺失]";
+        outputXml = outputXml.replace(placeholder[0], missingLabel);
         continue;
       }
 

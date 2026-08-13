@@ -38,6 +38,7 @@ import { useCameras, useLenses, useLights, useControllers } from '@/hooks/useHar
 import { checkPPTReadiness } from '@/services/pptReadiness';
 import { ChevronDown, ChevronUp, ExternalLink, ImageOff, Eye } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePPTTemplates } from '@/hooks/usePPTTemplates';
 import { buildReportData, type HardwareLibrary, type ProductAssetInput, type AnnotationInput } from '@/services/reportDataBuilder';
@@ -69,6 +70,7 @@ import {
 import {
   buildProductMediaItems,
   normalizeProductPreviewImages,
+  paginateProductMedia,
 } from '@/utils/productAssetMedia';
 import type { ProductMediaRow } from '@/services/productMediaService';
 
@@ -77,6 +79,12 @@ type ImageQuality = 'standard' | 'high' | 'ultra';
 type GenerationMode = 'draft' | 'final';
 type GenerationMethod = 'template' | 'scratch'; // 基于用户上传的PPTX模板 or 从零生成（使用pptxgenjs）
 type OutputFormat = 'ppt' | 'word' | 'pdf'; // PPT, Word, or PDF document
+type ProductDataStatus = 'idle' | 'loading' | 'ready' | 'error';
+type ScopedProductAnnotation = Database['public']['Tables']['product_annotations']['Row'] & {
+  scope_type: 'workstation' | 'module';
+  workstation_id?: string | null;
+  module_id?: string | null;
+};
 
 interface GenerationLog {
   type: 'info' | 'success' | 'warning' | 'error';
@@ -91,6 +99,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     workstations: allWorkstations,
     modules: allModules,
     layouts: allLayouts,
+    productAssets: canonicalProductAssets,
     loading: dataLoading,
     getProjectWorkstations,
     getWorkstationModules,
@@ -110,10 +119,13 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const { lights } = useLights();
   const { controllers } = useControllers();
   
-  // State for annotations and product assets
-  const [annotations, setAnnotations] = useState<any[]>([]);
-  const [productAssets, setProductAssets] = useState<any[]>([]);
+  // Product assets come from DataContext; only media and annotations need loading here.
+  const [annotations, setAnnotations] = useState<ScopedProductAnnotation[]>([]);
   const [productMedia, setProductMedia] = useState<ProductMediaRow[]>([]);
+  const [productDataStatus, setProductDataStatus] = useState<ProductDataStatus>('idle');
+  const [productDataError, setProductDataError] = useState('');
+  const [productDataReloadKey, setProductDataReloadKey] = useState(0);
+  const productDataRequestRef = useRef(0);
 
   const [stage, setStage] = useState<'config' | 'generating' | 'complete' | 'error'>('config');
   const [mode, setMode] = useState<GenerationMode>('final');
@@ -194,6 +206,23 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     [projectWorkstations, getWorkstationModules],
   );
 
+  const productAssets = useMemo(() => {
+    const workstationIds = new Set(projectWorkstations.map(workstation => workstation.id));
+    const moduleIds = new Set(projectModules.map(module => module.id));
+    return (canonicalProductAssets || [])
+      .filter(asset => asset.scope_type === 'module'
+        ? Boolean(asset.module_id && moduleIds.has(asset.module_id))
+        : Boolean(asset.workstation_id && workstationIds.has(asset.workstation_id)))
+      .map(asset => ({
+        ...asset,
+        scope_type: asset.scope_type as 'workstation' | 'module',
+        preview_images: normalizeProductPreviewImages(asset.preview_images),
+        product_models: Array.isArray(asset.product_models) ? asset.product_models : [],
+        detection_requirements: Array.isArray(asset.detection_requirements) ? asset.detection_requirements : [],
+        document_images_per_page: Number(asset.document_images_per_page) === 2 ? 2 : 1,
+      }));
+  }, [canonicalProductAssets, projectModules, projectWorkstations]);
+
   const modulesByWorkstation = useMemo(() => {
     const grouped = new Map<string, typeof projectModules>();
     projectWorkstations.forEach(ws => {
@@ -229,6 +258,20 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   const scopedProductAssets = scopedMedia.productAssets;
   const scopedAnnotations = scopedMedia.annotations;
   const scopedProductMedia = scopedMedia.productMedia;
+  const scopedWorkstationProducts = useMemo(
+    () => scope === 'modules'
+      ? []
+      : scopedProductAssets.filter(asset => asset.scope_type === 'workstation'),
+    [scope, scopedProductAssets],
+  );
+  const scopedProductPages = useMemo(
+    () => paginateProductMedia(scopedWorkstationProducts, scopedProductMedia, scopedAnnotations),
+    [scopedAnnotations, scopedProductMedia, scopedWorkstationProducts],
+  );
+  const placeholderProductPageCount = useMemo(
+    () => scopedProductPages.filter(page => page.items.length === 0).length,
+    [scopedProductPages],
+  );
 
   // Check generation readiness using pptReadiness service
   const readinessResult = useMemo(() => {
@@ -262,7 +305,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         level: isModule ? 'module' as const : 'workstation' as const,
         id: asset.id,
         name: ownerName ? `${ownerName} / ${productName}` : productName,
-        warning: `${productName}：未上传产品图片，本次将跳过该产品页`,
+        warning: `${productName}：未上传产品图片，本次将生成无图占位页`,
       };
     });
   }, [scopedProductAssets, scopedAnnotations, scopedProductMedia, scopedSelection]);
@@ -288,8 +331,17 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       wsCount: scope === 'modules' ? 0 : scopedSelection.workstations.length,
       modCount: scopedSelection.modules.length,
       hardwareCount: scope === 'modules' ? 0 : 1,
+      productCount: scopedWorkstationProducts.length,
+      productPageCount: scopedProductPages.length,
+      placeholderProductPageCount,
     };
-  }, [scope, scopedSelection]);
+  }, [
+    placeholderProductPageCount,
+    scope,
+    scopedProductPages.length,
+    scopedSelection,
+    scopedWorkstationProducts.length,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -341,109 +393,90 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     setSelectedModules(previous => previous.filter(id => validModuleIds.has(id)));
   }, [open, selectedProjectId, projectWorkstations, projectModules]);
 
-  // Use refs to avoid infinite loop in the fetch effect below
-  const projectWorkstationsRef = useRef(projectWorkstations);
-  projectWorkstationsRef.current = projectWorkstations;
-  const getWorkstationModulesRef = useRef(getWorkstationModules);
-  getWorkstationModulesRef.current = getWorkstationModules;
-  
-  // Fetch annotations and product assets when dialog opens
+  // Load media and annotations as one snapshot. A superseded request may finish,
+  // but it must never replace data for a newer project/dialog state.
   useEffect(() => {
-    if (open && user?.id && selectedProjectId) {
-      const fetchAnnotationsAndAssets = async () => {
-        const ws = projectWorkstationsRef.current;
-        const gwm = getWorkstationModulesRef.current;
-        const wsIds = ws.map(w => w.id);
-        const modIds: string[] = [];
-        ws.forEach(w => {
-          gwm(w.id).forEach(m => modIds.push(m.id));
-        });
-        
-        if (wsIds.length === 0) {
-          setProductAssets([]);
-          setProductMedia([]);
-          setAnnotations([]);
-          return;
-        }
-        
-        // Get product assets with all fields including new detection info
-        const { data: assets } = await supabase
-          .from('product_assets')
-          .select('id, workstation_id, module_id, scope_type, model_file_url, preview_images, detection_method, product_models, detection_requirements, product_name, product_code, product_spec, is_primary, sort_order, parent_product_id, length_mm, width_mm, height_mm, pos_x, pos_y, pos_z, document_images_per_page')
-          .eq('user_id', user.id)
-          .or(`workstation_id.in.(${wsIds.join(',')}),module_id.in.(${modIds.join(',')})`);
-        
-        if (assets && assets.length > 0) {
-          // Store product assets for PPT generation
-          const mappedAssets = assets.map((asset: any) => ({
-            id: asset.id,
-            workstation_id: asset.workstation_id,
-            module_id: asset.module_id,
-            scope_type: asset.scope_type as 'workstation' | 'module',
-            model_file_url: asset.model_file_url,
-            preview_images: normalizeProductPreviewImages(asset.preview_images),
-            detection_method: asset.detection_method,
-            product_models: Array.isArray(asset.product_models) ? asset.product_models : [],
-            detection_requirements: Array.isArray(asset.detection_requirements) ? asset.detection_requirements : [],
-            product_name: asset.product_name ?? null,
-            product_code: asset.product_code ?? null,
-            product_spec: asset.product_spec ?? null,
-            is_primary: asset.is_primary ?? false,
-            sort_order: asset.sort_order ?? 0,
-            parent_product_id: asset.parent_product_id ?? null,
-            length_mm: asset.length_mm ?? null,
-            width_mm: asset.width_mm ?? null,
-            height_mm: asset.height_mm ?? null,
-            pos_x: asset.pos_x ?? null,
-            pos_y: asset.pos_y ?? null,
-            pos_z: asset.pos_z ?? null,
-            document_images_per_page: Number(asset.document_images_per_page) === 2 ? 2 : 1,
-          }));
-          setProductAssets(mappedAssets);
-          
-          const assetIds = assets.map(a => a.id);
-          const { data: mediaRows, error: mediaError } = await supabase
+    const requestId = ++productDataRequestRef.current;
+    if (!open || !user?.id || !selectedProjectId || dataLoading) {
+      setProductDataStatus('idle');
+      setProductDataError('');
+      setProductMedia([]);
+      setAnnotations([]);
+      return;
+    }
+
+    const assetIds = productAssets.map(asset => asset.id);
+    if (assetIds.length === 0) {
+      setProductMedia([]);
+      setAnnotations([]);
+      setProductDataError('');
+      setProductDataStatus('ready');
+      return;
+    }
+
+    setProductDataStatus('loading');
+    setProductDataError('');
+    setProductMedia([]);
+    setAnnotations([]);
+
+    const loadProductSnapshot = async () => {
+      try {
+        const [mediaResult, annotationResult] = await Promise.all([
+          supabase
             .from('product_media')
             .select('*')
             .eq('user_id', user.id)
             .in('asset_id', assetIds)
             .order('sort_order', { ascending: true })
-            .order('created_at', { ascending: true });
-          if (mediaError) {
-            console.error('Failed to load product media:', mediaError);
-            setProductMedia([]);
-          } else {
-            setProductMedia(mediaRows || []);
-          }
-
-          const { data: annotationsData } = await supabase
+            .order('created_at', { ascending: true }),
+          supabase
             .from('product_annotations')
             .select('*')
             .eq('user_id', user.id)
-            .in('asset_id', assetIds);
-          
-          if (annotationsData) {
-            // Map annotations with scope info
-            const mappedAnnotations = annotationsData.map(ann => {
-              const asset = assets.find(a => a.id === ann.asset_id);
-              return {
-                ...ann,
-                scope_type: asset?.scope_type || 'workstation',
-                workstation_id: asset?.workstation_id,
-                module_id: asset?.module_id,
-              };
-            });
-            setAnnotations(mappedAnnotations);
-          }
-        } else {
-          setProductAssets([]);
-          setProductMedia([]);
-          setAnnotations([]);
-        }
-      };
-      fetchAnnotationsAndAssets();
-    }
-  }, [open, user?.id, selectedProjectId]);
+            .in('asset_id', assetIds),
+        ]);
+        if (mediaResult.error) throw mediaResult.error;
+        if (annotationResult.error) throw annotationResult.error;
+        if (productDataRequestRef.current !== requestId) return;
+
+        const assetsById = new Map(productAssets.map(asset => [asset.id, asset]));
+        const mappedAnnotations = (annotationResult.data || []).map(annotation => {
+          const asset = assetsById.get(annotation.asset_id);
+          return {
+            ...annotation,
+            scope_type: asset?.scope_type || 'workstation',
+            workstation_id: asset?.workstation_id,
+            module_id: asset?.module_id,
+          };
+        });
+        setProductMedia(mediaResult.data || []);
+        setAnnotations(mappedAnnotations);
+        setProductDataStatus('ready');
+      } catch (error) {
+        if (productDataRequestRef.current !== requestId) return;
+        const message = error instanceof Error ? error.message : '未知错误';
+        console.error('Failed to load PPT product data:', error);
+        setProductMedia([]);
+        setAnnotations([]);
+        setProductDataError(`产品图片和标注加载失败：${message}`);
+        setProductDataStatus('error');
+      }
+    };
+
+    void loadProductSnapshot();
+    return () => {
+      if (productDataRequestRef.current === requestId) {
+        productDataRequestRef.current += 1;
+      }
+    };
+  }, [
+    dataLoading,
+    open,
+    productAssets,
+    productDataReloadKey,
+    selectedProjectId,
+    user?.id,
+  ]);
 
   const addLog = (type: GenerationLog['type'], message: string) => {
     setLogs(prev => [...prev, { type, message, timestamp: new Date() }]);
@@ -452,10 +485,25 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
   // 检查选中的模板是否有PPTX文件
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId) || null;
   const templateHasFile = selectedTemplate?.file_url ? true : false;
+  const templateProductMappingMissing = Boolean(
+    generationMethod === 'template'
+    && outputFormat === 'ppt'
+    && scope !== 'modules'
+    && scopedWorkstationProducts.length > 0
+    && selectedTemplate
+    && !selectedTemplate.structure_meta?.layoutMapping?.mappings?.some(mapping =>
+      mapping.enabled !== false && mapping.slideType === 'product_schematic'
+    ),
+  );
+  const productDataReady = productDataStatus === 'ready';
 
   // 图片可访问性预检
   const handleImagePreCheck = async () => {
     if (!project) return;
+    if (!productDataReady) {
+      toast.warning('请等待产品图片和标注加载完成');
+      return;
+    }
     
     setIsCheckingImages(true);
     try {
@@ -506,6 +554,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
   // 下载图片到本地缓存
   const handleDownloadToCache = async () => {
+    if (!productDataReady) {
+      toast.warning('请等待产品图片和标注加载完成');
+      return;
+    }
     if (!project) return;
     
     const wsToCheck = scopedSelection.workstations;
@@ -678,8 +730,16 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
   const handleGenerate = async () => {
     if (!project) return;
+    if (!productDataReady) {
+      toast.warning(productDataStatus === 'error' ? productDataError : '请等待产品图片和标注加载完成');
+      return;
+    }
     if (!hasRequiredSelection) {
       toast.warning(selectionPrompt);
+      return;
+    }
+    if (templateProductMappingMissing) {
+      toast.error('上传模板未配置产品示意图页面映射，请先在模板管理中配置');
       return;
     }
     
@@ -699,6 +759,16 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
     resetFailedUrlsCache();
 
     try {
+      addLog(
+        'info',
+        `产品数据：${generationPreview.productCount} 个产品，预计 ${generationPreview.productPageCount} 个产品页`,
+      );
+      if (generationPreview.placeholderProductPageCount > 0) {
+        addLog(
+          'warning',
+          `${generationPreview.placeholderProductPageCount} 个产品没有图片，将生成无图占位页`,
+        );
+      }
       const wsToProcess = scopedSelection.workstations;
       const modsToProcess = scopedSelection.modules;
       const layoutsToProcess = scopedSelection.layouts;
@@ -1229,10 +1299,13 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         if (!selectedTemplate.structure_meta?.parsedSlides?.length) {
           throw new Error('[上传模板] 所选模板缺少解析信息，请在管理中心重新上传或重新解析模板');
         }
+        if (templateProductMappingMissing) {
+          throw new Error('[上传模板] 有产品数据，但模板未配置已启用的 product_schematic 页面映射');
+        }
 
         const layoutMapping = selectedTemplate.structure_meta.layoutMapping;
         const workstationSlideMapping = layoutMapping?.mappings
-          ?.filter(mapping => mapping.enabled)
+          ?.filter(mapping => mapping.enabled !== false)
           .reduce<Record<string, number[]>>((acc, mapping) => {
             acc[mapping.slideType] = acc[mapping.slideType] || [];
             acc[mapping.slideType].push(mapping.templateSlideIndex);
@@ -1816,8 +1889,43 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                       </div>
                     </div>
                   )}
+
                 </CollapsibleContent>
               </Collapsible>
+            )}
+
+            {productDataStatus === 'loading' && (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在加载产品图片和标注，完成后才能生成…
+              </div>
+            )}
+            {productDataStatus === 'error' && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                <div className="flex min-w-0 items-start gap-2">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <p className="text-sm text-destructive">{productDataError}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setProductDataReloadKey(value => value + 1)}
+                >
+                  重试
+                </Button>
+              </div>
+            )}
+            {templateProductMappingMissing && (
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                <div>
+                  <p className="text-sm font-medium text-destructive">上传模板缺少产品示意图映射</p>
+                  <p className="mt-1 text-xs text-destructive/80">
+                    请在模板管理中将对应页面启用并映射为 product_schematic。
+                  </p>
+                </div>
+              </div>
             )}
 
             {/* Image Accessibility Pre-Check & Local Cache */}
@@ -1832,7 +1940,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                     variant="outline" 
                     size="sm" 
                     onClick={handleDownloadToCache}
-                    disabled={isCachingImages || isCheckingImages}
+                    disabled={isCachingImages || isCheckingImages || !productDataReady}
                   >
                     {isCachingImages ? (
                       <>
@@ -1850,7 +1958,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                     variant="outline" 
                     size="sm" 
                     onClick={handleImagePreCheck}
-                    disabled={isCheckingImages || isCachingImages}
+                    disabled={isCheckingImages || isCachingImages || !productDataReady}
                   >
                     {isCheckingImages ? (
                       <>
@@ -2096,7 +2204,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
             {/* Generation Preview */}
             <div className="bg-muted/30 rounded-lg p-3">
               <p className="text-xs font-medium mb-2">生成预览</p>
-              <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-3">
                 <div className="space-y-1">
                   <div className="flex items-center justify-center gap-1">
                     <Table className="h-4 w-4 text-chart-3" />
@@ -2118,6 +2226,25 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   </div>
                   <p className="text-xs text-muted-foreground">硬件清单</p>
                 </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-center gap-1">
+                    <Box className="h-4 w-4 text-chart-2" />
+                    <span className="text-lg font-bold">{generationPreview.productCount}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">产品</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-center gap-1">
+                    <FileStack className="h-4 w-4 text-chart-3" />
+                    <span className="text-lg font-bold">{generationPreview.productPageCount}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    产品页
+                    {generationPreview.placeholderProductPageCount > 0
+                      ? `（占位 ${generationPreview.placeholderProductPageCount}）`
+                      : ''}
+                  </p>
+                </div>
               </div>
             </div>
               </div>
@@ -2125,7 +2252,12 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
 
             {/* Actions */}
             <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t bg-background pt-3">
-              <Button variant="outline" onClick={() => setImagePreviewOpen(true)} className="gap-1 mr-auto">
+              <Button
+                variant="outline"
+                onClick={() => setImagePreviewOpen(true)}
+                className="gap-1 mr-auto"
+                disabled={!productDataReady}
+              >
                 <Eye className="h-4 w-4" />
                 查看已保存图片
               </Button>
@@ -2136,6 +2268,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                   !draftReady || 
                   (mode === 'final' && !finalReady) ||
                   !hasRequiredSelection ||
+                  !productDataReady ||
+                  templateProductMappingMissing ||
                   isGenerating
                 }
               >
@@ -2144,6 +2278,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     生成中...
                   </>
+                ) : !productDataReady ? (
+                  productDataStatus === 'error' ? '产品数据加载失败' : '正在加载产品数据'
+                ) : templateProductMappingMissing ? (
+                  '模板缺少产品页映射'
                 ) : !hasRequiredSelection ? (
                   selectionPrompt
                 ) : mode === 'final' && !finalReady ? (
@@ -2317,7 +2455,16 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         )}
       </DialogContent>
     </Dialog>
-    <PPTImagePreviewDialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen} />
+    <PPTImagePreviewDialog
+      open={imagePreviewOpen}
+      onOpenChange={setImagePreviewOpen}
+      scope={scope}
+      workstationIds={scopedSelection.workstations.map(workstation => workstation.id)}
+      moduleIds={scopedSelection.modules.map(module => module.id)}
+      productAssets={scopedWorkstationProducts}
+      productMedia={scopedProductMedia}
+      annotations={scopedAnnotations}
+    />
     </>
   );
 }

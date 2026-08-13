@@ -11,6 +11,7 @@ function resetCanvasModes() {
     annotationExistingData: null,
     viewerMode: false,
     viewerAssetData: null,
+    layoutFocusRequest: null,
   });
 }
 
@@ -68,5 +69,28 @@ describe('useAppStore canvas modes', () => {
     expect(state.annotationSnapshot).toBe('https://example.com/annotated.png');
     expect(state.viewerMode).toBe(false);
     expect(state.viewerAssetData).toBeNull();
+  });
+
+  it('emits a new one-shot layout focus request for repeated focus actions', () => {
+    useAppStore.getState().requestLayoutObjectFocus('ws-1', 'product-a');
+    const firstRequest = useAppStore.getState().layoutFocusRequest;
+
+    useAppStore.getState().requestLayoutObjectFocus('ws-1', 'product-a');
+    const secondRequest = useAppStore.getState().layoutFocusRequest;
+
+    expect(firstRequest).toMatchObject({ workstationId: 'ws-1', objectId: 'product-a' });
+    expect(secondRequest).toMatchObject({ workstationId: 'ws-1', objectId: 'product-a' });
+    expect(secondRequest!.requestId).toBe(firstRequest!.requestId + 1);
+  });
+
+  it('clears stale layout focus requests when switching workstation', () => {
+    useAppStore.getState().requestLayoutObjectFocus('ws-1', 'camera-1');
+    const previousRequestId = useAppStore.getState().layoutFocusRequest!.requestId;
+
+    useAppStore.getState().selectWorkstation('ws-2');
+
+    expect(useAppStore.getState().layoutFocusRequest).toBeNull();
+    useAppStore.getState().requestLayoutObjectFocus('ws-2', 'camera-1');
+    expect(useAppStore.getState().layoutFocusRequest!.requestId).toBeGreaterThan(previousRequestId);
   });
 });

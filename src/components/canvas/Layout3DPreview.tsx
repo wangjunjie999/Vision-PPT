@@ -236,6 +236,8 @@ interface Layout3DPreviewProps {
   onSelectObject?: (id: string | null) => void;
   selectedObjectId?: string | null;
   onUpdateObject?: (id: string, updates: Partial<LayoutObject>) => void;
+  onObjectDragStart?: (id: string) => void;
+  onObjectDragEnd?: (id: string, moved: boolean) => void;
   onScreenshotReady?: (fn: IsometricScreenshotFn | null) => void;
   onFitAllReady?: (fn: IsometricFitAllFn) => void;
   onIsometricSceneStatusChange?: (status: IsometricSceneStatus) => void;
@@ -2246,6 +2248,8 @@ export const Layout3DPreview = memo(function Layout3DPreview({
   onSelectObject,
   selectedObjectId,
   onUpdateObject,
+  onObjectDragStart,
+  onObjectDragEnd,
   onScreenshotReady,
   onFitAllReady,
   onIsometricSceneStatusChange,
@@ -2373,7 +2377,8 @@ export const Layout3DPreview = memo(function Layout3DPreview({
       startPos: { posX: obj.posX ?? 0, posY: obj.posY ?? 0, posZ: obj.posZ ?? 0 },
     };
     dragMovedRef.current = false;
-  }, [editMode, activeSelectedId, onUpdateObject, objects]);
+    onObjectDragStart?.(id);
+  }, [editMode, activeSelectedId, onObjectDragStart, onUpdateObject, objects]);
 
   const handleDragMove = useCallback((point: THREE.Vector3) => {
     const state = dragStateRef.current;
@@ -2398,6 +2403,10 @@ export const Layout3DPreview = memo(function Layout3DPreview({
   }, [onUpdateObject, snapEnabled, SNAP_GRID]);
 
   const handleDragEnd = useCallback(() => {
+    const completedDrag = dragStateRef.current;
+    if (completedDrag.isDragging && completedDrag.objectId) {
+      onObjectDragEnd?.(completedDrag.objectId, dragMovedRef.current);
+    }
     dragStateRef.current = {
       isDragging: false,
       objectId: null,
@@ -2406,7 +2415,7 @@ export const Layout3DPreview = memo(function Layout3DPreview({
     };
     objectClickedRef.current = false;
     setTimeout(() => { dragMovedRef.current = false; }, 0);
-  }, []);
+  }, [onObjectDragEnd]);
 
   // ============================================================
   // ARROW KEY MOVEMENT + R-KEY ROTATION

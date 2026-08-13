@@ -174,6 +174,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [layouts, setLayouts] = useState<DbLayout[]>([]);
   const [modules, setModules] = useState<DbModule[]>([]);
   const [productAssets, setProductAssets] = useState<DbProductAsset[]>([]);
+  const productAssetsRef = useRef(productAssets);
+  productAssetsRef.current = productAssets;
+  const productAssetMutationVersionRef = useRef<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialSelectionRef.current.selectedProjectId);
@@ -693,6 +696,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setLayouts(prev => prev.filter(l => l.workstation_id !== id));
     setModules(prev => prev.filter(m => m.workstation_id !== id));
     setProductAssets(prev => prev.filter(asset => asset.workstation_id !== id));
+    await Promise.all([
+      offlineCache.delete('workstations'),
+      offlineCache.delete('layouts'),
+      offlineCache.delete('modules'),
+      offlineCache.delete('productAssets'),
+    ]).catch(error => console.warn('Failed to invalidate workstation cache:', error));
     if (selectedWorkstationId === id) setSelectedWorkstationId(null);
     toast.success('工位删除成功');
   };
@@ -993,7 +1002,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       .select()
       .single();
     if (error) throw error;
-    setProductAssets(prev => sortProductAssets([...prev, data]));
+    const nextAssets = sortProductAssets([...productAssetsRef.current, data]);
+    productAssetsRef.current = nextAssets;
+    setProductAssets(nextAssets);
     return data;
   };
 
@@ -1002,8 +1013,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     updates: ProductAssetUpdate,
     options?: MutationOptions,
   ) => {
-    const previous = productAssets;
-    setProductAssets(prev => sortProductAssets(prev.map(asset => asset.id === id ? { ...asset, ...updates } : asset)));
+    const previousTarget = productAssetsRef.current.find(asset => asset.id === id);
+    if (!previousTarget) throw new Error('产品已删除，已忽略过期更新');
+    const mutationVersion = (productAssetMutationVersionRef.current[id] ?? 0) + 1;
+    productAssetMutationVersionRef.current[id] = mutationVersion;
+    const optimisticAssets = sortProductAssets(productAssetsRef.current.map(asset =>
+      asset.id === id ? { ...asset, ...updates } : asset
+    ));
+    productAssetsRef.current = optimisticAssets;
+    setProductAssets(optimisticAssets);
     const { data, error } = await supabase
       .from('product_assets')
       .update(updates)
@@ -1011,23 +1029,38 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       .select()
       .single();
     if (error) {
-      setProductAssets(previous);
+      if (productAssetMutationVersionRef.current[id] === mutationVersion
+        && productAssetsRef.current.some(asset => asset.id === id)) {
+        const rolledBackAssets = sortProductAssets(productAssetsRef.current.map(asset =>
+          asset.id === id ? previousTarget : asset
+        ));
+        productAssetsRef.current = rolledBackAssets;
+        setProductAssets(rolledBackAssets);
+      }
       throw error;
     }
-    setProductAssets(prev => sortProductAssets(prev.map(asset => asset.id === id ? data : asset)));
+    if (productAssetMutationVersionRef.current[id] === mutationVersion
+      && productAssetsRef.current.some(asset => asset.id === id)) {
+      const confirmedAssets = sortProductAssets(productAssetsRef.current.map(asset => asset.id === id ? data : asset));
+      productAssetsRef.current = confirmedAssets;
+      setProductAssets(confirmedAssets);
+    }
     if (!options?.silent) toast.success('产品已更新');
     return data;
   };
 
   const deleteProductAsset = async (id: string) => {
-    const target = productAssets.find(asset => asset.id === id);
+    const target = productAssetsRef.current.find(asset => asset.id === id);
     if (!target) return;
-    const previous = productAssets;
-    const remaining = productAssets.filter(asset => asset.id !== id);
+    productAssetMutationVersionRef.current[id] = (productAssetMutationVersionRef.current[id] ?? 0) + 1;
+    const remaining = productAssetsRef.current.filter(asset => asset.id !== id);
+    productAssetsRef.current = remaining;
     setProductAssets(remaining);
+    let deletedOnServer = false;
     try {
       const { error } = await supabase.from('product_assets').delete().eq('id', id);
       if (error) throw error;
+      deletedOnServer = true;
       if (target.scope_type === 'workstation' && target.is_primary) {
         const replacement = sortProductAssets(remaining.filter(asset =>
           asset.scope_type === 'workstation' && asset.workstation_id === target.workstation_id
@@ -1040,11 +1073,30 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             .select()
             .single();
           if (promoteError) throw promoteError;
-          setProductAssets(current => sortProductAssets(current.map(asset => asset.id === replacement.id ? data : asset)));
+          const promotedAssets = sortProductAssets(productAssetsRef.current.map(asset =>
+            asset.id === replacement.id ? data : asset
+          ));
+          productAssetsRef.current = promotedAssets;
+          setProductAssets(promotedAssets);
         }
       }
     } catch (error) {
-      setProductAssets(previous);
+      if (!deletedOnServer) {
+        if (!productAssetsRef.current.some(asset => asset.id === id)) {
+          const restoredAssets = sortProductAssets([...productAssetsRef.current, target]);
+          productAssetsRef.current = restoredAssets;
+          setProductAssets(restoredAssets);
+        }
+      } else {
+        const { data: refreshedAssets, error: refreshError } = await supabase
+          .from('product_assets')
+          .select('*');
+        if (!refreshError && refreshedAssets) {
+          const nextAssets = sortProductAssets(refreshedAssets);
+          productAssetsRef.current = nextAssets;
+          setProductAssets(nextAssets);
+        }
+      }
       throw error;
     }
   };

@@ -14,56 +14,16 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { CAMERA_INTERACTION_TYPES, PRODUCT_INTERACTION_TYPES } from './MechanismSVG';
+import {
+  isProductLayoutObject,
+  type LayoutObject,
+  type ProductLayoutObject,
+} from '@/lib/productLayoutSync';
+
+export { isProductLayoutObject };
+export type { LayoutObject, ProductLayoutObject };
 
 type ViewType = 'front' | 'side' | 'top';
-
-export interface LayoutObject {
-  id: string;
-  type: 'camera' | 'mechanism' | 'product';
-  mechanismId?: string;
-  mechanismType?: string;
-  name: string;
-  // 3D coordinates in mm (relative to product center)
-  posX: number;
-  posY: number;
-  posZ: number;
-  // Canvas coordinates (derived from 3D based on view)
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  // 3D rotation angles in degrees
-  rotX?: number;
-  rotY?: number;
-  rotZ?: number;
-  locked: boolean;
-  cameraIndex?: number;
-  // Camera mounting to mechanism
-  mountedToMechanismId?: string;
-  mountPointId?: string;
-  mountOffsetX?: number;
-  mountOffsetY?: number;
-  mountOffsetZ?: number;
-  // Custom GLB 3D model URL
-  model3dUrl?: string;
-  // Per-product physical dimensions (mm). Only meaningful when type === 'product'.
-  // Falls back to workstation.product_dimensions when absent.
-  productAssetId?: string;
-  productLength?: number;
-  productWidth?: number;
-  productHeight?: number;
-  productIsPrimary?: boolean;
-}
-
-export type ProductLayoutObject = LayoutObject & {
-  type: 'product';
-  productAssetId?: string;
-};
-
-export function isProductLayoutObject(object: LayoutObject): object is ProductLayoutObject {
-  return object.type === 'product';
-}
 
 interface ObjectPropertyPanelProps {
   object: LayoutObject | null;

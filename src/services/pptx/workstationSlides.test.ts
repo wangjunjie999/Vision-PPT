@@ -4,6 +4,7 @@ import {
   buildWorkstationTechnicalRequirementTables,
   formatControllerGpuNote,
   generateBOMSlide,
+  generateProductSchematicSlide,
   getBOMSlideCount,
   type WorkstationSlideData,
 } from './workstationSlides';
@@ -86,13 +87,64 @@ describe('BOM pagination', () => {
       'BOM清单 (3/3)',
     ]);
     expect(slides.map(slide => slide.tables[0][0].map(cell => cell.text))).toEqual([
-      ['序号', '设备名称', '型号', '数量', '单价', '备注'],
-      ['序号', '设备名称', '型号', '数量', '单价', '备注'],
-      ['序号', '设备名称', '型号', '数量', '单价', '备注'],
+      ['序号', '设备名称', '型号', '数量', '备注'],
+      ['序号', '设备名称', '型号', '数量', '备注'],
+      ['序号', '设备名称', '型号', '数量', '备注'],
     ]);
+    expect(slides.flatMap(slide => slide.tables[0]).every(row => row.length === 5)).toBe(true);
+    expect(JSON.stringify(slides)).not.toContain('TBD');
     expect(slides.flatMap(slide => slide.tables[0].slice(1).map(row => row[0].text))).toEqual(
       Array.from({ length: 21 }, (_, index) => String(index + 1)),
     );
+  });
+});
+
+describe('product schematic placeholders', () => {
+  it('keeps a product page and its metadata when no image has been uploaded', async () => {
+    const slides: Array<{ texts: string[] }> = [];
+    const pptx = {
+      addSlide: () => {
+        const record = { texts: [] as string[] };
+        slides.push(record);
+        return {
+          addText: (text: string) => record.texts.push(text),
+          addShape: () => undefined,
+          addImage: () => undefined,
+        };
+      },
+    };
+
+    await generateProductSchematicSlide({
+      pptx,
+      isZh: true,
+      wsCode: 'WS-1',
+      wsName: '测试工位',
+      responsible: null,
+    } as unknown as Parameters<typeof generateProductSchematicSlide>[0], {
+      ws: {
+        id: 'ws-1',
+        name: '测试工位',
+        type: 'inspection',
+        product_dimensions: null,
+      },
+      productAssets: [{
+        id: 'product-1',
+        product_name: '无图产品',
+        product_code: 'P-001',
+        length_mm: 120,
+        width_mm: 80,
+        height_mm: 30,
+        document_images_per_page: 2,
+      }],
+      productMedia: [],
+      annotations: [],
+    } as unknown as Parameters<typeof generateProductSchematicSlide>[1]);
+
+    expect(slides).toHaveLength(1);
+    expect(slides[0].texts).toContain('无图产品');
+    expect(slides[0].texts.join(' ')).toContain('未上传产品图片');
+    expect(slides[0].texts.join(' ')).toContain('P-001');
+    expect(slides[0].texts.join(' ')).toContain('120 × 80 × 30 mm');
   });
 });
 

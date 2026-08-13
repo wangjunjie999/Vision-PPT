@@ -404,6 +404,7 @@ export function MechanismResourceManager() {
                   <Label className="text-xs">默认宽度(mm)</Label>
                   <Input
                     type="number"
+                    step="any"
                     value={form.default_width}
                     onChange={(e) => setForm(prev => ({ ...prev, default_width: e.target.value }))}
                   />
@@ -412,6 +413,7 @@ export function MechanismResourceManager() {
                   <Label className="text-xs">默认高度(mm)</Label>
                   <Input
                     type="number"
+                    step="any"
                     value={form.default_height}
                     onChange={(e) => setForm(prev => ({ ...prev, default_height: e.target.value }))}
                   />
@@ -420,6 +422,7 @@ export function MechanismResourceManager() {
                   <Label className="text-xs">默认深度(mm)</Label>
                   <Input
                     type="number"
+                    step="any"
                     value={form.default_depth}
                     onChange={(e) => setForm(prev => ({ ...prev, default_depth: e.target.value }))}
                   />

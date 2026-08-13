@@ -50,11 +50,21 @@ import { CameraRenderer } from './CameraRenderer';
 import { ResizeHandles } from './ResizeHandles';
 import { safeHardwareArray } from '@/utils/safeDataAccess';
 import { CANVAS_WHEEL_ZOOM_STEP, getNextZoom } from '@/utils/canvasZoom';
-import type { WorkstationProductAsset } from '@/lib/productLayoutSync';
+import { reconcileProductLayoutObjects } from '@/lib/productLayoutSync';
 import { useAppStore } from '@/store/useAppStore';
 
 interface DraggableLayoutCanvasProps {
   workstationId: string;
+}
+
+interface DragSession {
+  objectId: string;
+  startClientX: number;
+  startClientY: number;
+  offsetX: number;
+  offsetY: number;
+  moved: boolean;
+  latestObject: LayoutObject;
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null) {
@@ -114,11 +124,11 @@ function toProductAssetPatch(object: LayoutObject, updates: Partial<LayoutObject
 export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasProps) {
   const {
     workstations, layouts, getLayoutByWorkstation, updateLayout, addLayout,
-    loading: productsLoading, productAssets: allProductAssets,
+    loading: productsLoading,
     getWorkstationProductAssets, addProductAsset, updateProductAsset, deleteProductAsset,
   } = useData();
-  const selectedProductAssetId = useAppStore(state => state.selectedProductAssetId);
   const selectProductAsset = useAppStore(state => state.selectProductAsset);
+  const layoutFocusRequest = useAppStore(state => state.layoutFocusRequest);
   const { mechanisms, getEnabledMechanisms } = useMechanisms();
 
   const workstation = workstations.find(ws => ws.id === workstationId) as any;
@@ -136,9 +146,11 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   // ========== State ==========
   const [currentView, setCurrentView] = useState<ViewType>('front');
   const [objects, setObjects] = useState<LayoutObject[]>([]);
+  const objectsRef = useRef<LayoutObject[]>(objects);
+  objectsRef.current = objects;
   const productAssets = useMemo(
     () => getWorkstationProductAssets(workstationId),
-    [allProductAssets, getWorkstationProductAssets, workstationId],
+    [getWorkstationProductAssets, workstationId],
   );
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -146,8 +158,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [showDistances, setShowDistances] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const mouseDownPos = useRef<{ x: number; y: number; objId: string } | null>(null);
+  const isDraggingRef = useRef(isDragging);
+  isDraggingRef.current = isDragging;
+  const dragSessionRef = useRef<DragSession | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [mechanismCounts, setMechanismCounts] = useState<Record<string, number>>({});
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
@@ -181,6 +194,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     timer: ReturnType<typeof setTimeout>;
     patch: Record<string, string | number | null>;
   }>>({});
+  const updateProductAssetRef = useRef(updateProductAsset);
+  updateProductAssetRef.current = updateProductAsset;
+  const handledFocusRequestRef = useRef<string | null>(null);
 
   // Undo/Redo history
   const { pushState: pushHistory, undo: undoHistory, redo: redoHistory, canUndo, canRedo, reset: resetHistory } = useCanvasHistory<LayoutObject[]>([]);
@@ -193,7 +209,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length === 3) return parsed;
       }
-    } catch {}
+    } catch {
+      // Ignore malformed local preferences and use the default layer order.
+    }
     return ['mechanism', 'product', 'camera'];
   });
   const [draggedLayer, setDraggedLayer] = useState<LayerType | null>(null);
@@ -204,7 +222,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     try {
       const saved = localStorage.getItem(`objectOrder_${workstationId}`);
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch {
+      // Ignore malformed local preferences and start with no custom ordering.
+    }
     return {};
   });
 
@@ -290,15 +310,37 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
   }, [workstation?.product_dimensions]);
 
   useEffect(() => {
-    if (!selectedProductAssetId) return;
-    const objectId = `product-${selectedProductAssetId}`;
-    if (!objects.some(object => object.id === objectId)) return;
-    setSelectedIds(current => current[0] === objectId ? current : [objectId]);
+    if (!layoutFocusRequest) {
+      handledFocusRequestRef.current = null;
+      return;
+    }
+    const requestKey = `${layoutFocusRequest.workstationId}:${layoutFocusRequest.requestId}`;
+    if (layoutFocusRequest.workstationId !== workstationId
+      || handledFocusRequestRef.current === requestKey
+      || !objects.some(object => object.id === layoutFocusRequest.objectId)) {
+      return;
+    }
+    handledFocusRequestRef.current = requestKey;
+    setSelectedIds([layoutFocusRequest.objectId]);
     setShowPropertyPanel(true);
-  }, [objects, selectedProductAssetId]);
+  }, [layoutFocusRequest, objects, workstationId]);
+
+  useEffect(() => {
+    const validIds = new Set(objects.map(object => object.id));
+    setSelectedIds(current => {
+      const next = current.filter(id => validIds.has(id));
+      if (next.length === current.length) return current;
+      if (next.length === 0) setShowPropertyPanel(false);
+      return next;
+    });
+    setHiddenIds(current => {
+      const next = new Set([...current].filter(id => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [objects]);
 
   // ========== Auto-scale ==========
-  const autoScaleResult = useMemo(() => {
+  const computedAutoScaleResult = useMemo(() => {
     const padding = 120;
     const iconMargin = 60;
     const allPoints: { x: number; y: number }[] = [];
@@ -366,6 +408,9 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     };
   }, [objects, currentView, productDimensions, canvasWidth, canvasHeight]);
 
+  const frozenAutoScaleRef = useRef(computedAutoScaleResult);
+  if (!isDragging) frozenAutoScaleRef.current = computedAutoScaleResult;
+  const autoScaleResult = isDragging ? frozenAutoScaleRef.current : computedAutoScaleResult;
   const scale = autoScaleResult.scale;
   const centerX = autoScaleResult.centerX;
   const centerY = autoScaleResult.centerY;
@@ -410,26 +455,41 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     const pending = pendingProductUpdatesRef.current[assetId];
     if (pending) clearTimeout(pending.timer);
     const mergedPatch = { ...(pending?.patch || {}), ...patch };
-    const timer = setTimeout(async () => {
+    const persistLatestPatch = async () => {
+      const latest = pendingProductUpdatesRef.current[assetId];
+      if (!latest) return;
+      if (isDraggingRef.current) {
+        latest.timer = setTimeout(persistLatestPatch, 100);
+        return;
+      }
       delete pendingProductUpdatesRef.current[assetId];
       try {
-        await updateProductAsset(assetId, mergedPatch, { silent: true });
+        await updateProductAssetRef.current(assetId, latest.patch, { silent: true });
       } catch (error) {
+        if (error instanceof Error && error.message === '产品已删除，已忽略过期更新') return;
         console.error('Failed to sync product layout data:', error);
         toast.error('产品参数同步失败');
       }
-    }, 450);
+    };
+    const timer = setTimeout(persistLatestPatch, 450);
     pendingProductUpdatesRef.current[assetId] = { timer, patch: mergedPatch };
-  }, [updateProductAsset]);
+  }, []);
 
   const flushPendingProductUpdates = useCallback(async () => {
     const entries = Object.entries(pendingProductUpdatesRef.current);
     pendingProductUpdatesRef.current = {};
     await Promise.all(entries.map(async ([assetId, pending]) => {
       clearTimeout(pending.timer);
-      await updateProductAsset(assetId, pending.patch, { silent: true });
+      await updateProductAssetRef.current(assetId, pending.patch, { silent: true });
     }));
-  }, [updateProductAsset]);
+  }, []);
+
+  const cancelPendingProductUpdate = useCallback((assetId: string) => {
+    const pending = pendingProductUpdatesRef.current[assetId];
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    delete pendingProductUpdatesRef.current[assetId];
+  }, []);
 
   const syncProductAssetsFromObjects = useCallback(async (sourceObjects: LayoutObject[]) => {
     const linkedProducts = sourceObjects.filter(isProductLayoutObject).filter(object => object.productAssetId);
@@ -447,40 +507,39 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     }));
   }, [productDimensions.height, productDimensions.length, productDimensions.width, updateProductAsset]);
 
+  const applyHistoryState = useCallback((nextObjects: LayoutObject[]) => {
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
+    void syncProductAssetsFromObjects(nextObjects).catch(error => {
+      console.error('Failed to sync product positions after history navigation:', error);
+      toast.error('撤销或重做后的产品位置同步失败');
+    });
+  }, [syncProductAssetsFromObjects]);
+
   // ========== Object CRUD ==========
   const updateObject = useCallback((id: string, updates: Partial<LayoutObject>) => {
-    setObjects(prev => prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj));
-    const currentObject = objects.find(object => object.id === id);
+    const currentObject = objectsRef.current.find(object => object.id === id);
+    if (!currentObject) return;
+    const nextObjects = objectsRef.current.map(obj => obj.id === id ? { ...obj, ...updates } : obj);
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
     if (currentObject?.type === 'product' && currentObject.productAssetId) {
       queueProductAssetUpdate(currentObject.productAssetId, toProductAssetPatch(currentObject, updates));
     }
-  }, [objects, queueProductAssetUpdate]);
+  }, [queueProductAssetUpdate]);
 
   const updateObjectWithFollowers = useCallback((id: string, updates: Partial<LayoutObject>) => {
-    const currentObject = objects.find(object => object.id === id);
+    const currentObjects = objectsRef.current;
+    const currentObject = currentObjects.find(object => object.id === id);
+    if (!currentObject) return;
     if (currentObject?.type === 'product' && currentObject.productAssetId) {
       queueProductAssetUpdate(currentObject.productAssetId, toProductAssetPatch(currentObject, updates));
     }
-    if (currentObject?.type === 'mechanism') {
-      const deltaX = (updates.posX ?? currentObject.posX ?? 0) - (currentObject.posX ?? 0);
-      const deltaY = (updates.posY ?? currentObject.posY ?? 0) - (currentObject.posY ?? 0);
-      const deltaZ = (updates.posZ ?? currentObject.posZ ?? 0) - (currentObject.posZ ?? 0);
-      objects
-        .filter(object => object.type === 'product' && object.productAssetId && object.mountedToMechanismId === id)
-        .forEach(product => queueProductAssetUpdate(product.productAssetId!, toProductAssetPatch(product, {
-          posX: (product.posX ?? 0) + deltaX,
-          posY: (product.posY ?? 0) + deltaY,
-          posZ: (product.posZ ?? 0) + deltaZ,
-        })));
-    }
-    setObjects(prev => {
-      const targetObj = prev.find(o => o.id === id);
-      if (!targetObj) return prev;
-      const deltaX = (updates.posX ?? targetObj.posX ?? 0) - (targetObj.posX ?? 0);
-      const deltaY = (updates.posY ?? targetObj.posY ?? 0) - (targetObj.posY ?? 0);
-      const deltaZ = (updates.posZ ?? targetObj.posZ ?? 0) - (targetObj.posZ ?? 0);
-      if (targetObj.type === 'mechanism' && (deltaX !== 0 || deltaY !== 0 || deltaZ !== 0)) {
-        return prev.map(obj => {
+    const deltaX = (updates.posX ?? currentObject.posX ?? 0) - (currentObject.posX ?? 0);
+    const deltaY = (updates.posY ?? currentObject.posY ?? 0) - (currentObject.posY ?? 0);
+    const deltaZ = (updates.posZ ?? currentObject.posZ ?? 0) - (currentObject.posZ ?? 0);
+    const nextObjects = currentObject.type === 'mechanism' && (deltaX !== 0 || deltaY !== 0 || deltaZ !== 0)
+      ? currentObjects.map(obj => {
           if (obj.id === id) return { ...obj, ...updates };
           if (obj.mountedToMechanismId === id) {
             const newPosX = (obj.posX ?? 0) + deltaX;
@@ -490,98 +549,95 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             return { ...obj, posX: newPosX, posY: newPosY, posZ: newPosZ, x: canvasPos.x, y: canvasPos.y };
           }
           return obj;
-        });
-      }
-      return prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj);
-    });
-  }, [currentView, objects, project3DTo2D, queueProductAssetUpdate]);
+        })
+      : currentObjects.map(obj => obj.id === id ? { ...obj, ...updates } : obj);
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
+    if (currentObject.type === 'mechanism') {
+      nextObjects
+        .filter(object => object.type === 'product' && object.productAssetId && object.mountedToMechanismId === id)
+        .forEach(product => queueProductAssetUpdate(product.productAssetId!, toProductAssetPatch(product, {
+          posX: product.posX,
+          posY: product.posY,
+          posZ: product.posZ,
+        })));
+    }
+  }, [currentView, project3DTo2D, queueProductAssetUpdate]);
 
   const deleteObject = useCallback(async (id: string) => {
-    const target = objects.find(object => object.id === id);
+    const target = objectsRef.current.find(object => object.id === id);
     if (target?.type === 'product' && target.productAssetId) {
-      await flushPendingProductUpdates();
+      cancelPendingProductUpdate(target.productAssetId);
       await deleteProductAsset(target.productAssetId);
       selectProductAsset(null);
-      setSelectedIds([]);
-      setShowPropertyPanel(false);
+      setSelectedIds(prev => {
+        const nextIds = prev.filter(selectedObjectId => selectedObjectId !== id);
+        if (nextIds.length === 0) setShowPropertyPanel(false);
+        return nextIds;
+      });
+      setHiddenIds(prev => {
+        const nextIds = new Set(prev);
+        nextIds.delete(id);
+        return nextIds;
+      });
       return;
     }
-    setObjects(prev => prev.filter(o => o.id !== id));
+    const nextObjects = objectsRef.current.filter(object => object.id !== id);
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
+    pushHistory(nextObjects, 'delete');
     setSelectedIds(prev => {
       const newIds = prev.filter(i => i !== id);
       if (newIds.length === 0) setShowPropertyPanel(false);
       return newIds;
     });
     setHiddenIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-  }, [deleteProductAsset, flushPendingProductUpdates, objects, selectProductAsset]);
+  }, [cancelPendingProductUpdate, deleteProductAsset, pushHistory, selectProductAsset]);
 
   const duplicateObject = useCallback((id: string) => {
-    const selectedObject = objects.find(object => object.id === id);
+    const selectedObject = objectsRef.current.find(object => object.id === id);
     if (selectedObject?.type === 'product' && selectedObject.productAssetId) {
       toast.info('请使用“添加产品”创建独立产品，系统会自动建立数据关联');
       return;
     }
-    setObjects(prev => {
-      const obj = prev.find(o => o.id === id);
-      if (!obj) return prev;
-      const newObj: LayoutObject = {
-        ...obj, id: `${obj.type}-${Date.now()}`,
-        posX: (obj.posX ?? 0) + 50, posY: (obj.posY ?? 0) + 50,
-        x: obj.x + 25, y: obj.y + 25, locked: false,
-      };
-      if (obj.type === 'camera') {
-        const cameraCount = prev.filter(o => o.type === 'camera').length;
-        newObj.name = `CAM${cameraCount + 1}`;
-        newObj.cameraIndex = cameraCount + 1;
-      } else if (obj.mechanismId) {
-        const mechCount = prev.filter(o => o.mechanismId === obj.mechanismId).length;
-        newObj.name = `${obj.name?.split('#')[0] || 'Mechanism'}#${mechCount + 1}`;
-      }
-      setSelectedIds([newObj.id]);
-      return [...prev, newObj];
-    });
-  }, [objects]);
+    const previous = objectsRef.current;
+    const obj = previous.find(object => object.id === id);
+    if (!obj) return;
+    const newObj: LayoutObject = {
+      ...obj, id: `${obj.type}-${Date.now()}`,
+      posX: (obj.posX ?? 0) + 50, posY: (obj.posY ?? 0) + 50,
+      x: obj.x + 25, y: obj.y + 25, locked: false,
+    };
+    if (obj.type === 'camera') {
+      const cameraCount = previous.filter(o => o.type === 'camera').length;
+      newObj.name = `CAM${cameraCount + 1}`;
+      newObj.cameraIndex = cameraCount + 1;
+    } else if (obj.mechanismId) {
+      const mechCount = previous.filter(o => o.mechanismId === obj.mechanismId).length;
+      newObj.name = `${obj.name?.split('#')[0] || 'Mechanism'}#${mechCount + 1}`;
+    }
+    const nextObjects = [...previous, newObj];
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
+    setSelectedIds([newObj.id]);
+    pushHistory(nextObjects, 'duplicate');
+  }, [pushHistory]);
 
-  const reconcileProductObjects = useCallback((baseObjects: LayoutObject[], assets: WorkstationProductAsset[]) => {
-    if (assets.length === 0) return baseObjects.filter(object => object.type !== 'product');
-    const layoutProducts = baseObjects.filter(isProductLayoutObject);
-    const unusedLegacyProducts = layoutProducts.filter(object => !object.productAssetId);
-    const linkedProducts = assets.map((asset, index) => {
-      const existing = layoutProducts.find(object => object.productAssetId === asset.id) || unusedLegacyProducts[index];
-      const fallbackY = index === 0
-        ? 0
-        : (index % 2 === 0 ? 1 : -1) * Math.ceil(index / 2) * (productDimensions.width + 100);
-      const posX = asset.pos_x ?? existing?.posX ?? 0;
-      const posY = asset.pos_y ?? existing?.posY ?? fallbackY;
-      const posZ = asset.pos_z ?? existing?.posZ ?? 0;
-      const canvasPosition = project3DTo2D(posX, posY, posZ, currentView);
-      const length = asset.length_mm ?? existing?.productLength ?? productDimensions.length;
-      const width = asset.width_mm ?? existing?.productWidth ?? productDimensions.width;
-      const height = asset.height_mm ?? existing?.productHeight ?? productDimensions.height;
-      return {
-        ...(existing || {}),
-        id: `product-${asset.id}`,
-        type: 'product' as const,
-        productAssetId: asset.id,
-        productIsPrimary: asset.is_primary,
-        name: asset.product_name || existing?.name || `产品 ${index + 1}`,
-        posX,
-        posY,
-        posZ,
-        x: canvasPosition.x,
-        y: canvasPosition.y,
-        width: length,
-        height,
-        rotation: existing?.rotation ?? 0,
-        locked: existing?.locked ?? false,
-        productLength: length,
-        productWidth: width,
-        productHeight: height,
-        model3dUrl: asset.model_file_url || existing?.model3dUrl,
-      } satisfies LayoutObject;
-    });
-    return [...baseObjects.filter(object => object.type !== 'product'), ...linkedProducts];
-  }, [currentView, productDimensions.height, productDimensions.length, productDimensions.width, project3DTo2D]);
+  const reconcileProductObjects = useCallback((baseObjects: LayoutObject[], assets: typeof productAssets) => {
+    return reconcileProductLayoutObjects(
+      baseObjects,
+      assets,
+      productDimensions,
+      (posX, posY, posZ) => project3DTo2D(posX, posY, posZ, currentView),
+    );
+  }, [currentView, productDimensions, project3DTo2D]);
+  const reconcileProductObjectsRef = useRef(reconcileProductObjects);
+  reconcileProductObjectsRef.current = reconcileProductObjects;
+  const productStructureKey = useMemo(
+    () => productAssets.map(asset => asset.id).join('|'),
+    [productAssets],
+  );
+  const productStructureKeyRef = useRef(productStructureKey);
 
   const layoutHydrationRef = useRef({
     currentView,
@@ -612,11 +668,19 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
             posX: obj.posX ?? 0, posY: obj.posY ?? 0,
             posZ: obj.posZ ?? (obj.type === 'camera' ? 300 : 0),
           }));
-          setObjects(hydration.reconcileProductObjects(migratedObjects, hydration.productAssets));
+          const nextObjects = hydration.reconcileProductObjects(migratedObjects, hydration.productAssets);
+          objectsRef.current = nextObjects;
+          setObjects(nextObjects);
+          resetHistory(nextObjects);
+          productStructureKeyRef.current = hydration.productAssets.map(asset => asset.id).join('|');
         }
       } catch (e) { console.error('Failed to parse layout objects:', e); }
     } else {
-      setObjects(hydration.reconcileProductObjects([], hydration.productAssets));
+      const nextObjects = hydration.reconcileProductObjects([], hydration.productAssets);
+      objectsRef.current = nextObjects;
+      setObjects(nextObjects);
+      resetHistory(nextObjects);
+      productStructureKeyRef.current = hydration.productAssets.map(asset => asset.id).join('|');
     }
     if (layout?.grid_enabled !== undefined) setGridEnabled(layout.grid_enabled);
     if (layout?.snap_enabled !== undefined) setSnapEnabled(layout.snap_enabled);
@@ -627,30 +691,52 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       top: layout?.top_view_saved || false,
       isometric: !!(layout as any).isometric_view_saved,
     });
-  }, [layout, productsLoading]);
+  }, [layout, productsLoading, resetHistory]);
 
   useEffect(() => {
     if (productsLoading) return;
-    if (productAssets.length === 0) {
-      setObjects(current => current.filter(object => object.type !== 'product'));
-      return;
+    if (isDragging) return;
+    const nextObjects = reconcileProductObjectsRef.current(objectsRef.current, productAssets);
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
+    if (productStructureKeyRef.current !== productStructureKey) {
+      productStructureKeyRef.current = productStructureKey;
+      resetHistory(nextObjects);
     }
-    setObjects(current => reconcileProductObjects(current, productAssets));
-  }, [productAssets, productsLoading, reconcileProductObjects]);
+  }, [isDragging, productAssets, productStructureKey, productsLoading, resetHistory]);
 
   useEffect(() => {
-    setObjects(prev => {
-      let changed = false;
-      const next = prev.map(obj => {
-        const canvasPos = project3DTo2D(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
-        if (Math.abs((obj.x ?? 0) - canvasPos.x) < 0.001 && Math.abs((obj.y ?? 0) - canvasPos.y) < 0.001) {
-          return obj;
-        }
-        changed = true;
-        return { ...obj, x: canvasPos.x, y: canvasPos.y };
-      });
-      return changed ? next : prev;
+    const validAssetIds = new Set(productAssets.map(asset => asset.id));
+    Object.entries(pendingProductUpdatesRef.current).forEach(([assetId, pending]) => {
+      if (validAssetIds.has(assetId)) return;
+      clearTimeout(pending.timer);
+      delete pendingProductUpdatesRef.current[assetId];
     });
+  }, [productAssets]);
+
+  useEffect(() => () => {
+    const pendingEntries = Object.entries(pendingProductUpdatesRef.current);
+    pendingProductUpdatesRef.current = {};
+    pendingEntries.forEach(([assetId, pending]) => {
+      clearTimeout(pending.timer);
+      void updateProductAssetRef.current(assetId, pending.patch, { silent: true });
+    });
+  }, [workstationId]);
+
+  useEffect(() => {
+    const currentObjects = objectsRef.current;
+    let changed = false;
+    const nextObjects = currentObjects.map(obj => {
+      const canvasPos = project3DTo2D(obj.posX ?? 0, obj.posY ?? 0, obj.posZ ?? 0, currentView);
+      if (Math.abs((obj.x ?? 0) - canvasPos.x) < 0.001 && Math.abs((obj.y ?? 0) - canvasPos.y) < 0.001) {
+        return obj;
+      }
+      changed = true;
+      return { ...obj, x: canvasPos.x, y: canvasPos.y };
+    });
+    if (!changed) return;
+    objectsRef.current = nextObjects;
+    setObjects(nextObjects);
   }, [currentView, project3DTo2D]);
 
   useEffect(() => {
@@ -698,23 +784,23 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       };
 
       switch (e.key) {
-        case 'Delete': case 'Backspace': pushHistory(objects, 'delete'); deleteObject(selectedId); break;
+        case 'Delete': case 'Backspace': void deleteObject(selectedId); break;
         case 'ArrowUp': e.preventDefault(); updateObject(selectedId, { y: selectedObj.y - nudgeAmount * scale, ...getNudge3D('up') }); break;
         case 'ArrowDown': e.preventDefault(); updateObject(selectedId, { y: selectedObj.y + nudgeAmount * scale, ...getNudge3D('down') }); break;
         case 'ArrowLeft': e.preventDefault(); updateObject(selectedId, { x: selectedObj.x - nudgeAmount * scale, ...getNudge3D('left') }); break;
         case 'ArrowRight': e.preventDefault(); updateObject(selectedId, { x: selectedObj.x + nudgeAmount * scale, ...getNudge3D('right') }); break;
         case 'd': case 'D':
-          if (e.ctrlKey || e.metaKey) { e.preventDefault(); pushHistory(objects, 'duplicate'); duplicateObject(selectedId); }
+          if (e.ctrlKey || e.metaKey) { e.preventDefault(); duplicateObject(selectedId); }
           break;
         case 'z': case 'Z':
           if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
             e.preventDefault();
             const redoState = redoHistory();
-            if (redoState) setObjects(redoState);
+            if (redoState) applyHistoryState(redoState);
           } else if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
             const undoState = undoHistory();
-            if (undoState) setObjects(undoState);
+            if (undoState) applyHistoryState(undoState);
           }
           break;
         case 'Escape': setSelectedIds([]); setShowPropertyPanel(false); break;
@@ -727,7 +813,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedId, objects, deleteObject, updateObject, duplicateObject, scale, currentView, pushHistory, undoHistory, redoHistory]);
+  }, [applyHistoryState, selectedId, objects, deleteObject, updateObject, duplicateObject, scale, currentView, undoHistory, redoHistory]);
 
   // ========== Mouse handlers ==========
   const screenToSvg = useCallback((clientX: number, clientY: number) => {
@@ -756,11 +842,18 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
     if (obj.type === 'product' && obj.productAssetId) {
       selectProductAsset(obj.productAssetId);
     }
-    // Record mouse down position; don't start dragging yet
     const pos = screenToSvg(e.clientX, e.clientY);
-    mouseDownPos.current = { x: e.clientX, y: e.clientY, objId: obj.id };
-    setDragOffset({ x: pos.x - obj.x, y: pos.y - obj.y });
-  }, [panMode, isIsometric, screenToSvg, selectedId, workstationId]);
+    frozenAutoScaleRef.current = autoScaleResult;
+    dragSessionRef.current = {
+      objectId: obj.id,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      offsetX: pos.x - obj.x,
+      offsetY: pos.y - obj.y,
+      moved: false,
+      latestObject: obj,
+    };
+  }, [autoScaleResult, isIsometric, panMode, screenToSvg, selectProductAsset, selectedId]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning && panMode) {
@@ -770,67 +863,81 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       setPanStart({ x: e.clientX, y: e.clientY });
       return;
     }
-    // Check drag threshold before starting drag
-    if (!isDragging && mouseDownPos.current) {
-      const dx = Math.abs(e.clientX - mouseDownPos.current.x);
-      const dy = Math.abs(e.clientY - mouseDownPos.current.y);
+    const dragSession = dragSessionRef.current;
+    if (!dragSession) return;
+
+    if (!dragSession.moved) {
+      const dx = Math.abs(e.clientX - dragSession.startClientX);
+      const dy = Math.abs(e.clientY - dragSession.startClientY);
       if (dx > 5 || dy > 5) {
+        dragSession.moved = true;
+        isDraggingRef.current = true;
         setIsDragging(true);
       } else {
-        return; // Haven't moved enough yet
+        return;
       }
     }
-    if (!isDragging || !selectedId) return;
 
+    const dragId = dragSession.objectId;
+    const currentObjects = objectsRef.current;
     const pos = screenToSvg(e.clientX, e.clientY);
-    let newX = pos.x - dragOffset.x;
-    let newY = pos.y - dragOffset.y;
+    let newX = pos.x - dragSession.offsetX;
+    let newY = pos.y - dragSession.offsetY;
 
     if (snapEnabled) {
       newX = Math.round(newX / gridSize) * gridSize;
       newY = Math.round(newY / gridSize) * gridSize;
     }
 
-    const currentObj = objects.find(o => o.id === selectedId);
+    const currentObj = currentObjects.find(o => o.id === dragId);
+    if (!currentObj) return;
     if (smartSnapEnabled && currentObj) {
-      const snapResult = calculateSnapPosition(newX, newY, currentObj.width, currentObj.height, objects, centerX, centerY, 15, selectedId);
+      const snapResult = calculateSnapPosition(newX, newY, currentObj.width, currentObj.height, currentObjects, centerX, centerY, 15, dragId);
       newX = snapResult.x;
       newY = snapResult.y;
     }
-    if (currentObj) setDraggingObject({ ...currentObj, x: newX, y: newY });
 
     if (currentObj?.type === 'camera' && currentView !== 'isometric') {
-      const nearestMount = findNearestMountPoint(newX, newY, objects, currentView as StandardViewType, 70);
+      const nearestMount = findNearestMountPoint(newX, newY, currentObjects, currentView as StandardViewType, 70);
       if (nearestMount) {
         const mountPos = getMountPointWorldPosition(nearestMount.mechanism, nearestMount.mountPoint.id, currentView as StandardViewType);
         if (mountPos) { newX = mountPos.x; newY = mountPos.y; }
       }
     }
     if (currentObj?.type === 'product' && currentView !== 'isometric') {
-      const nearestProductMount = findNearestProductMountPoint(newX, newY, objects, currentView as StandardViewType, 80);
+      const nearestProductMount = findNearestProductMountPoint(newX, newY, currentObjects, currentView as StandardViewType, 80);
       if (nearestProductMount) {
         const mountPos = getProductMountPointWorldPosition(nearestProductMount.mechanism, nearestProductMount.mountPoint.id, currentView as StandardViewType);
         if (mountPos) { newX = mountPos.x; newY = mountPos.y; }
       }
     }
 
-    if (currentObj) {
-      const updates3D = update3DFromCanvas(newX, newY, currentView, currentObj);
-      if (currentObj.type === 'mechanism') {
-        updateObjectWithFollowers(selectedId, { x: newX, y: newY, ...updates3D });
-      } else {
-        setObjects(prev => prev.map(obj => obj.id === selectedId ? { ...obj, x: newX, y: newY, ...updates3D } : obj));
-      }
+    const updates3D = update3DFromCanvas(newX, newY, currentView, currentObj);
+    if (currentObj.type === 'mechanism') {
+      updateObjectWithFollowers(dragId, { x: newX, y: newY, ...updates3D });
+    } else {
+      const nextObjects = currentObjects.map(obj => obj.id === dragId ? { ...obj, x: newX, y: newY, ...updates3D } : obj);
+      objectsRef.current = nextObjects;
+      setObjects(nextObjects);
+    }
+    const latestObject = objectsRef.current.find(obj => obj.id === dragId);
+    if (latestObject) {
+      dragSession.latestObject = latestObject;
+      setDraggingObject(latestObject);
     }
   };
 
   const handleMouseUp = () => {
-    if (isDragging && selectedId) {
-      const currentObj = objects.find(o => o.id === selectedId);
+    const dragSession = dragSessionRef.current;
+    const didDrag = dragSession?.moved === true;
+    if (didDrag && dragSession) {
+      const dragId = dragSession.objectId;
+      const currentObjects = objectsRef.current;
+      const currentObj = currentObjects.find(o => o.id === dragId);
 
       // Camera -> mechanism snapping
       if (currentObj?.type === 'camera') {
-        const nearestMount = findNearestMountPoint(currentObj.x, currentObj.y, objects, currentView as StandardViewType, 70);
+        const nearestMount = findNearestMountPoint(currentObj.x, currentObj.y, currentObjects, currentView as StandardViewType, 70);
         if (nearestMount) {
           const mountPos = getMountPointWorldPosition(nearestMount.mechanism, nearestMount.mountPoint.id, currentView as StandardViewType);
           const mechPosX = nearestMount.mechanism.posX ?? 0;
@@ -843,7 +950,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           };
           const mechType = nearestMount.mechanism.mechanismType || 'camera_mount';
           const mountOffset = getCameraMountPosition(mechType, nearestMount.mountPoint.id, mechDims);
-          updateObject(selectedId, {
+          updateObject(dragId, {
             mountedToMechanismId: nearestMount.mechanism.id,
             mountPointId: nearestMount.mountPoint.id,
             mountOffsetX: mountOffset.offsetX,
@@ -856,8 +963,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           });
           toast.success(`${currentObj.name} 已挂载到 ${nearestMount.mechanism.name}`);
         } else if (currentObj.mountedToMechanismId) {
-          const mechObj = objects.find(o => o.id === currentObj.mountedToMechanismId);
-          updateObject(selectedId, {
+          const mechObj = currentObjects.find(o => o.id === currentObj.mountedToMechanismId);
+          updateObject(dragId, {
             mountedToMechanismId: undefined, mountPointId: undefined,
             mountOffsetX: undefined, mountOffsetY: undefined, mountOffsetZ: undefined,
           });
@@ -867,14 +974,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
       // Product -> mechanism snapping
       if (currentObj?.type === 'product') {
-        if (currentObj.productAssetId) {
-          queueProductAssetUpdate(currentObj.productAssetId, toProductAssetPatch(currentObj, {
-            posX: currentObj.posX,
-            posY: currentObj.posY,
-            posZ: currentObj.posZ,
-          }));
-        }
-        const nearestProductMount = findNearestProductMountPoint(currentObj.x, currentObj.y, objects, currentView as StandardViewType, 80);
+        const nearestProductMount = findNearestProductMountPoint(currentObj.x, currentObj.y, currentObjects, currentView as StandardViewType, 80);
         if (nearestProductMount) {
           const mountPos = getProductMountPointWorldPosition(nearestProductMount.mechanism, nearestProductMount.mountPoint.id, currentView as StandardViewType);
           const mech = nearestProductMount.mechanism;
@@ -888,7 +988,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           const surfaceZ = getMechanismSurfaceHeight(mechType, mechHeight);
           const correctPosZ = mechPosZ + surfaceZ;
 
-          updateObject(selectedId, {
+          updateObject(dragId, {
             mountedToMechanismId: mech.id,
             mountPointId: nearestProductMount.mountPoint.id,
             mountOffsetX: 0,
@@ -902,24 +1002,34 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
           toast.success(`产品已吸附到 ${mech.name}`);
         } else if (currentObj.mountedToMechanismId) {
-          const mechObj = objects.find(o => o.id === currentObj.mountedToMechanismId);
-          updateObject(selectedId, {
+          const mechObj = currentObjects.find(o => o.id === currentObj.mountedToMechanismId);
+          updateObject(dragId, {
             mountedToMechanismId: undefined, mountPointId: undefined,
             mountOffsetX: undefined, mountOffsetY: undefined, mountOffsetZ: undefined,
           });
           if (mechObj) toast.info(`产品已从 ${mechObj.name} 解除吸附`);
         }
-
       }
-    }
-    // Push history after drag completes
-    if (isDragging) {
-      pushHistory(objects, 'drag');
+
+      const finalObject = objectsRef.current.find(obj => obj.id === dragId);
+      if (finalObject?.type === 'product' && finalObject.productAssetId) {
+        queueProductAssetUpdate(finalObject.productAssetId, toProductAssetPatch(finalObject, {
+          posX: finalObject.posX,
+          posY: finalObject.posY,
+          posZ: finalObject.posZ,
+        }));
+      }
+      pushHistory(objectsRef.current, 'drag');
+      void flushPendingProductUpdates().catch(error => {
+        console.error('Failed to persist final product position:', error);
+        toast.error('产品位置保存失败，请重试');
+      });
     }
     setIsDragging(false);
+    isDraggingRef.current = false;
     setIsPanning(false);
     setDraggingObject(null);
-    mouseDownPos.current = null;
+    dragSessionRef.current = null;
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -1278,7 +1388,12 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
 
   // ========== Object list callbacks ==========
   const toggleObjectVisibility = useCallback((id: string) => {
-    setHiddenIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+    setHiddenIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }, []);
 
   const toggleObjectLock = useCallback((id: string) => {
@@ -1322,7 +1437,7 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
       setSelectedIds([id]);
       setShowPropertyPanel(true);
     }
-  }, [objects, workstationId]);
+  }, [objects, selectProductAsset]);
 
   const fitToScreen = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
@@ -1390,8 +1505,8 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
         mechanisms={mechanisms} enabledMechanisms={enabledMechanisms} mechanismCounts={mechanismCounts}
         objectOrder={objectOrder} onObjectReorder={handleObjectReorder}
         canUndo={canUndo} canRedo={canRedo}
-        onUndo={() => { const s = undoHistory(); if (s) setObjects(s); }}
-        onRedo={() => { const s = redoHistory(); if (s) setObjects(s); }}
+        onUndo={() => { const s = undoHistory(); if (s) applyHistoryState(s); }}
+        onRedo={() => { const s = redoHistory(); if (s) applyHistoryState(s); }}
       />
 
       {/* Canvas Container */}
@@ -1400,6 +1515,30 @@ export function DraggableLayoutCanvas({ workstationId }: DraggableLayoutCanvasPr
           <Layout3DPreview
             objects={objects}
             onUpdateObject={updateObjectWithFollowers}
+            onObjectDragStart={() => {
+              frozenAutoScaleRef.current = autoScaleResult;
+              isDraggingRef.current = true;
+              setIsDragging(true);
+            }}
+            onObjectDragEnd={(id, moved) => {
+              if (moved) {
+                const finalObject = objectsRef.current.find(object => object.id === id);
+                if (finalObject?.type === 'product' && finalObject.productAssetId) {
+                  queueProductAssetUpdate(finalObject.productAssetId, toProductAssetPatch(finalObject, {
+                    posX: finalObject.posX,
+                    posY: finalObject.posY,
+                    posZ: finalObject.posZ,
+                  }));
+                }
+                pushHistory(objectsRef.current, 'drag');
+                void flushPendingProductUpdates().catch(error => {
+                  console.error('Failed to persist final 3D product position:', error);
+                  toast.error('产品位置保存失败，请重试');
+                });
+              }
+              isDraggingRef.current = false;
+              setIsDragging(false);
+            }}
             selectedObjectId={selectedId}
             onSelectObject={(id) => {
               setSelectedIds(id ? [id] : []);
