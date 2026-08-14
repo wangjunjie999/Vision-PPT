@@ -19,6 +19,7 @@ import {
 } from '@/utils/distanceUnits';
 import type { ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 import { resolveSensorDimensions, parseResolution } from '@/utils/imagingCalculations';
+import { isTelecentricHardware, getOpticalFieldLabels } from '@/utils/telecentric';
 
 // ─── Display helpers for camera / lens / FOV cards ───
 function formatOpticalFormat(raw: string | null | undefined): string | null {
