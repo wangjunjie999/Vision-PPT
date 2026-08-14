@@ -1492,7 +1492,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           readinessResult,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           scopedAnnotations as any,
-          scopedProductAssets,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          scopedProductAssets as any,
           scopedProductMedia,
         );
 
