@@ -32,6 +32,7 @@ import { uploadGLBFile, deleteGLBFile } from '@/utils/glbUpload';
 import { validateImageFile } from '@/utils/fileValidation';
 import { processHardwareImageForUpload } from '@/utils/processHardwareImage';
 import { getSafeFileExtension } from '@/utils/storageFileNames';
+import { isTelecentricHardware, withTelecentricTag, getOpticalFieldLabels } from '@/utils/telecentric';
 
 interface Props {
   type: 'cameras' | 'lenses' | 'lights' | 'controllers';
@@ -119,6 +120,25 @@ export function HardwareResourceManager({ type }: Props) {
 
   const config = typeConfig[type];
   const Icon = config.icon;
+
+  const supportsTelecentric = type === 'cameras' || type === 'lenses';
+  const formIsTelecentric = isTelecentricHardware({ tags: formData.tags });
+  const opticalLabels = getOpticalFieldLabels(formIsTelecentric);
+
+  const formFields = config.fields.map((field) => {
+    if (!supportsTelecentric || !formIsTelecentric) return field;
+    if (field.key === 'focal_length') {
+      return { ...field, label: opticalLabels.focalLabel, placeholder: opticalLabels.focalPlaceholder };
+    }
+    if (field.key === 'aperture') {
+      return { ...field, label: opticalLabels.apertureLabel, placeholder: opticalLabels.aperturePlaceholder };
+    }
+    return field;
+  });
+
+  const setTelecentric = (telecentric: boolean) => {
+    setFormData((prev) => ({ ...prev, tags: withTelecentricTag(prev.tags, telecentric) }));
+  };
 
   const getItems = (): HardwareItem[] => {
     switch (type) {
@@ -271,7 +291,12 @@ export function HardwareResourceManager({ type }: Props) {
       }
       case 'lenses': {
         const lens = item as Lens;
-        return [lens.focal_length, lens.aperture, lens.max_sensor_size ? `靶面 ${lens.max_sensor_size}` : '']
+        const labels = getOpticalFieldLabels(isTelecentricHardware(lens));
+        return [
+          lens.focal_length ? `${labels.focalLabel} ${lens.focal_length}` : '',
+          lens.aperture ? `${labels.apertureLabel} ${lens.aperture}` : '',
+          lens.max_sensor_size ? `靶面 ${lens.max_sensor_size}` : '',
+        ]
           .filter(Boolean)
           .join(' · ');
       }
@@ -346,6 +371,11 @@ export function HardwareResourceManager({ type }: Props) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">
                       {item.brand} {item.model}
+                      {isTelecentricHardware(item) && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] align-middle">
+                          远心
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {getItemSpecs(item)}
@@ -413,8 +443,39 @@ export function HardwareResourceManager({ type }: Props) {
               </div>
             </div>
 
+            {/* Telecentric type selector */}
+            {supportsTelecentric && (
+              <div className="space-y-2">
+                <Label>
+                  {type === 'cameras' ? '相机类型' : '镜头类型'}
+                  <span className="text-destructive">*</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={formIsTelecentric ? 'outline' : 'default'}
+                    onClick={() => setTelecentric(false)}
+                  >
+                    普通{config.label}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formIsTelecentric ? 'default' : 'outline'}
+                    onClick={() => setTelecentric(true)}
+                  >
+                    远心{config.label}
+                  </Button>
+                </div>
+                {formIsTelecentric && (
+                  <p className="text-xs text-muted-foreground">
+                    远心型号：焦距按「工作距离」填写，光圈按「放大倍率」填写
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Form Fields */}
-            {config.fields.map((field) => (
+            {formFields.map((field) => (
               <div key={field.key} className="space-y-2">
                 <Label>
                   {field.label}

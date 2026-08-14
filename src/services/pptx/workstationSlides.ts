@@ -48,6 +48,7 @@ import {
   type ModuleVisionChecklist,
 } from '@/utils/moduleVisionChecklist';
 import { formatWorkstationCycleTime } from '@/utils/cycleTimeDisplay';
+import { isTelecentricHardware } from '@/utils/telecentric';
 import { buildThreeDMeasurementChecklist, getThreeDDisplayInfo, type ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 
 // Type definitions
@@ -1258,14 +1259,25 @@ export function generateOpticalSolutionSlide(
   });
 
   // Lens configuration
-  slide.addText(ctx.isZh ? '【镜头焦距/靶面】' : '[Lens Focal Length/Sensor]', {
+  const telecentricOptics = (layout?.selected_lenses || []).some(lens => {
+    const fullLens = hardware?.lenses?.find(l => l.id === lens?.id);
+    return isTelecentricHardware(fullLens as { tags?: string[] | null } | undefined)
+      || isTelecentricHardware(lens as { tags?: string[] | null } | undefined);
+  }) || (layout?.selected_cameras || []).some(cam => {
+    const fullCam = hardware?.cameras?.find(c => c.id === cam?.id);
+    return isTelecentricHardware(fullCam as { tags?: string[] | null } | undefined)
+      || isTelecentricHardware(cam as { tags?: string[] | null } | undefined);
+  });
+  const focalLabelZh = telecentricOptics ? '工作距离' : '焦距';
+
+  slide.addText(ctx.isZh ? `【镜头${focalLabelZh}/靶面】` : `[Lens ${telecentricOptics ? 'Working Distance' : 'Focal Length'}/Sensor]`, {
     x: 0.5, y: 3.0, w: 4.3, h: 0.25,
     fontSize: 10, fontFace: FONTS.body, color: COLORS.primary, bold: true,
   });
 
   const lensHeader: TableRow = row([
     ctx.isZh ? '型号' : 'Model', 
-    ctx.isZh ? '焦距' : 'Focal', 
+    ctx.isZh ? focalLabelZh : (telecentricOptics ? 'WD' : 'Focal'), 
     ctx.isZh ? '靶面' : 'Sensor'
   ]);
 

@@ -11,6 +11,7 @@ import { calculateResolutionPerPixel, computeVisionParams, formatResolutionPerPi
 import { useCameras, useLenses } from '@/hooks/useHardware';
 import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getLensImagingAutoFill, getLensImagingAutoFillKey } from '@/utils/lensImagingAutoFill';
+import { isTelecentricHardware } from '@/utils/telecentric';
 import { getMinimumDefectSize } from '@/utils/defectItems';
 import {
   getModuleLightGeometryPatch,
@@ -132,6 +133,8 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
   }, [form.is3DCamera, form.selectedLens, lenses, workstationLayout]);
 
   const hasInitializedLensAutoFillRef = useRef(false);
+  const isTelecentricOptics = isTelecentricHardware(selectedCamera as { tags?: string[] | null } | null)
+    || isTelecentricHardware(selectedLens as { tags?: string[] | null } | null);
   const appliedLensAutoFillKeyRef = useRef('');
   const selectedLensAutoFillKey = getLensImagingAutoFillKey(selectedLens);
 
@@ -531,7 +534,7 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
               )}
               {calculationResult.recommendedFocalLength !== null && !selectedFocalLength && (
                 <div className="flex items-center gap-1">
-                  <span className="text-muted-foreground">推荐焦距:</span>
+                  <span className="text-muted-foreground">{isTelecentricOptics ? '推荐工作距离' : '推荐焦距'}:</span>
                   <code className="px-1 bg-primary/10 text-primary rounded font-mono">
                     {calculationResult.recommendedFocalLength} mm
                   </code>
@@ -976,11 +979,13 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">镜头参数</h4>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">光圈 (F值)</Label>
+                <Label className="text-xs font-medium">
+                  {isTelecentricOptics ? '放大倍率' : '光圈 (F值)'}
+                </Label>
                 <Input 
                   value={form.lensAperture || ''} 
                   onChange={e => setForm(p => ({ ...p, lensAperture: e.target.value }))} 
-                  placeholder="F2.8"
+                  placeholder={isTelecentricOptics ? '0.5X' : 'F2.8'}
                   className="h-9" 
                 />
               </div>

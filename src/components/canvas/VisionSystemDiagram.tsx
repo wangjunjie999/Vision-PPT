@@ -19,6 +19,7 @@ import {
 } from '@/utils/distanceUnits';
 import type { ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 import { resolveSensorDimensions, parseResolution } from '@/utils/imagingCalculations';
+import { isTelecentricHardware, getOpticalFieldLabels } from '@/utils/telecentric';
 
 // ─── Display helpers for camera / lens / FOV cards ───
 function formatOpticalFormat(raw: string | null | undefined): string | null {
@@ -962,6 +963,8 @@ export function VisionSystemDiagram({
   // Camera/Lens display info (memo-cheap; computed each render)
   const cameraSensorInfo = getCameraSensorInfo(camera ?? null);
   const lensSupportedText = getLensSupportedSensorText(lens ?? null);
+  const isTelecentricOptics = isTelecentricHardware(camera ?? null) || isTelecentricHardware(lens ?? null);
+  const opticalFieldLabels = getOpticalFieldLabels(isTelecentricOptics);
 
   const legacyDiagramLightDistancePx = lightDrag.pos.y <= productY
     ? productY - lightDrag.pos.y
@@ -1379,7 +1382,7 @@ export function VisionSystemDiagram({
                     <>
                       <p style={{ fontSize: '11px', color: '#333333', margin: 0 }}>
                         {joinDotParts([
-                          lens.focal_length ? `焦距 ${lens.focal_length}` : null,
+                          lens.focal_length ? `${opticalFieldLabels.focalLabel} ${lens.focal_length}` : null,
                           lensSupportedText ?? '支持靶面：待维护',
                         ])}
                       </p>
@@ -1652,7 +1655,7 @@ export function VisionSystemDiagram({
                 const lensBlocks = [titleBlock('lens-title', '🔭 工业镜头')];
                 if (hasLens) {
                   lensBlocks.push(
-                    mainBlock('lens-spec', joinDotParts([lens.focal_length ? `焦距 ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])),
+                    mainBlock('lens-spec', joinDotParts([lens.focal_length ? `${opticalFieldLabels.focalLabel} ${lens.focal_length}` : null, lensSupportedText ?? '支持靶面：待维护'])),
                     subBlock('lens-model', `${lens.brand} ${lens.model}`),
                   );
                 } else {

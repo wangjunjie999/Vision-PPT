@@ -819,7 +819,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       };
 
       // Prepare product assets input
-      const productAssetInputs: ProductAssetInput[] = scopedProductAssets.map(a => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const productAssetInputs: ProductAssetInput[] = scopedProductAssets.map((a: any) => ({
         id: a.id,
         workstation_id: a.workstation_id,
         module_id: a.module_id,
@@ -842,7 +843,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         pos_y: a.pos_y,
         pos_z: a.pos_z,
         document_images_per_page: Number(a.document_images_per_page) === 2 ? 2 : 1,
-      }));
+      })) as unknown as ProductAssetInput[];
 
       // Prepare annotation inputs
       const annotationInputs: AnnotationInput[] = scopedAnnotations.map(a => ({
@@ -1398,7 +1399,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           scope,
           data: {
             project: projectData,
-            workstations: workstationsForTemplate,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            workstations: workstationsForTemplate as any,
             modules: modulesForTemplate,
             hardware: hardwareData,
             language,
@@ -1488,8 +1490,10 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           },
           hardwareData,
           readinessResult,
-          scopedAnnotations,
-          scopedProductAssets,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          scopedAnnotations as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          scopedProductAssets as any,
           scopedProductMedia,
         );
 
@@ -2461,7 +2465,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       scope={scope}
       workstationIds={scopedSelection.workstations.map(workstation => workstation.id)}
       moduleIds={scopedSelection.modules.map(module => module.id)}
-      productAssets={scopedWorkstationProducts}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      productAssets={scopedWorkstationProducts as any}
       productMedia={scopedProductMedia}
       annotations={scopedAnnotations}
     />

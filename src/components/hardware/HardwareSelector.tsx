@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, Check, X, Camera, Aperture, Lightbulb, Cpu, ChevronDown, ChevronUp, Filter, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isTelecentricHardware, getOpticalFieldLabels } from '@/utils/telecentric';
 
 type HardwareType = 'camera' | 'lens' | 'light' | 'controller';
 
@@ -69,9 +70,14 @@ const typeConfig = {
     placeholder: '搜索镜头型号或品牌...',
     color: 'from-purple-500/20 to-pink-500/20',
     iconColor: 'text-purple-500',
-    getSubtitle: (item: HardwareItem) => [item.focal_length, item.max_sensor_size ? `靶面 ${item.max_sensor_size}` : ''].filter(Boolean).join(' · '),
+    getSubtitle: (item: HardwareItem) => [
+      item.focal_length
+        ? (isTelecentricHardware(item) ? `工作距离 ${item.focal_length}` : item.focal_length)
+        : '',
+      item.max_sensor_size ? `靶面 ${item.max_sensor_size}` : '',
+    ].filter(Boolean).join(' · '),
     getSpecs: (item: HardwareItem) => [
-      { label: '光圈', value: item.aperture },
+      { label: getOpticalFieldLabels(isTelecentricHardware(item)).apertureLabel, value: item.aperture },
       { label: '靶面', value: item.max_sensor_size },
       { label: '卡口', value: item.mount },
     ],
