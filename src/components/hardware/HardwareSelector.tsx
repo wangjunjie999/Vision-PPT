@@ -71,7 +71,7 @@ const typeConfig = {
     iconColor: 'text-purple-500',
     getSubtitle: (item: HardwareItem) => [item.focal_length, item.max_sensor_size ? `靶面 ${item.max_sensor_size}` : ''].filter(Boolean).join(' · '),
     getSpecs: (item: HardwareItem) => [
-      { label: '光圈', value: item.aperture },
+      { label: getOpticalFieldLabels(isTelecentricHardware(item)).apertureLabel, value: item.aperture },
       { label: '靶面', value: item.max_sensor_size },
       { label: '卡口', value: item.mount },
     ],
