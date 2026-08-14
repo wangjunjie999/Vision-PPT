@@ -48,6 +48,7 @@ import {
   type ModuleVisionChecklist,
 } from '@/utils/moduleVisionChecklist';
 import { formatWorkstationCycleTime } from '@/utils/cycleTimeDisplay';
+import { isTelecentricHardware } from '@/utils/telecentric';
 import { buildThreeDMeasurementChecklist, getThreeDDisplayInfo, type ThreeDDisplayInfo } from '@/components/forms/module/threeDCamera';
 
 // Type definitions
