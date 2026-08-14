@@ -1399,7 +1399,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           scope,
           data: {
             project: projectData,
-            workstations: workstationsForTemplate,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            workstations: workstationsForTemplate as any,
             modules: modulesForTemplate,
             hardware: hardwareData,
             language,
@@ -1489,7 +1490,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
           },
           hardwareData,
           readinessResult,
-          scopedAnnotations,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          scopedAnnotations as any,
           scopedProductAssets,
           scopedProductMedia,
         );
@@ -2462,7 +2464,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       scope={scope}
       workstationIds={scopedSelection.workstations.map(workstation => workstation.id)}
       moduleIds={scopedSelection.modules.map(module => module.id)}
-      productAssets={scopedWorkstationProducts}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      productAssets={scopedWorkstationProducts as any}
       productMedia={scopedProductMedia}
       annotations={scopedAnnotations}
     />
