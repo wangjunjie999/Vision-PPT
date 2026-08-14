@@ -135,7 +135,6 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
   const hasInitializedLensAutoFillRef = useRef(false);
   const isTelecentricOptics = isTelecentricHardware(selectedCamera as { tags?: string[] | null } | null)
     || isTelecentricHardware(selectedLens as { tags?: string[] | null } | null);
-  const opticalFieldLabels = getOpticalFieldLabels(isTelecentricOptics);
   const appliedLensAutoFillKeyRef = useRef('');
   const selectedLensAutoFillKey = getLensImagingAutoFillKey(selectedLens);
 
