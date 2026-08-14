@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, Check, X, Camera, Aperture, Lightbulb, Cpu, ChevronDown, ChevronUp, Filter, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isTelecentricHardware, getOpticalFieldLabels } from '@/utils/telecentric';
 
 type HardwareType = 'camera' | 'lens' | 'light' | 'controller';
 
