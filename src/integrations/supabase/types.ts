@@ -133,9 +133,11 @@ export type Database = {
       }
       cameras: {
         Row: {
+          aperture: string | null
           brand: string
           created_at: string
           enabled: boolean | null
+          focal_length: string | null
           frame_rate: number
           front_view_url: string | null
           id: string
@@ -153,9 +155,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          aperture?: string | null
           brand: string
           created_at?: string
           enabled?: boolean | null
+          focal_length?: string | null
           frame_rate: number
           front_view_url?: string | null
           id?: string
@@ -173,9 +177,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          aperture?: string | null
           brand?: string
           created_at?: string
           enabled?: boolean | null
+          focal_length?: string | null
           frame_rate?: number
           front_view_url?: string | null
           id?: string
