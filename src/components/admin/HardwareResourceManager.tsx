@@ -371,6 +371,11 @@ export function HardwareResourceManager({ type }: Props) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">
                       {item.brand} {item.model}
+                      {isTelecentricHardware(item) && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] align-middle">
+                          远心
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {getItemSpecs(item)}
