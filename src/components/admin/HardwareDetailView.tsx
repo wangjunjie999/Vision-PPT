@@ -12,6 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Camera, CircleDot, Sun, Cpu, Folder, Box, Layers, BarChart3, Loader2 } from 'lucide-react';
 import { Camera as CameraType, Lens, Light, Controller } from '@/hooks/useHardware';
+import { isTelecentricHardware, getOpticalFieldLabels } from '@/utils/telecentric';
 
 type HardwareType = 'cameras' | 'lenses' | 'lights' | 'controllers';
 type HardwareItem = CameraType | Lens | Light | Controller;
