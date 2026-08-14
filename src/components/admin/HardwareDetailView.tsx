@@ -230,12 +230,18 @@ export function HardwareDetailView({ type, item, open, onOpenChange }: HardwareD
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4">
-                  {config.specs.map((spec) => {
+                   {config.specs.map((spec) => {
                     const value = itemData[spec.key];
                     if (value === null || value === undefined || value === '') return null;
+                    const telecentricLabels = getOpticalFieldLabels(isTelecentricHardware(item));
+                    const label = spec.key === 'focal_length'
+                      ? telecentricLabels.focalLabel
+                      : spec.key === 'aperture'
+                        ? telecentricLabels.apertureLabel
+                        : spec.label;
                     return (
                       <div key={spec.key} className="space-y-1">
-                        <p className="text-xs text-muted-foreground">{spec.label}</p>
+                        <p className="text-xs text-muted-foreground">{label}</p>
                         <p className="text-sm font-medium">
                           {value}
                           {spec.suffix ? ` ${spec.suffix}` : ''}
