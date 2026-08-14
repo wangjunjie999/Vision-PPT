@@ -16,6 +16,8 @@ export interface Camera {
   sensor_width_mm?: number | null;
   sensor_height_mm?: number | null;
   shutter_type?: string | null;
+  focal_length?: string | null;
+  aperture?: string | null;
   tags: string[];
   image_url: string | null;
   model_3d_url: string | null;
