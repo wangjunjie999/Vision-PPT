@@ -49,6 +49,8 @@ const typeConfig = {
       { key: 'frame_rate', label: '帧率', required: true, type: 'number', placeholder: '如: 30' },
       { key: 'interface', label: '接口', required: true, placeholder: '如: GigE, USB3.0' },
       { key: 'sensor_size', label: '传感器尺寸', required: true, placeholder: '如: 1/1.8"' },
+      { key: 'focal_length', label: '焦距', required: false, placeholder: '如: 25mm' },
+      { key: 'aperture', label: '光圈', required: false, placeholder: '如: F1.4' },
       { key: 'pixel_size_um', label: '像元尺寸 (μm)', required: false, type: 'number', placeholder: '如: 2.4' },
       { key: 'sensor_width_mm', label: '靶面宽度 (mm)', required: false, type: 'number', placeholder: '可留空，由分辨率×像元自动计算' },
       { key: 'sensor_height_mm', label: '靶面高度 (mm)', required: false, type: 'number', placeholder: '可留空，由分辨率×像元自动计算' },

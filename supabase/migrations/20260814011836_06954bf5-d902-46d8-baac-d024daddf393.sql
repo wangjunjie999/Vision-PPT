@@ -1,0 +1,1 @@
+ALTER TABLE public.cameras ADD COLUMN IF NOT EXISTS focal_length text, ADD COLUMN IF NOT EXISTS aperture text;
