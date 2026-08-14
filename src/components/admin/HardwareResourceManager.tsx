@@ -291,7 +291,12 @@ export function HardwareResourceManager({ type }: Props) {
       }
       case 'lenses': {
         const lens = item as Lens;
-        return [lens.focal_length, lens.aperture, lens.max_sensor_size ? `靶面 ${lens.max_sensor_size}` : '']
+        const labels = getOpticalFieldLabels(isTelecentricHardware(lens));
+        return [
+          lens.focal_length ? `${labels.focalLabel} ${lens.focal_length}` : '',
+          lens.aperture ? `${labels.apertureLabel} ${lens.aperture}` : '',
+          lens.max_sensor_size ? `靶面 ${lens.max_sensor_size}` : '',
+        ]
           .filter(Boolean)
           .join(' · ');
       }
@@ -433,8 +438,39 @@ export function HardwareResourceManager({ type }: Props) {
               </div>
             </div>
 
+            {/* Telecentric type selector */}
+            {supportsTelecentric && (
+              <div className="space-y-2">
+                <Label>
+                  {type === 'cameras' ? '相机类型' : '镜头类型'}
+                  <span className="text-destructive">*</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={formIsTelecentric ? 'outline' : 'default'}
+                    onClick={() => setTelecentric(false)}
+                  >
+                    普通{config.label}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formIsTelecentric ? 'default' : 'outline'}
+                    onClick={() => setTelecentric(true)}
+                  >
+                    远心{config.label}
+                  </Button>
+                </div>
+                {formIsTelecentric && (
+                  <p className="text-xs text-muted-foreground">
+                    远心型号：焦距按「工作距离」填写，光圈按「放大倍率」填写
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Form Fields */}
-            {config.fields.map((field) => (
+            {formFields.map((field) => (
               <div key={field.key} className="space-y-2">
                 <Label>
                   {field.label}
