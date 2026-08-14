@@ -11,6 +11,7 @@ import { calculateResolutionPerPixel, computeVisionParams, formatResolutionPerPi
 import { useCameras, useLenses } from '@/hooks/useHardware';
 import { resolveModuleHardwareSelection } from '@/utils/moduleHardwareSlots';
 import { getLensImagingAutoFill, getLensImagingAutoFillKey } from '@/utils/lensImagingAutoFill';
+import { isTelecentricHardware, getOpticalFieldLabels } from '@/utils/telecentric';
 import { getMinimumDefectSize } from '@/utils/defectItems';
 import {
   getModuleLightGeometryPatch,
