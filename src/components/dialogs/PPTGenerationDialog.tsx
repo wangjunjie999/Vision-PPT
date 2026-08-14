@@ -819,7 +819,8 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
       };
 
       // Prepare product assets input
-      const productAssetInputs: ProductAssetInput[] = scopedProductAssets.map(a => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const productAssetInputs: ProductAssetInput[] = scopedProductAssets.map((a: any) => ({
         id: a.id,
         workstation_id: a.workstation_id,
         module_id: a.module_id,
@@ -842,7 +843,7 @@ export function PPTGenerationDialog({ open, onOpenChange }: { open: boolean; onO
         pos_y: a.pos_y,
         pos_z: a.pos_z,
         document_images_per_page: Number(a.document_images_per_page) === 2 ? 2 : 1,
-      }));
+      })) as unknown as ProductAssetInput[];
 
       // Prepare annotation inputs
       const annotationInputs: AnnotationInput[] = scopedAnnotations.map(a => ({
