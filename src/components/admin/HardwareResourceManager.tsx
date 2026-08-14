@@ -32,6 +32,7 @@ import { uploadGLBFile, deleteGLBFile } from '@/utils/glbUpload';
 import { validateImageFile } from '@/utils/fileValidation';
 import { processHardwareImageForUpload } from '@/utils/processHardwareImage';
 import { getSafeFileExtension } from '@/utils/storageFileNames';
+import { isTelecentricHardware, withTelecentricTag, getOpticalFieldLabels } from '@/utils/telecentric';
 
 interface Props {
   type: 'cameras' | 'lenses' | 'lights' | 'controllers';
@@ -119,6 +120,25 @@ export function HardwareResourceManager({ type }: Props) {
 
   const config = typeConfig[type];
   const Icon = config.icon;
+
+  const supportsTelecentric = type === 'cameras' || type === 'lenses';
+  const formIsTelecentric = isTelecentricHardware({ tags: formData.tags });
+  const opticalLabels = getOpticalFieldLabels(formIsTelecentric);
+
+  const formFields = config.fields.map((field) => {
+    if (!supportsTelecentric || !formIsTelecentric) return field;
+    if (field.key === 'focal_length') {
+      return { ...field, label: opticalLabels.focalLabel, placeholder: opticalLabels.focalPlaceholder };
+    }
+    if (field.key === 'aperture') {
+      return { ...field, label: opticalLabels.apertureLabel, placeholder: opticalLabels.aperturePlaceholder };
+    }
+    return field;
+  });
+
+  const setTelecentric = (telecentric: boolean) => {
+    setFormData((prev) => ({ ...prev, tags: withTelecentricTag(prev.tags, telecentric) }));
+  };
 
   const getItems = (): HardwareItem[] => {
     switch (type) {
