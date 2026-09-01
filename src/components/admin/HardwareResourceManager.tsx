@@ -249,6 +249,8 @@ export function HardwareResourceManager({ type }: Props) {
       if (type === 'cameras') {
         data.model_3d_url = glbUrl;
         data.front_view_url = frontViewUrl;
+        data.camera_dimension = cameraDimension;
+        data.scan_mode = scanMode;
       }
       if (type === 'lenses') {
         data.front_view_url = frontViewUrl;
