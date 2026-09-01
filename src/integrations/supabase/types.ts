@@ -139,23 +139,23 @@ export type Database = {
           created_at: string
           enabled: boolean | null
           focal_length: string | null
-          frame_rate: number
+          frame_rate: number | null
           front_view_url: string | null
           id: string
           image_url: string | null
-          interface: string
+          interface: string | null
           model: string
           model_3d_url: string | null
           name: string | null
           pixel_size_um: number | null
           profile_points: number | null
           reference_distance_mm: number | null
-          resolution: string
+          resolution: string | null
           scan_frame_rate: number | null
           scan_mode: string
           scan_speed: string | null
           sensor_height_mm: number | null
-          sensor_size: string
+          sensor_size: string | null
           sensor_width_mm: number | null
           shutter_type: string | null
           tags: string[] | null
@@ -170,23 +170,23 @@ export type Database = {
           created_at?: string
           enabled?: boolean | null
           focal_length?: string | null
-          frame_rate: number
+          frame_rate?: number | null
           front_view_url?: string | null
           id?: string
           image_url?: string | null
-          interface: string
+          interface?: string | null
           model: string
           model_3d_url?: string | null
           name?: string | null
           pixel_size_um?: number | null
           profile_points?: number | null
           reference_distance_mm?: number | null
-          resolution: string
+          resolution?: string | null
           scan_frame_rate?: number | null
           scan_mode?: string
           scan_speed?: string | null
           sensor_height_mm?: number | null
-          sensor_size: string
+          sensor_size?: string | null
           sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
@@ -201,23 +201,23 @@ export type Database = {
           created_at?: string
           enabled?: boolean | null
           focal_length?: string | null
-          frame_rate?: number
+          frame_rate?: number | null
           front_view_url?: string | null
           id?: string
           image_url?: string | null
-          interface?: string
+          interface?: string | null
           model?: string
           model_3d_url?: string | null
           name?: string | null
           pixel_size_um?: number | null
           profile_points?: number | null
           reference_distance_mm?: number | null
-          resolution?: string
+          resolution?: string | null
           scan_frame_rate?: number | null
           scan_mode?: string
           scan_speed?: string | null
           sensor_height_mm?: number | null
-          sensor_size?: string
+          sensor_size?: string | null
           sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
