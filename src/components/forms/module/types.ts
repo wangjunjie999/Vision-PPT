@@ -410,7 +410,15 @@ export interface ModuleFormState {
   threeDOrderModel: string;              // 下单型号
   threeDDetectionMethod: string;         // 检测方式，如 "3D 相机垂直固定"
   threeDMountType: string;               // 安装方式
-  threeDReferenceDistance: string;       // 基准距离 (mm)
+  threeDName: string;                    // 相机名称，如 "3D激光轮廓传感器，DP4000系列"
+  threeDProfilePoints: string;           // 单轮廓点数
+  threeDScanFrameRate: string;           // 扫描帧率
+  threeDScanSpeed: string;               // 扫描速度
+  threeDZResolution: string;             // Z 轴分辨率（选填）
+  threeDZRepeatability: string;          // Z 轴重复精度（选填）
+  threeDZLinearity: string;              // Z 轴线性度（选填）
+  threeDReferenceDistance: string;       // 参考距离 (mm)，PPT 中展示为工作距离
+
   threeDZRange: string;                  // Z 量程，如 "FS±23mm"
   threeDXRange: string;                  // X 测量范围，如 "66–78mm"
   threeDYRange: string;                  // Y 扫描范围，如 "160mm"
