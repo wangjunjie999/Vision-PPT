@@ -19,9 +19,9 @@ export interface Camera {
   focal_length?: string | null;
   aperture?: string | null;
   /** 成像维度：2d / 3d */
-  camera_dimension?: '2d' | '3d' | null;
+  camera_dimension?: string | null;
   /** 扫描方式：area 面扫 / line 线扫 */
-  scan_mode?: 'area' | 'line' | null;
+  scan_mode?: string | null;
   /** 3D 线扫相机专用字段 */
   name?: string | null;
   profile_points?: number | null;

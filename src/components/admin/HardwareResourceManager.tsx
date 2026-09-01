@@ -95,8 +95,16 @@ const typeConfig = {
   },
 };
 
+interface HardwareFieldConfig {
+  key: string;
+  label: string;
+  required?: boolean;
+  type?: string;
+  placeholder?: string;
+}
+
 // 3D 线扫相机专用字段
-const camera3DLineFields = [
+const camera3DLineFields: HardwareFieldConfig[] = [
   { key: 'brand', label: '品牌', required: true },
   { key: 'model', label: '型号', required: true, placeholder: '如: LJ-S080' },
   { key: 'name', label: '名称', required: true, placeholder: '如: 3D 轮廓测量相机' },
@@ -144,7 +152,7 @@ export function HardwareResourceManager({ type }: Props) {
   const scanMode: 'area' | 'line' = formData.scan_mode === 'line' ? 'line' : 'area';
   const is3DLineCamera = type === 'cameras' && cameraDimension === '3d' && scanMode === 'line';
 
-  const baseFields = is3DLineCamera ? camera3DLineFields : config.fields;
+  const baseFields: HardwareFieldConfig[] = is3DLineCamera ? camera3DLineFields : config.fields;
 
   const formFields = baseFields.map((field) => {
     if (!supportsTelecentric || !formIsTelecentric) return field;
