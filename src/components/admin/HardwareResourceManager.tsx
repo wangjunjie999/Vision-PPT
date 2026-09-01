@@ -95,6 +95,19 @@ const typeConfig = {
   },
 };
 
+// 3D 线扫相机专用字段
+const camera3DLineFields = [
+  { key: 'brand', label: '品牌', required: true },
+  { key: 'model', label: '型号', required: true, placeholder: '如: LJ-S080' },
+  { key: 'name', label: '名称', required: true, placeholder: '如: 3D 轮廓测量相机' },
+  { key: 'profile_points', label: '单轮廓点数', required: false, type: 'number', placeholder: '如: 3200' },
+  { key: 'reference_distance_mm', label: '参考距离 (mm)', required: false, type: 'number', placeholder: '如: 160' },
+  { key: 'z_range', label: 'Z 轴测量范围', required: false, placeholder: '如: FS±23mm' },
+  { key: 'x_range', label: 'X 轴测量范围', required: false, placeholder: '如: 66-78mm' },
+  { key: 'scan_frame_rate', label: '扫描帧率 (Hz)', required: false, type: 'number', placeholder: '如: 4000' },
+  { key: 'scan_speed', label: '扫描速度', required: false, placeholder: '如: 100mm/s' },
+];
+
 type HardwareItem = CameraType | Lens | Light | Controller;
 
 export function HardwareResourceManager({ type }: Props) {
