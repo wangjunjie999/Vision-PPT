@@ -133,8 +133,7 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
   }, [form.is3DCamera, form.selectedLens, lenses, workstationLayout]);
 
   const hasInitializedLensAutoFillRef = useRef(false);
-  const isTelecentricOptics = isTelecentricHardware(selectedCamera as { tags?: string[] | null } | null)
-    || isTelecentricHardware(selectedLens as { tags?: string[] | null } | null);
+  const isTelecentricOptics = isTelecentricHardware(selectedLens as { tags?: string[] | null } | null);
   const appliedLensAutoFillKeyRef = useRef('');
   const selectedLensAutoFillKey = getLensImagingAutoFillKey(selectedLens);
 
