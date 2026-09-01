@@ -135,6 +135,7 @@ export type Database = {
         Row: {
           aperture: string | null
           brand: string
+          camera_dimension: string
           created_at: string
           enabled: boolean | null
           focal_length: string | null
@@ -145,18 +146,27 @@ export type Database = {
           interface: string
           model: string
           model_3d_url: string | null
+          name: string | null
           pixel_size_um: number | null
+          profile_points: number | null
+          reference_distance_mm: number | null
           resolution: string
+          scan_frame_rate: number | null
+          scan_mode: string
+          scan_speed: string | null
           sensor_height_mm: number | null
           sensor_size: string
           sensor_width_mm: number | null
           shutter_type: string | null
           tags: string[] | null
           updated_at: string
+          x_range: string | null
+          z_range: string | null
         }
         Insert: {
           aperture?: string | null
           brand: string
+          camera_dimension?: string
           created_at?: string
           enabled?: boolean | null
           focal_length?: string | null
@@ -167,18 +177,27 @@ export type Database = {
           interface: string
           model: string
           model_3d_url?: string | null
+          name?: string | null
           pixel_size_um?: number | null
+          profile_points?: number | null
+          reference_distance_mm?: number | null
           resolution: string
+          scan_frame_rate?: number | null
+          scan_mode?: string
+          scan_speed?: string | null
           sensor_height_mm?: number | null
           sensor_size: string
           sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
           updated_at?: string
+          x_range?: string | null
+          z_range?: string | null
         }
         Update: {
           aperture?: string | null
           brand?: string
+          camera_dimension?: string
           created_at?: string
           enabled?: boolean | null
           focal_length?: string | null
@@ -189,14 +208,22 @@ export type Database = {
           interface?: string
           model?: string
           model_3d_url?: string | null
+          name?: string | null
           pixel_size_um?: number | null
+          profile_points?: number | null
+          reference_distance_mm?: number | null
           resolution?: string
+          scan_frame_rate?: number | null
+          scan_mode?: string
+          scan_speed?: string | null
           sensor_height_mm?: number | null
           sensor_size?: string
           sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
           updated_at?: string
+          x_range?: string | null
+          z_range?: string | null
         }
         Relationships: []
       }
