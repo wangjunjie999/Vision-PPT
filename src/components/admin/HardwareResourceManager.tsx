@@ -394,9 +394,16 @@ export function HardwareResourceManager({ type }: Props) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">
                       {item.brand} {item.model}
-                      {isTelecentricHardware(item) && (
+                      {type === 'lenses' && isTelecentricHardware(item) && (
                         <span className="ml-1.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] align-middle">
                           远心
+                        </span>
+                      )}
+                      {type === 'cameras' && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded bg-secondary text-[10px] align-middle">
+                          {(item as CameraType).camera_dimension === '3d' ? '3D' : '2D'}
+                          {' · '}
+                          {(item as CameraType).scan_mode === 'line' ? '线扫' : '面扫'}
                         </span>
                       )}
                     </p>
