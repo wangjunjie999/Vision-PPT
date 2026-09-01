@@ -166,8 +166,14 @@ export function HardwareResourceManager({ type }: Props) {
   const cameraDimension: '2d' | '3d' = formData.camera_dimension === '3d' ? '3d' : '2d';
   const scanMode: 'area' | 'line' = formData.scan_mode === 'line' ? 'line' : 'area';
   const is3DLineCamera = type === 'cameras' && cameraDimension === '3d' && scanMode === 'line';
+  const is2DLineCamera = type === 'cameras' && cameraDimension === '2d' && scanMode === 'line';
 
-  const baseFields: HardwareFieldConfig[] = is3DLineCamera ? camera3DLineFields : config.fields;
+  const baseFields: HardwareFieldConfig[] = is3DLineCamera
+    ? camera3DLineFields
+    : is2DLineCamera
+      ? camera2DLineFields
+      : config.fields;
+
 
   const formFields = baseFields.map((field) => {
     if (!supportsTelecentric || !formIsTelecentric) return field;
