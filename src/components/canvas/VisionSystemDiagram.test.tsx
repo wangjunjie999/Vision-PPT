@@ -236,6 +236,14 @@ describe('VisionSystemDiagram export mode', () => {
         workingDistanceToleranceInput="15"
         threeDInfo={{
           model: 'LJ-S080',
+          name: null,
+          profilePoints: null,
+          scanFrameRate: null,
+          scanSpeed: null,
+          zResolution: null,
+          zRepeatability: null,
+          zLinearity: null,
+
           orderModel: '3D-APS-280-N',
           scanLineWidth: '35mm',
           dataPoints: '3200×6400',
