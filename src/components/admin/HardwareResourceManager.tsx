@@ -123,11 +123,17 @@ export function HardwareResourceManager({ type }: Props) {
   const config = typeConfig[type];
   const Icon = config.icon;
 
-  const supportsTelecentric = type === 'cameras' || type === 'lenses';
-  const formIsTelecentric = isTelecentricHardware({ tags: formData.tags });
+  const supportsTelecentric = type === 'lenses';
+  const formIsTelecentric = supportsTelecentric && isTelecentricHardware({ tags: formData.tags });
   const opticalLabels = getOpticalFieldLabels(formIsTelecentric);
 
-  const formFields = config.fields.map((field) => {
+  const cameraDimension: '2d' | '3d' = formData.camera_dimension === '3d' ? '3d' : '2d';
+  const scanMode: 'area' | 'line' = formData.scan_mode === 'line' ? 'line' : 'area';
+  const is3DLineCamera = type === 'cameras' && cameraDimension === '3d' && scanMode === 'line';
+
+  const baseFields = is3DLineCamera ? camera3DLineFields : config.fields;
+
+  const formFields = baseFields.map((field) => {
     if (!supportsTelecentric || !formIsTelecentric) return field;
     if (field.key === 'focal_length') {
       return { ...field, label: opticalLabels.focalLabel, placeholder: opticalLabels.focalPlaceholder };
