@@ -550,6 +550,12 @@ export function HardwareResourceManager({ type }: Props) {
                     3D 线扫相机：按轮廓测量参数填写下方信息
                   </p>
                 )}
+                {is2DLineCamera && (
+                  <p className="text-xs text-muted-foreground">
+                    2D 线扫相机：填写传感器类型、像元尺寸、分辨率与最大行频
+                  </p>
+                )}
+
               </div>
             )}
 
