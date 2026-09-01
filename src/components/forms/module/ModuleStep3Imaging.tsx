@@ -363,7 +363,9 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
             <div className="text-sm font-semibold">相机成像类型</div>
             <p className="text-xs leading-5 text-muted-foreground">
               {form.is3DCamera
-                ? '当前模块使用 3D 成像流程，可在下方填写 3D 光学方案和测量方法。'
+                ? form.twoDCameraType === 'line_scan'
+                  ? '当前使用 3D 线扫相机，按轮廓传感器参数填写型号、名称、单轮廓点数等信息。'
+                  : '当前模块使用 3D 成像流程，可在下方填写 3D 光学方案和测量方法。'
                 : form.twoDCameraType === 'line_scan'
                   ? '当前使用 2D 线扫相机，填写单值视野、像素精度和机械扫描速度。'
                   : '当前使用 2D 面扫相机，原有视野、节拍和拍照次数配置保持不变。'}
@@ -379,26 +381,25 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
               3D 相机
             </Button>
           </div>
-          {!form.is3DCamera && (
-            <div className="grid grid-cols-2 gap-2" data-testid="two-d-camera-type-selector">
-              <Button
-                type="button"
-                size="sm"
-                variant={form.twoDCameraType !== 'line_scan' ? 'default' : 'outline'}
-                onClick={() => selectTwoDCameraType('area_scan')}
-              >
-                面扫相机
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={form.twoDCameraType === 'line_scan' ? 'default' : 'outline'}
-                onClick={() => selectTwoDCameraType('line_scan')}
-              >
-                线扫相机
-              </Button>
-            </div>
-          )}
+          <div className="grid grid-cols-2 gap-2" data-testid="two-d-camera-type-selector">
+            <Button
+              type="button"
+              size="sm"
+              variant={form.twoDCameraType !== 'line_scan' ? 'default' : 'outline'}
+              onClick={() => selectTwoDCameraType('area_scan')}
+            >
+              面扫相机
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={form.twoDCameraType === 'line_scan' ? 'default' : 'outline'}
+              onClick={() => selectTwoDCameraType('line_scan')}
+            >
+              线扫相机
+            </Button>
+          </div>
+
         </div>
       </div>
     </div>
