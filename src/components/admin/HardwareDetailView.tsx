@@ -234,7 +234,7 @@ export function HardwareDetailView({ type, item, open, onOpenChange }: HardwareD
                    {config.specs.map((spec) => {
                     const value = itemData[spec.key];
                     if (value === null || value === undefined || value === '') return null;
-                    const telecentricLabels = getOpticalFieldLabels(isTelecentricHardware(item));
+                    const telecentricLabels = getOpticalFieldLabels(type === 'lenses' && isTelecentricHardware(item));
                     const label = spec.key === 'focal_length'
                       ? telecentricLabels.focalLabel
                       : spec.key === 'aperture'

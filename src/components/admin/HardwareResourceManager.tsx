@@ -95,6 +95,27 @@ const typeConfig = {
   },
 };
 
+interface HardwareFieldConfig {
+  key: string;
+  label: string;
+  required?: boolean;
+  type?: string;
+  placeholder?: string;
+}
+
+// 3D 线扫相机专用字段
+const camera3DLineFields: HardwareFieldConfig[] = [
+  { key: 'brand', label: '品牌', required: true },
+  { key: 'model', label: '型号', required: true, placeholder: '如: LJ-S080' },
+  { key: 'name', label: '名称', required: true, placeholder: '如: 3D 轮廓测量相机' },
+  { key: 'profile_points', label: '单轮廓点数', required: false, type: 'number', placeholder: '如: 3200' },
+  { key: 'reference_distance_mm', label: '参考距离 (mm)', required: false, type: 'number', placeholder: '如: 160' },
+  { key: 'z_range', label: 'Z 轴测量范围', required: false, placeholder: '如: FS±23mm' },
+  { key: 'x_range', label: 'X 轴测量范围', required: false, placeholder: '如: 66-78mm' },
+  { key: 'scan_frame_rate', label: '扫描帧率 (Hz)', required: false, type: 'number', placeholder: '如: 4000' },
+  { key: 'scan_speed', label: '扫描速度', required: false, placeholder: '如: 100mm/s' },
+];
+
 type HardwareItem = CameraType | Lens | Light | Controller;
 
 export function HardwareResourceManager({ type }: Props) {
@@ -123,11 +144,17 @@ export function HardwareResourceManager({ type }: Props) {
   const config = typeConfig[type];
   const Icon = config.icon;
 
-  const supportsTelecentric = type === 'cameras' || type === 'lenses';
-  const formIsTelecentric = isTelecentricHardware({ tags: formData.tags });
+  const supportsTelecentric = type === 'lenses';
+  const formIsTelecentric = supportsTelecentric && isTelecentricHardware({ tags: formData.tags });
   const opticalLabels = getOpticalFieldLabels(formIsTelecentric);
 
-  const formFields = config.fields.map((field) => {
+  const cameraDimension: '2d' | '3d' = formData.camera_dimension === '3d' ? '3d' : '2d';
+  const scanMode: 'area' | 'line' = formData.scan_mode === 'line' ? 'line' : 'area';
+  const is3DLineCamera = type === 'cameras' && cameraDimension === '3d' && scanMode === 'line';
+
+  const baseFields: HardwareFieldConfig[] = is3DLineCamera ? camera3DLineFields : config.fields;
+
+  const formFields = baseFields.map((field) => {
     if (!supportsTelecentric || !formIsTelecentric) return field;
     if (field.key === 'focal_length') {
       return { ...field, label: opticalLabels.focalLabel, placeholder: opticalLabels.focalPlaceholder };
@@ -230,6 +257,8 @@ export function HardwareResourceManager({ type }: Props) {
       if (type === 'cameras') {
         data.model_3d_url = glbUrl;
         data.front_view_url = frontViewUrl;
+        data.camera_dimension = cameraDimension;
+        data.scan_mode = scanMode;
       }
       if (type === 'lenses') {
         data.front_view_url = frontViewUrl;
@@ -289,7 +318,17 @@ export function HardwareResourceManager({ type }: Props) {
     switch (type) {
       case 'cameras': {
         const cam = item as CameraType;
-        return `${cam.resolution} @ ${cam.frame_rate}fps`;
+        if (cam.camera_dimension === '3d' && cam.scan_mode === 'line') {
+          return [
+            cam.name || '',
+            cam.profile_points ? `${cam.profile_points} 点/轮廓` : '',
+            cam.z_range ? `Z ${cam.z_range}` : '',
+          ].filter(Boolean).join(' · ') || '3D 线扫相机';
+        }
+        return [
+          cam.resolution || '',
+          cam.frame_rate ? `${cam.frame_rate}fps` : '',
+        ].filter(Boolean).join(' @ ');
       }
       case 'lenses': {
         const lens = item as Lens;
@@ -373,9 +412,16 @@ export function HardwareResourceManager({ type }: Props) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">
                       {item.brand} {item.model}
-                      {isTelecentricHardware(item) && (
+                      {type === 'lenses' && isTelecentricHardware(item) && (
                         <span className="ml-1.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] align-middle">
                           远心
+                        </span>
+                      )}
+                      {type === 'cameras' && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded bg-secondary text-[10px] align-middle">
+                          {(item as CameraType).camera_dimension === '3d' ? '3D' : '2D'}
+                          {' · '}
+                          {(item as CameraType).scan_mode === 'line' ? '线扫' : '面扫'}
                         </span>
                       )}
                     </p>
@@ -445,11 +491,52 @@ export function HardwareResourceManager({ type }: Props) {
               </div>
             </div>
 
-            {/* Telecentric type selector */}
+            {/* Camera classification: 2D/3D + 面扫/线扫 */}
+            {type === 'cameras' && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>成像维度<span className="text-destructive">*</span></Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['2d', '3d'] as const).map((dim) => (
+                      <Button
+                        key={dim}
+                        type="button"
+                        variant={cameraDimension === dim ? 'default' : 'outline'}
+                        onClick={() => setFormData((prev) => ({ ...prev, camera_dimension: dim }))}
+                      >
+                        {dim === '2d' ? '2D 相机' : '3D 相机'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>扫描方式<span className="text-destructive">*</span></Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['area', 'line'] as const).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        variant={scanMode === mode ? 'default' : 'outline'}
+                        onClick={() => setFormData((prev) => ({ ...prev, scan_mode: mode }))}
+                      >
+                        {mode === 'area' ? '面扫相机' : '线扫相机'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {is3DLineCamera && (
+                  <p className="text-xs text-muted-foreground">
+                    3D 线扫相机：按轮廓测量参数填写下方信息
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Telecentric type selector (lenses only) */}
             {supportsTelecentric && (
               <div className="space-y-2">
                 <Label>
-                  {type === 'cameras' ? '相机类型' : '镜头类型'}
+                  镜头类型
                   <span className="text-destructive">*</span>
                 </Label>
                 <div className="grid grid-cols-2 gap-2">

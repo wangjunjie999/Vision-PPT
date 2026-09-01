@@ -1,0 +1,5 @@
+ALTER TABLE public.cameras
+  ALTER COLUMN resolution DROP NOT NULL,
+  ALTER COLUMN frame_rate DROP NOT NULL,
+  ALTER COLUMN interface DROP NOT NULL,
+  ALTER COLUMN sensor_size DROP NOT NULL;

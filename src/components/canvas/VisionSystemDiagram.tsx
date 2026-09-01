@@ -963,7 +963,7 @@ export function VisionSystemDiagram({
   // Camera/Lens display info (memo-cheap; computed each render)
   const cameraSensorInfo = getCameraSensorInfo(camera ?? null);
   const lensSupportedText = getLensSupportedSensorText(lens ?? null);
-  const isTelecentricOptics = isTelecentricHardware(camera ?? null) || isTelecentricHardware(lens ?? null);
+  const isTelecentricOptics = isTelecentricHardware(lens ?? null);
   const opticalFieldLabels = getOpticalFieldLabels(isTelecentricOptics);
 
   const legacyDiagramLightDistancePx = lightDrag.pos.y <= productY

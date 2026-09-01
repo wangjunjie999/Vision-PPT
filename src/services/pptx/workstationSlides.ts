@@ -1263,10 +1263,6 @@ export function generateOpticalSolutionSlide(
     const fullLens = hardware?.lenses?.find(l => l.id === lens?.id);
     return isTelecentricHardware(fullLens as { tags?: string[] | null } | undefined)
       || isTelecentricHardware(lens as { tags?: string[] | null } | undefined);
-  }) || (layout?.selected_cameras || []).some(cam => {
-    const fullCam = hardware?.cameras?.find(c => c.id === cam?.id);
-    return isTelecentricHardware(fullCam as { tags?: string[] | null } | undefined)
-      || isTelecentricHardware(cam as { tags?: string[] | null } | undefined);
   });
   const focalLabelZh = telecentricOptics ? '工作距离' : '焦距';
 
