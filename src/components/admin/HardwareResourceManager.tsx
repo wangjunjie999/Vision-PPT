@@ -310,7 +310,17 @@ export function HardwareResourceManager({ type }: Props) {
     switch (type) {
       case 'cameras': {
         const cam = item as CameraType;
-        return `${cam.resolution} @ ${cam.frame_rate}fps`;
+        if (cam.camera_dimension === '3d' && cam.scan_mode === 'line') {
+          return [
+            cam.name || '',
+            cam.profile_points ? `${cam.profile_points} 点/轮廓` : '',
+            cam.z_range ? `Z ${cam.z_range}` : '',
+          ].filter(Boolean).join(' · ') || '3D 线扫相机';
+        }
+        return [
+          cam.resolution || '',
+          cam.frame_rate ? `${cam.frame_rate}fps` : '',
+        ].filter(Boolean).join(' @ ');
       }
       case 'lenses': {
         const lens = item as Lens;
