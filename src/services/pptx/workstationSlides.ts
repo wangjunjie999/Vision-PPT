@@ -1489,11 +1489,73 @@ export function formatControllerGpuNote(
   return isZh ? `GPU：${gpu}` : `GPU: ${gpu}`;
 }
 
+export type BOMHardwareType = 'camera' | 'lens' | 'light' | 'controller';
+
+export interface BOMHardwareItemInput {
+  type: BOMHardwareType;
+  brand?: string | null;
+  model?: string | null;
+  note?: string | null;
+}
+
+export interface BOMHardwareItem {
+  type: BOMHardwareType;
+  brand: string;
+  model: string;
+  note: string;
+  count: number;
+}
+
+export function aggregateBOMHardwareItems(items: BOMHardwareItemInput[]): BOMHardwareItem[] {
+  const aggregated = new Map<string, BOMHardwareItem>();
+
+  for (const item of items) {
+    const brand = (item.brand || '').trim();
+    const model = (item.model || '').trim();
+    const note = (item.note || '').trim();
+    const key = JSON.stringify([item.type.trim().toLowerCase(), brand.toLowerCase(), model.toLowerCase()]);
+    const existing = aggregated.get(key);
+
+    if (existing) {
+      existing.count++;
+      if (!existing.note && note) existing.note = note;
+    } else {
+      aggregated.set(key, { type: item.type, brand, model, note, count: 1 });
+    }
+  }
+
+  return Array.from(aggregated.values());
+}
+
+function getWorkstationBOMItems(
+  layout: WorkstationSlideData['layout'],
+  isZh = true,
+): BOMHardwareItem[] {
+  const items: BOMHardwareItemInput[] = [];
+
+  layout?.selected_cameras?.filter(Boolean).forEach(cam => {
+    items.push({ type: 'camera', brand: cam.brand, model: cam.model });
+  });
+  layout?.selected_lenses?.filter(Boolean).forEach(lens => {
+    items.push({ type: 'lens', brand: lens.brand, model: lens.model });
+  });
+  layout?.selected_lights?.filter(Boolean).forEach(light => {
+    items.push({ type: 'light', brand: light.brand, model: light.model });
+  });
+  if (layout?.selected_controller) {
+    items.push({
+      type: 'controller',
+      brand: layout.selected_controller.brand,
+      model: layout.selected_controller.model,
+      note: formatControllerGpuNote(layout.selected_controller, isZh),
+    });
+  }
+
+  return aggregateBOMHardwareItems(items);
+}
+
 export function getBOMItemCount(layout: WorkstationSlideData['layout']): number {
-  return (layout?.selected_cameras?.filter(Boolean).length || 0)
-    + (layout?.selected_lenses?.filter(Boolean).length || 0)
-    + (layout?.selected_lights?.filter(Boolean).length || 0)
-    + (layout?.selected_controller ? 1 : 0);
+  return getWorkstationBOMItems(layout).length;
 }
 
 export function getBOMSlideCount(layout: WorkstationSlideData['layout']): number {
@@ -1514,34 +1576,19 @@ export function generateBOMSlide(
     ctx.isZh ? '备注' : 'Notes'
   ]);
 
-  const bomRows: TableRow[] = [];
-  let bomIdx = 1;
-
-  // Cameras
-  layout?.selected_cameras?.filter(c => c).forEach(cam => {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工业相机' : 'Camera', `${cam.brand} ${cam.model}`, '1', '']));
-  });
-
-  // Lenses
-  layout?.selected_lenses?.filter(l => l).forEach(lens => {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? '工业镜头' : 'Lens', `${lens.brand} ${lens.model}`, '1', '']));
-  });
-
-  // Lights
-  layout?.selected_lights?.filter(l => l).forEach(light => {
-    bomRows.push(row([String(bomIdx++), ctx.isZh ? 'LED光源' : 'Light', `${light.brand} ${light.model}`, '1', '']));
-  });
-
-  // Controller
-  if (layout?.selected_controller) {
-    bomRows.push(row([
-      String(bomIdx++),
-      ctx.isZh ? '工控机' : 'IPC',
-      `${layout.selected_controller.brand} ${layout.selected_controller.model}`,
-      '1',
-      formatControllerGpuNote(layout.selected_controller, ctx.isZh),
-    ]));
-  }
+  const deviceLabels: Record<BOMHardwareType, string> = {
+    camera: ctx.isZh ? '工业相机' : 'Camera',
+    lens: ctx.isZh ? '工业镜头' : 'Lens',
+    light: ctx.isZh ? 'LED光源' : 'Light',
+    controller: ctx.isZh ? '工控机' : 'IPC',
+  };
+  const bomRows: TableRow[] = getWorkstationBOMItems(layout, ctx.isZh).map((item, index) => row([
+    String(index + 1),
+    deviceLabels[item.type],
+    `${item.brand} ${item.model}`.trim(),
+    String(item.count),
+    item.note,
+  ]));
 
   if (bomRows.length === 0) {
     bomRows.push(row(['1', '-', '-', '-', '-']));

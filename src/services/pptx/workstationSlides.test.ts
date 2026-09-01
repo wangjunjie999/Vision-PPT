@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateBOMHardwareItems,
   buildModuleOpticalSlideTextContent,
   buildWorkstationTechnicalRequirementTables,
   formatControllerGpuNote,
@@ -8,6 +9,21 @@ import {
   getBOMSlideCount,
   type WorkstationSlideData,
 } from './workstationSlides';
+
+describe('BOM aggregation', () => {
+  it('merges case-insensitive trimmed matches while keeping type and model boundaries', () => {
+    expect(aggregateBOMHardwareItems([
+      { type: 'light', brand: ' OPT ', model: ' LI-100 ' },
+      { type: 'light', brand: 'opt', model: 'li-100', note: ' 备用库存 ' },
+      { type: 'light', brand: 'OPT', model: 'LI-200' },
+      { type: 'lens', brand: 'OPT', model: 'LI-100' },
+    ])).toEqual([
+      { type: 'light', brand: 'OPT', model: 'LI-100', note: '备用库存', count: 2 },
+      { type: 'light', brand: 'OPT', model: 'LI-200', note: '', count: 1 },
+      { type: 'lens', brand: 'OPT', model: 'LI-100', note: '', count: 1 },
+    ]);
+  });
+});
 
 describe('formatControllerGpuNote', () => {
   it('keeps the BOM note blank when GPU is not filled in the hardware library', () => {
@@ -41,6 +57,51 @@ describe('BOM pagination', () => {
       mechanisms: null,
       selected_lights: lights,
     } as any)).toBe(expectedPages);
+  });
+
+  it('uses merged quantities and merged row counts for workstation pagination', () => {
+    const slides: Array<{
+      texts: string[];
+      tables: Array<Array<Array<{ text: string }>>>;
+    }> = [];
+    const pptx = {
+      addSlide: () => {
+        const record = { texts: [] as string[], tables: [] as Array<Array<Array<{ text: string }>>> };
+        slides.push(record);
+        return {
+          addText: (text: string) => record.texts.push(text),
+          addTable: (rows: Array<Array<{ text: string }>>) => record.tables.push(rows as any),
+          addShape: () => undefined,
+          addImage: () => undefined,
+        };
+      },
+    };
+    const lights = Array.from({ length: 11 }, (_, index) => ({
+      brand: index === 0 ? ' OPT ' : 'opt',
+      model: index === 0 ? ' LI-100 ' : 'li-100',
+    }));
+    const layout = {
+      workstation_id: 'ws-1',
+      conveyor_type: null,
+      camera_count: 0,
+      camera_mounts: null,
+      mechanisms: null,
+      selected_lights: lights,
+    } as any;
+
+    expect(getBOMSlideCount(layout)).toBe(1);
+    generateBOMSlide({
+      pptx,
+      isZh: true,
+      wsCode: 'WS-1',
+      wsName: '测试工位',
+      responsible: null,
+    } as any, { layout } as any);
+
+    expect(slides).toHaveLength(1);
+    expect(slides[0].tables[0][1].map(cell => cell.text)).toEqual([
+      '1', 'LED光源', 'OPT LI-100', '11', '',
+    ]);
   });
 
   it('repeats the same header, keeps serial numbers continuous and uses total-page titles', () => {

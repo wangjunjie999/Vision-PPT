@@ -82,7 +82,7 @@ afterEach(() => {
   resetFailedUrlsCache();
 });
 
-runQa('generates rendered QA decks for ten images, multiple products and 21 BOM records', async () => {
+runQa('generates rendered QA decks for table pagination and multiple products', async () => {
   class InstantImage {
     naturalWidth = 1200;
     naturalHeight = 800;
@@ -121,11 +121,19 @@ runQa('generates rendered QA decks for ten images, multiple products and 21 BOM 
     sort_order: index,
   }));
   const singleBlob = await generatePPTX(
-    project,
+    {
+      ...project,
+      revision_history: Array.from({ length: 15 }, (_, index) => ({
+        version: `V${index + 1}`,
+        date: '2026-07-23',
+        author: 'Codex QA',
+        content: `分页验收变更记录 ${index + 1}`,
+      })),
+    },
     [{
       id: singleWorkstationId,
       code: 'WS-10',
-      name: '单产品十图与二十一条 BOM',
+      name: '单产品十图与十四条 BOM',
       type: 'inspection',
       cycle_time: 3,
       product_dimensions: { length: 100, width: 100, height: 50 },
@@ -136,15 +144,17 @@ runQa('generates rendered QA decks for ten images, multiple products and 21 BOM 
       conveyor_type: null,
       camera_count: 0,
       lens_count: 0,
-      light_count: 21,
+      light_count: 14,
       camera_mounts: null,
       mechanisms: null,
       selected_cameras: [],
       selected_lenses: [],
-      selected_lights: Array.from({ length: 21 }, (_, index) => ({
+      selected_lights: Array.from({ length: 14 }, (_, index) => ({
         id: `light-${index + 1}`,
         brand: 'QA',
-        model: `LIGHT-${String(index + 1).padStart(2, '0')}`,
+        model: index % 3 === 0
+          ? `LIGHT-${String(index + 1).padStart(2, '0')}-240X320-50MM-24V`
+          : `LIGHT-${String(index + 1).padStart(2, '0')}`,
       })),
       selected_controller: null,
     }],
@@ -184,7 +194,7 @@ runQa('generates rendered QA decks for ten images, multiple products and 21 BOM 
     singleProductMedia,
   );
   await writeFile(
-    path.join(outputDir, 'single-product-10-images-21-bom-qa.pptx'),
+    path.join(outputDir, 'single-product-10-images-14-bom-15-revisions-qa.pptx'),
     new Uint8Array(await singleBlob.arrayBuffer()),
   );
 

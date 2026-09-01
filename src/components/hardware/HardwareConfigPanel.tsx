@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Focus, Lightbulb, Monitor, Plus, Minus, X, ChevronDown, ImageIcon } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Camera, Focus, Lightbulb, Monitor, Plus, Minus, X, ChevronDown, ImageIcon, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -18,6 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { sanitizeHardwareItem } from '@/utils/hardwareSerialization';
+import { matchesHardwareSearch } from '@/utils/hardwareSearch';
 
 interface HardwareItem {
   id: string;
@@ -219,6 +221,7 @@ interface HardwareSelectionDialogProps {
 function HardwareSelectionDialog({ open, onOpenChange, type, onSelect }: HardwareSelectionDialogProps) {
   const [items, setItems] = useState<HardwareItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const typeLabels = {
     cameras: '相机',
@@ -229,9 +232,15 @@ function HardwareSelectionDialog({ open, onOpenChange, type, onSelect }: Hardwar
 
   useEffect(() => {
     if (open) {
+      setSearchQuery('');
       fetchItems();
     }
   }, [open, type]);
+
+  const filteredItems = useMemo(
+    () => items.filter(item => matchesHardwareSearch(item, type, searchQuery)),
+    [items, searchQuery, type],
+  );
 
   const fetchItems = async () => {
     setLoading(true);
@@ -273,6 +282,17 @@ function HardwareSelectionDialog({ open, onOpenChange, type, onSelect }: Hardwar
             选择{typeLabels[type]}
           </DialogTitle>
         </DialogHeader>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            aria-label={`搜索${typeLabels[type]}`}
+            placeholder="搜索品牌、型号、类型、特点或规格，多个关键词用空格分隔"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="pl-9"
+          />
+        </div>
         <ScrollArea className="max-h-[400px]">
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -282,9 +302,13 @@ function HardwareSelectionDialog({ open, onOpenChange, type, onSelect }: Hardwar
             <div className="text-center py-8 text-muted-foreground">
               暂无可用的{typeLabels[type]}
             </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              未找到匹配的{typeLabels[type]}
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 p-1">
-              {items.map((item) => (
+              {filteredItems.map((item) => (
                 <HardwareSelectionItem 
                   key={item.id} 
                   item={item} 

@@ -13,6 +13,8 @@ import {
   getLightingPhotoSlideCount,
   getBOMSlideCount,
   generateBOMSlide,
+  aggregateBOMHardwareItems,
+  type BOMHardwareItemInput,
 } from './pptx/workstationSlides';
 import { paginateProductMedia, type ProductMediaRecord } from '@/utils/productAssetMedia';
 import {
@@ -572,6 +574,18 @@ function splitLinesIntoChunks(lines: string[], maxLines: number): string[][] {
     chunks.push(lines.slice(index, index + maxLines));
   }
   return chunks;
+}
+
+function splitIntoBalancedPages<T>(items: T[], maxItemsPerPage: number): T[][] {
+  const pageCount = Math.max(1, Math.ceil(items.length / Math.max(1, maxItemsPerPage)));
+  const itemsPerPage = Math.max(1, Math.ceil(items.length / pageCount));
+  const pages: T[][] = [];
+
+  for (let index = 0; index < items.length; index += itemsPerPage) {
+    pages.push(items.slice(index, index + itemsPerPage));
+  }
+
+  return pages.length > 0 ? pages : [[]];
 }
 
 function getProjectNotesRowHeight(lineCount: number): number {
@@ -1496,19 +1510,6 @@ export async function generatePPTX(
   progress = 10;
   onProgress(progress, isZh ? '生成变更履历页...' : 'Generating revision history...', isZh ? '变更履历页' : 'Revision History');
   
-  const revisionSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-  
-  // Title text overlaid on the navy header bar (white text)
-  revisionSlide.addText(isZh ? '变更履历' : 'Revision History', {
-    ...MASTER_SLIDE_TITLE,
-  });
-
-  revisionSlide.addText(isZh ? '变更表' : 'Change Log', {
-    x: 0, y: st.y, w: '100%', h: st.h,
-    fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
-    bold: st.bold, italic: st.italic,
-  });
-
   const revisionHeader: TableRow = [
     cell(isZh ? '编号' : 'No.', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
     cell(isZh ? '版本' : 'Version', { fill: { color: COLORS.primary }, color: COLORS.white, bold: true, align: 'center', fontSize: 10, fontFace: FONTS.body } as any),
@@ -1541,33 +1542,53 @@ export async function generatePPTX(
   const revisionContentTop = 0.9;
   const revisionContentBottom = SLIDE_LAYOUT.contentBottom - 0.1;
   const revisionAvailableHeight = revisionContentBottom - revisionContentTop;
-  const revisionDataRowH = Math.min(
-    revisionMaxDataRowH,
-    Math.max(
-      revisionMinDataRowH,
-      (revisionAvailableHeight - revisionHeaderRowH) / Math.max(revisionRows.length, 1),
-    ),
+  const revisionRowsPerPage = Math.max(
+    1,
+    Math.floor((revisionAvailableHeight - revisionHeaderRowH) / revisionMinDataRowH),
   );
-  const revisionTableHeight = revisionHeaderRowH + revisionRows.length * revisionDataRowH;
+  const revisionPages = splitIntoBalancedPages(revisionRows, revisionRowsPerPage);
   const revisionTableWidth = SLIDE_LAYOUT.contentWidth;
   const revisionTableX = (SLIDE_LAYOUT.width - revisionTableWidth) / 2;
-  const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 5);
 
-  revisionSlide.addTable([revisionHeader, ...revisionRows], {
-    x: revisionTableX,
-    y: revisionTableY,
-    w: revisionTableWidth,
-    fontFace: FONTS.body,
-    fontSize: 10,
-    colW: [0.65, 0.85, 3.6, 1.75, 1.2, 1.15],
-    border: { pt: 0.5, color: COLORS.border },
-    fill: { color: COLORS.white },
-    valign: 'middle',
-    align: 'center',
-    rowH: [
-      revisionHeaderRowH,
-      ...revisionRows.map(() => revisionDataRowH),
-    ],
+  revisionPages.forEach((pageRows, pageIndex) => {
+    const pageLabel = revisionPages.length > 1 ? ` (${pageIndex + 1}/${revisionPages.length})` : '';
+    const revisionSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+
+    revisionSlide.addText(`${isZh ? '变更履历' : 'Revision History'}${pageLabel}`, {
+      ...MASTER_SLIDE_TITLE,
+    });
+    revisionSlide.addText(isZh ? '变更表' : 'Change Log', {
+      x: 0, y: st.y, w: '100%', h: st.h,
+      fontSize: st.fontSize, fontFace: st.fontFace, color: st.color, align: st.align, valign: st.valign,
+      bold: st.bold, italic: st.italic,
+    });
+
+    const revisionDataRowH = Math.min(
+      revisionMaxDataRowH,
+      Math.max(
+        revisionMinDataRowH,
+        (revisionAvailableHeight - revisionHeaderRowH) / Math.max(pageRows.length, 1),
+      ),
+    );
+    const revisionTableHeight = revisionHeaderRowH + pageRows.length * revisionDataRowH;
+    const revisionTableY = revisionContentTop + Math.max(0, (revisionAvailableHeight - revisionTableHeight) / 5);
+
+    revisionSlide.addTable([revisionHeader, ...pageRows], {
+      x: revisionTableX,
+      y: revisionTableY,
+      w: revisionTableWidth,
+      fontFace: FONTS.body,
+      fontSize: 10,
+      colW: [0.65, 0.85, 3.6, 1.75, 1.2, 1.15],
+      border: { pt: 0.5, color: COLORS.border },
+      fill: { color: COLORS.white },
+      valign: 'middle',
+      align: 'center',
+      rowH: [
+        revisionHeaderRowH,
+        ...pageRows.map(() => revisionDataRowH),
+      ],
+    });
   });
 
   // (Camera installation guide slide removed)
@@ -1850,20 +1871,12 @@ export async function generatePPTX(
     return slide;
   };
 
-  const hwSlide = createHardwareSummarySlide();
+  // Count physical workstation slots. Modules can reuse CAM1/CAM2 etc., so counting
+  // by module would duplicate shared hardware. Aggregation happens once below.
+  const hardwareItems: BOMHardwareItemInput[] = [];
 
-  // Aggregate hardware by physical workstation slots. Modules can reuse CAM1/CAM2 etc.,
-  // so counting by module would duplicate shared hardware.
-  const hwCountMap = new Map<string, { type: string; brand: string; model: string; count: number }>();
-
-  const addToMap = (type: string, brand: string, model: string) => {
-    const key = `${type}||${brand}||${model}`;
-    const existing = hwCountMap.get(key);
-    if (existing) {
-      existing.count++;
-    } else {
-      hwCountMap.set(key, { type, brand, model, count: 1 });
-    }
+  const addHardwareItem = (type: BOMHardwareItemInput['type'], brand: string, model: string) => {
+    hardwareItems.push({ type, brand, model });
   };
 
   let hasLayoutHardware = false;
@@ -1874,26 +1887,26 @@ export async function generatePPTX(
     const selectedController = safeController(layout.selected_controller);
 
     selectedCameras.forEach(cam => {
-      if (cam.brand && cam.model) {
+      if (cam.brand?.trim() && cam.model?.trim()) {
         hasLayoutHardware = true;
-        addToMap(isZh ? '工业相机' : 'Industrial Camera', cam.brand, cam.model);
+        addHardwareItem('camera', cam.brand, cam.model);
       }
     });
     selectedLenses.forEach(lens => {
-      if (lens.brand && lens.model) {
+      if (lens.brand?.trim() && lens.model?.trim()) {
         hasLayoutHardware = true;
-        addToMap(isZh ? '工业镜头' : 'Industrial Lens', lens.brand, lens.model);
+        addHardwareItem('lens', lens.brand, lens.model);
       }
     });
     selectedLights.forEach(light => {
-      if (light.brand && light.model) {
+      if (light.brand?.trim() && light.model?.trim()) {
         hasLayoutHardware = true;
-        addToMap(isZh ? '光源' : 'Light Source', light.brand, light.model);
+        addHardwareItem('light', light.brand, light.model);
       }
     });
-    if (selectedController?.brand && selectedController.model) {
+    if (selectedController?.brand?.trim() && selectedController.model?.trim()) {
       hasLayoutHardware = true;
-      addToMap(isZh ? '工控机' : 'Industrial PC', selectedController.brand, selectedController.model);
+      addHardwareItem('controller', selectedController.brand, selectedController.model);
     }
   }
 
@@ -1911,24 +1924,30 @@ export async function generatePPTX(
     for (const m of modules) {
       addUniqueModuleSelection('camera', m.selected_camera, () => {
         const cam = hardware.cameras.find(c => c.id === m.selected_camera);
-        if (cam) addToMap(isZh ? '工业相机' : 'Industrial Camera', cam.brand, cam.model);
+        if (cam) addHardwareItem('camera', cam.brand, cam.model);
       });
       addUniqueModuleSelection('lens', m.selected_lens, () => {
         const lens = hardware.lenses.find(l => l.id === m.selected_lens);
-        if (lens) addToMap(isZh ? '工业镜头' : 'Industrial Lens', lens.brand, lens.model);
+        if (lens) addHardwareItem('lens', lens.brand, lens.model);
       });
       addUniqueModuleSelection('light', m.selected_light, () => {
         const light = hardware.lights.find(l => l.id === m.selected_light);
-        if (light) addToMap(isZh ? '光源' : 'Light Source', light.brand, light.model);
+        if (light) addHardwareItem('light', light.brand, light.model);
       });
       addUniqueModuleSelection('controller', m.selected_controller, () => {
         const ctrl = hardware.controllers.find(c => c.id === m.selected_controller);
-        if (ctrl) addToMap(isZh ? '工控机' : 'Industrial PC', ctrl.brand, ctrl.model);
+        if (ctrl) addHardwareItem('controller', ctrl.brand, ctrl.model);
       });
     }
   }
 
-  const hwItems = Array.from(hwCountMap.values());
+  const hardwareTypeLabels: Record<BOMHardwareItemInput['type'], string> = {
+    camera: isZh ? '工业相机' : 'Industrial Camera',
+    lens: isZh ? '工业镜头' : 'Industrial Lens',
+    light: isZh ? '光源' : 'Light Source',
+    controller: isZh ? '工控机' : 'Industrial PC',
+  };
+  const hwItems = aggregateBOMHardwareItems(hardwareItems);
   let totalDevices = hwItems.reduce((sum, item) => sum + item.count, 0);
 
   // Header row
@@ -1947,7 +1966,7 @@ export async function generatePPTX(
   const hwDataRows: TableRow[] = hwItems.map((item, idx) =>
     row([
       String(idx + 1),
-      item.type,
+      hardwareTypeLabels[item.type],
       item.brand,
       item.model,
       String(item.count),
@@ -1960,28 +1979,21 @@ export async function generatePPTX(
     row(['', '', '', isZh ? '总计' : 'Total', `${totalDevices}${isZh ? '台' : ''}`, '']),
   ];
 
-  // Evenly distribute rows across pages so each page table has consistent size.
-  // Rule: ≤15 items → 1 page; >15 → split evenly (e.g. 20 → 10/10, 31 → 11/11/9).
-  const MAX_ROWS_PER_PAGE = 15;
-  const totalItems = hwDataRows.length;
-  const pageCount = Math.max(1, Math.ceil(totalItems / MAX_ROWS_PER_PAGE));
-  const rowsPerPage = pageCount > 0 ? Math.ceil(totalItems / pageCount) : MAX_ROWS_PER_PAGE;
-  const hardwareChunks: TableRow[][] = [];
-  for (let i = 0; i < totalItems; i += rowsPerPage) {
-    hardwareChunks.push(hwDataRows.slice(i, i + rowsPerPage));
-  }
-  if (hardwareChunks.length === 0) {
-    hardwareChunks.push([]);
-  }
-
-  // Fixed row heights so every page renders an identically-sized table,
-  // regardless of how many rows that specific page holds.
   const HEADER_ROW_H = 0.32;
   const DATA_ROW_H = 0.34;
+  const HARDWARE_TABLE_Y = 0.85;
+  const HARDWARE_TABLE_BOTTOM_Y = SLIDE_LAYOUT.contentBottom - 0.18;
+  const MAX_ROWS_PER_PAGE = Math.max(
+    1,
+    Math.floor(
+      (HARDWARE_TABLE_BOTTOM_Y - HARDWARE_TABLE_Y - HEADER_ROW_H - DATA_ROW_H) / DATA_ROW_H,
+    ),
+  );
+  const hardwareChunks = splitIntoBalancedPages(hwDataRows, MAX_ROWS_PER_PAGE);
 
   const hardwareTableOptions = {
     x: SLIDE_LAYOUT.contentLeft,
-    y: 0.85,
+    y: HARDWARE_TABLE_Y,
     w: SLIDE_LAYOUT.contentWidth,
     fontFace: FONTS.body,
     fontSize: 8,
@@ -1994,15 +2006,12 @@ export async function generatePPTX(
 
   hardwareChunks.forEach((chunk, pageIndex) => {
     const isLastPage = pageIndex === hardwareChunks.length - 1;
-    const slide = pageIndex === 0
-      ? hwSlide
-      : createHardwareSummarySlide(` (${pageIndex + 1}/${hardwareChunks.length})`);
-    const totalRowCount = 1 + chunk.length + (isLastPage ? 1 : 0);
+    const pageLabel = hardwareChunks.length > 1 ? ` (${pageIndex + 1}/${hardwareChunks.length})` : '';
+    const slide = createHardwareSummarySlide(pageLabel);
     const rowH: number[] = [
       HEADER_ROW_H,
       ...Array(chunk.length + (isLastPage ? 1 : 0)).fill(DATA_ROW_H),
     ];
-    void totalRowCount;
     slide.addTable(
       [...hwHeader, ...chunk, ...(isLastPage ? hwTotalRow : [])],
       { ...hardwareTableOptions, rowH },
