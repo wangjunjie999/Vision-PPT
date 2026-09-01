@@ -147,7 +147,7 @@ describe('3D camera config helpers', () => {
     });
     expect(buildThreeDMeasurementChecklist(example1)).toEqual([
       '工作距离： 160mm，工作距离公差： ±15mm',
-      '基准距离： 160mm，FS/Z量程： FS±23mm，X范围： 66-78mm，Y范围： 160mm',
+      '工作距离： 160mm，FS/Z量程： FS±23mm，X范围： 66-78mm，Y范围： 160mm',
       'XY像素精度： 0.025mm，Z线性精度/重复精度： ±0.025mm',
       '拍照时间/节拍： 2-3S/次',
       '拍照次数： 2次/面，4次/产品',
