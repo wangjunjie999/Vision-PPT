@@ -347,8 +347,9 @@ export function ModuleStep3Imaging({ form, setForm, workstationLayout }: ModuleS
   };
 
   const selectTwoDCameraType = (twoDCameraType: ModuleFormState['twoDCameraType']) => {
-    setForm(prev => ({ ...prev, is3DCamera: false, twoDCameraType }));
+    setForm(prev => ({ ...prev, twoDCameraType }));
   };
+
 
   const threeDCameraToggle = (
     <div
