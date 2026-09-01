@@ -219,6 +219,11 @@ export function getThreeDDisplayInfoFromForm(form: ModuleFormState): ThreeDDispl
 
 export function buildThreeDMeasurementChecklist(info: ThreeDDisplayInfo): string[] {
   const lines: string[] = [];
+  const identityParts = compactStrings([
+    info.model ? `型号： ${info.model}` : '',
+    info.name ? `名称： ${info.name}` : '',
+  ]);
+  if (identityParts.length > 0) lines.push(identityParts.join('，'));
   if (info.mountType) {
     lines.push(`安装方式： ${info.mountType}`);
   }
