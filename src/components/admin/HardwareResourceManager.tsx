@@ -464,11 +464,52 @@ export function HardwareResourceManager({ type }: Props) {
               </div>
             </div>
 
-            {/* Telecentric type selector */}
+            {/* Camera classification: 2D/3D + 面扫/线扫 */}
+            {type === 'cameras' && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>成像维度<span className="text-destructive">*</span></Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['2d', '3d'] as const).map((dim) => (
+                      <Button
+                        key={dim}
+                        type="button"
+                        variant={cameraDimension === dim ? 'default' : 'outline'}
+                        onClick={() => setFormData((prev) => ({ ...prev, camera_dimension: dim }))}
+                      >
+                        {dim === '2d' ? '2D 相机' : '3D 相机'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>扫描方式<span className="text-destructive">*</span></Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['area', 'line'] as const).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        variant={scanMode === mode ? 'default' : 'outline'}
+                        onClick={() => setFormData((prev) => ({ ...prev, scan_mode: mode }))}
+                      >
+                        {mode === 'area' ? '面扫相机' : '线扫相机'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {is3DLineCamera && (
+                  <p className="text-xs text-muted-foreground">
+                    3D 线扫相机：按轮廓测量参数填写下方信息
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Telecentric type selector (lenses only) */}
             {supportsTelecentric && (
               <div className="space-y-2">
                 <Label>
-                  {type === 'cameras' ? '相机类型' : '镜头类型'}
+                  镜头类型
                   <span className="text-destructive">*</span>
                 </Label>
                 <div className="grid grid-cols-2 gap-2">
