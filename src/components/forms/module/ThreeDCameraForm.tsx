@@ -51,7 +51,7 @@ function ThreeDLineScanFields({ form, setForm }: ThreeDCameraFormProps) {
   useEffect(() => {
     if (!selectedCamera || filledRef.current === selectedCamera.id) return;
     filledRef.current = selectedCamera.id;
-    const cam = selectedCamera as Record<string, unknown>;
+    const cam = selectedCamera as unknown as Record<string, unknown>;
     const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
     setForm(prev => {
       const patch: Partial<ModuleFormState> = {};
