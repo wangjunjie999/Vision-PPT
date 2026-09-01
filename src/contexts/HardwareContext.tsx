@@ -18,6 +18,18 @@ export interface Camera {
   shutter_type?: string | null;
   focal_length?: string | null;
   aperture?: string | null;
+  /** 成像维度：2d / 3d */
+  camera_dimension?: '2d' | '3d' | null;
+  /** 扫描方式：area 面扫 / line 线扫 */
+  scan_mode?: 'area' | 'line' | null;
+  /** 3D 线扫相机专用字段 */
+  name?: string | null;
+  profile_points?: number | null;
+  reference_distance_mm?: number | null;
+  z_range?: string | null;
+  x_range?: string | null;
+  scan_frame_rate?: number | null;
+  scan_speed?: string | null;
   tags: string[];
   image_url: string | null;
   model_3d_url: string | null;
