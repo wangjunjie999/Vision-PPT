@@ -30,6 +30,13 @@ export interface Camera {
   x_range?: string | null;
   scan_frame_rate?: number | null;
   scan_speed?: string | null;
+  z_resolution?: string | null;
+  z_repeatability?: string | null;
+  z_linearity?: string | null;
+  /** 2D 线扫相机专用字段 */
+  sensor_type?: string | null;
+  max_line_rate?: string | null;
+
   tags: string[];
   image_url: string | null;
   model_3d_url: string | null;

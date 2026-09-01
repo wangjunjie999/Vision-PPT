@@ -506,7 +506,7 @@ function getMissingThreeDParams(config: Record<string, unknown>): string[] {
   const missing: string[] = [];
   if (!firstPresent(threeD?.model)) missing.push('3D相机型号');
   if (!firstPresent(imaging?.workingDistance, threeD?.workingDistance)) missing.push('工作距离');
-  if (!firstPresent(threeD?.referenceDistance, threeD?.standardRange)) missing.push('测量范围/基准距离');
+  if (!firstPresent(threeD?.referenceDistance, threeD?.standardRange)) missing.push('测量范围/工作距离');
   if (!firstPresent(threeD?.xyPrecision, threeD?.zPrecision)) missing.push('精度');
   return missing;
 }

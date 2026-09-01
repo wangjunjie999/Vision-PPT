@@ -144,6 +144,7 @@ export type Database = {
           id: string
           image_url: string | null
           interface: string | null
+          max_line_rate: string | null
           model: string
           model_3d_url: string | null
           name: string | null
@@ -156,12 +157,16 @@ export type Database = {
           scan_speed: string | null
           sensor_height_mm: number | null
           sensor_size: string | null
+          sensor_type: string | null
           sensor_width_mm: number | null
           shutter_type: string | null
           tags: string[] | null
           updated_at: string
           x_range: string | null
+          z_linearity: string | null
           z_range: string | null
+          z_repeatability: string | null
+          z_resolution: string | null
         }
         Insert: {
           aperture?: string | null
@@ -175,6 +180,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           interface?: string | null
+          max_line_rate?: string | null
           model: string
           model_3d_url?: string | null
           name?: string | null
@@ -187,12 +193,16 @@ export type Database = {
           scan_speed?: string | null
           sensor_height_mm?: number | null
           sensor_size?: string | null
+          sensor_type?: string | null
           sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
           updated_at?: string
           x_range?: string | null
+          z_linearity?: string | null
           z_range?: string | null
+          z_repeatability?: string | null
+          z_resolution?: string | null
         }
         Update: {
           aperture?: string | null
@@ -206,6 +216,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           interface?: string | null
+          max_line_rate?: string | null
           model?: string
           model_3d_url?: string | null
           name?: string | null
@@ -218,12 +229,16 @@ export type Database = {
           scan_speed?: string | null
           sensor_height_mm?: number | null
           sensor_size?: string | null
+          sensor_type?: string | null
           sensor_width_mm?: number | null
           shutter_type?: string | null
           tags?: string[] | null
           updated_at?: string
           x_range?: string | null
+          z_linearity?: string | null
           z_range?: string | null
+          z_repeatability?: string | null
+          z_resolution?: string | null
         }
         Relationships: []
       }

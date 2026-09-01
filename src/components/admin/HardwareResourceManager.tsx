@@ -106,15 +106,30 @@ interface HardwareFieldConfig {
 // 3D 线扫相机专用字段
 const camera3DLineFields: HardwareFieldConfig[] = [
   { key: 'brand', label: '品牌', required: true },
-  { key: 'model', label: '型号', required: true, placeholder: '如: LJ-S080' },
-  { key: 'name', label: '名称', required: true, placeholder: '如: 3D 轮廓测量相机' },
-  { key: 'profile_points', label: '单轮廓点数', required: false, type: 'number', placeholder: '如: 3200' },
-  { key: 'reference_distance_mm', label: '参考距离 (mm)', required: false, type: 'number', placeholder: '如: 160' },
-  { key: 'z_range', label: 'Z 轴测量范围', required: false, placeholder: '如: FS±23mm' },
-  { key: 'x_range', label: 'X 轴测量范围', required: false, placeholder: '如: 66-78mm' },
-  { key: 'scan_frame_rate', label: '扫描帧率 (Hz)', required: false, type: 'number', placeholder: '如: 4000' },
+  { key: 'model', label: '型号', required: true, placeholder: '如: MV-DP4090-01P' },
+  { key: 'name', label: '名称', required: true, placeholder: '如: 3D激光轮廓传感器，DP4000系列' },
+  { key: 'profile_points', label: '单轮廓点数', required: true, type: 'number', placeholder: '如: 4080' },
+  { key: 'reference_distance_mm', label: '参考距离 (mm)', required: true, type: 'number', placeholder: '如: 94' },
+  { key: 'z_range', label: 'Z 轴测量范围', required: true, placeholder: '如: 42 mm' },
+  { key: 'x_range', label: 'X 轴测量范围', required: true, placeholder: '如: 44mm@近端 / 51.5mm@参考 / 59mm@远端' },
+  { key: 'scan_frame_rate', label: '扫描帧率 (Hz)', required: true, type: 'number', placeholder: '如: 2500' },
   { key: 'scan_speed', label: '扫描速度', required: false, placeholder: '如: 100mm/s' },
+  { key: 'z_resolution', label: 'Z 轴分辨率', required: false, placeholder: '如: 1.87 ~ 3.98 μm' },
+  { key: 'z_repeatability', label: 'Z 轴重复精度', required: false, placeholder: '如: 0.66 μm' },
+  { key: 'z_linearity', label: 'Z 轴线性度 (±% of MR)', required: false, placeholder: '如: 0.01' },
 ];
+
+// 2D 线扫相机专用字段
+const camera2DLineFields: HardwareFieldConfig[] = [
+  { key: 'brand', label: '品牌', required: true },
+  { key: 'model', label: '型号', required: true, placeholder: '如: MV-CL042-91GM' },
+  { key: 'name', label: '名称', required: true, placeholder: '如: 4K 黑白线阵相机' },
+  { key: 'sensor_type', label: '传感器类型', required: true, placeholder: '如: CMOS 单线阵' },
+  { key: 'pixel_size_um', label: '像元尺寸 (μm)', required: true, type: 'number', placeholder: '如: 7.04' },
+  { key: 'resolution', label: '分辨率', required: true, placeholder: '如: 4096×1' },
+  { key: 'max_line_rate', label: '最大行频', required: true, placeholder: '如: 45 kHz (ROI 下更高)' },
+];
+
 
 type HardwareItem = CameraType | Lens | Light | Controller;
 
@@ -151,8 +166,14 @@ export function HardwareResourceManager({ type }: Props) {
   const cameraDimension: '2d' | '3d' = formData.camera_dimension === '3d' ? '3d' : '2d';
   const scanMode: 'area' | 'line' = formData.scan_mode === 'line' ? 'line' : 'area';
   const is3DLineCamera = type === 'cameras' && cameraDimension === '3d' && scanMode === 'line';
+  const is2DLineCamera = type === 'cameras' && cameraDimension === '2d' && scanMode === 'line';
 
-  const baseFields: HardwareFieldConfig[] = is3DLineCamera ? camera3DLineFields : config.fields;
+  const baseFields: HardwareFieldConfig[] = is3DLineCamera
+    ? camera3DLineFields
+    : is2DLineCamera
+      ? camera2DLineFields
+      : config.fields;
+
 
   const formFields = baseFields.map((field) => {
     if (!supportsTelecentric || !formIsTelecentric) return field;
@@ -529,6 +550,12 @@ export function HardwareResourceManager({ type }: Props) {
                     3D 线扫相机：按轮廓测量参数填写下方信息
                   </p>
                 )}
+                {is2DLineCamera && (
+                  <p className="text-xs text-muted-foreground">
+                    2D 线扫相机：填写传感器类型、像元尺寸、分辨率与最大行频
+                  </p>
+                )}
+
               </div>
             )}
 

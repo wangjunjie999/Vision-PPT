@@ -60,6 +60,13 @@ export function serializeThreeDConfig(state: ModuleFormState): Record<string, un
   if (!state.is3DCamera) return null;
   const data = {
     model: cleanStr(state.threeDModel),
+    name: cleanStr(state.threeDName),
+    profilePoints: cleanStr(state.threeDProfilePoints),
+    scanFrameRate: cleanStr(state.threeDScanFrameRate),
+    scanSpeed: cleanStr(state.threeDScanSpeed),
+    zResolution: cleanStr(state.threeDZResolution),
+    zRepeatability: cleanStr(state.threeDZRepeatability),
+    zLinearity: cleanStr(state.threeDZLinearity),
     orderModel: cleanStr(state.threeDOrderModel),
     mountType: cleanStr(state.threeDMountType),
     referenceDistance: cleanStr(state.threeDReferenceDistance),
@@ -93,6 +100,13 @@ export function deserializeThreeDConfig(raw: unknown): Partial<ModuleFormState> 
   const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
   return {
     threeDModel: str(r.model),
+    threeDName: str(r.name),
+    threeDProfilePoints: str(r.profilePoints),
+    threeDScanFrameRate: str(r.scanFrameRate),
+    threeDScanSpeed: str(r.scanSpeed),
+    threeDZResolution: str(r.zResolution),
+    threeDZRepeatability: str(r.zRepeatability),
+    threeDZLinearity: str(r.zLinearity),
     threeDOrderModel: str(r.orderModel),
     threeDDetectionMethod: str(r.detectionMethod),
     threeDMountType: str(r.mountType),
@@ -121,6 +135,13 @@ export function deserializeThreeDConfig(raw: unknown): Partial<ModuleFormState> 
 
 export interface ThreeDDisplayInfo {
   model: string | null;
+  name: string | null;
+  profilePoints: string | null;
+  scanFrameRate: string | null;
+  scanSpeed: string | null;
+  zResolution: string | null;
+  zRepeatability: string | null;
+  zLinearity: string | null;
   orderModel: string | null;
   scanLineWidth: string | null;
   dataPoints: string | null;
@@ -147,6 +168,13 @@ export function getThreeDDisplayInfo(source: unknown): ThreeDDisplayInfo {
   const r = (source && typeof source === 'object') ? (source as Record<string, unknown>) : {};
   const info: ThreeDDisplayInfo = {
     model: cleanStr(r.model),
+    name: cleanStr(r.name),
+    profilePoints: cleanStr(r.profilePoints),
+    scanFrameRate: cleanStr(r.scanFrameRate),
+    scanSpeed: cleanStr(r.scanSpeed),
+    zResolution: cleanStr(r.zResolution),
+    zRepeatability: cleanStr(r.zRepeatability),
+    zLinearity: cleanStr(r.zLinearity),
     orderModel: cleanStr(r.orderModel),
     scanLineWidth: withUnit(cleanStr(r.scanLineWidth), 'mm'),
     dataPoints: cleanStr(r.dataPoints),
@@ -171,7 +199,9 @@ export function getThreeDDisplayInfo(source: unknown): ThreeDDisplayInfo {
     hasAny: false,
   };
   info.hasAny = Boolean(
-    info.model || info.orderModel || info.scanLineWidth || info.dataPoints || info.workingDistance || info.workingDistanceTolerance || info.referenceDistance
+    info.name || info.profilePoints || info.scanFrameRate || info.scanSpeed
+    || info.zResolution || info.zRepeatability || info.zLinearity
+    || info.model || info.orderModel || info.scanLineWidth || info.dataPoints || info.workingDistance || info.workingDistanceTolerance || info.referenceDistance
     || info.zRange || info.xRange || info.yRange || info.standardRange || info.nearRange || info.farRange
     || info.xyPrecision || info.zPrecision || info.mountType || info.scanTime
     || info.shotsPerSide || info.shotsPerProduct || info.detectionSteps.length > 0,
@@ -189,6 +219,11 @@ export function getThreeDDisplayInfoFromForm(form: ModuleFormState): ThreeDDispl
 
 export function buildThreeDMeasurementChecklist(info: ThreeDDisplayInfo): string[] {
   const lines: string[] = [];
+  const identityParts = compactStrings([
+    info.model ? `型号： ${info.model}` : '',
+    info.name ? `名称： ${info.name}` : '',
+  ]);
+  if (identityParts.length > 0) lines.push(identityParts.join('，'));
   if (info.mountType) {
     lines.push(`安装方式： ${info.mountType}`);
   }
@@ -205,7 +240,7 @@ export function buildThreeDMeasurementChecklist(info: ThreeDDisplayInfo): string
     info.farRange ? `远端范围： ${info.farRange}` : '',
   ]);
   const referenceParts = compactStrings([
-    info.referenceDistance ? `基准距离： ${info.referenceDistance}` : '',
+    info.referenceDistance ? `工作距离： ${info.referenceDistance}` : '',
     info.zRange ? `FS/Z量程： ${info.zRange}` : '',
     info.xRange ? `X范围： ${info.xRange}` : '',
     info.yRange ? `Y范围： ${info.yRange}` : '',
@@ -221,6 +256,20 @@ export function buildThreeDMeasurementChecklist(info: ThreeDDisplayInfo): string
     info.zPrecision ? `Z线性精度/重复精度： ${info.zPrecision}` : '',
   ]);
   if (precisionParts.length > 0) lines.push(precisionParts.join('，'));
+  const scanParts = compactStrings([
+    info.profilePoints ? `单轮廓点数： ${info.profilePoints}` : '',
+    info.scanFrameRate ? `扫描帧率： ${info.scanFrameRate}` : '',
+    info.scanSpeed ? `扫描速度： ${info.scanSpeed}` : '',
+  ]);
+  if (scanParts.length > 0) lines.push(scanParts.join('，'));
+
+  const zParts = compactStrings([
+    info.zResolution ? `Z轴分辨率： ${info.zResolution}` : '',
+    info.zRepeatability ? `Z轴重复精度： ${info.zRepeatability}` : '',
+    info.zLinearity ? `Z轴线性度： ${info.zLinearity}` : '',
+  ]);
+  if (zParts.length > 0) lines.push(zParts.join('，'));
+
   if (info.scanTime) lines.push(`拍照时间/节拍： ${info.scanTime}`);
 
   const shotParts = compactStrings([
